@@ -1,10 +1,10 @@
 ---
 id: TASK-10
 title: '게시판: 검색'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 18:35'
+updated_date: '2026-10-11 18:47'
 labels:
   - backend
   - board
@@ -22,9 +22,9 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 posts.search_tsv(tsvector) + GIN 인덱스, 갱신 트리거
-- [ ] #2 pg_trgm ILIKE 보조(한국어 부분일치)
-- [ ] #3 GET /api/posts?q= 필터 조합(category, tag)
+- [x] #1 posts.search_tsv(tsvector) + GIN 인덱스, 갱신 트리거
+- [x] #2 pg_trgm ILIKE 보조(한국어 부분일치)
+- [x] #3 GET /api/posts?q= 필터 조합(category, tag)
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -43,3 +43,9 @@ documentation:
 - 구현은 서브에이전트가 메인 작업 디렉토리에서 한다(훅이 브랜치를 확인하므로 워크트리는 쓰지 않음). 부모가 `cleanTest` 후 `make test`로 다시 검증하고 Done 처리한다.
 - `.env*` 토큰은 Bash에 쓰지 않는다(보호 훅). 실제 AWS에는 apply나 호출을 하지 않는다(TASK-18 제외, 유저 확인 후).
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+제목·본문 검색을 구현했다. V7: posts.search_tsv STORED 생성 컬럼(simple, 제목 A·본문 B) + GIN. AC 문구의 '갱신 트리거'는 생성 컬럼으로 대체(README·SQL 주석에 기록). V8: pg_trgm + title·content 트라이그램 GIN. GET /api/posts?q=(trim, 2-100자, 공백은 무시)는 비상관 서브쿼리로 search_tsv @@ websearch_to_tsquery OR title/content ILIKE(이스케이프)를 수행하고 category·tag·sort·페이징·가시성·fetchDetails와 조합한다. 검색어는 바인드 파라미터로 전달(cb.literal 인라인 버그를 발견해 수정, 인젝션 테스트 포함). sort=relevance는 미구현(ILIKE 매치는 랭크가 없음). 검증: cleanTest 후 make test 통과(backend 483, 스킵 0). 참고: 마이그레이션이 V8까지 사용됐으므로 TASK-11은 V9, TASK-12는 V10부터 쓴다.
+<!-- SECTION:FINAL_SUMMARY:END -->
