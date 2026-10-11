@@ -138,12 +138,18 @@ public class SecurityConfig {
 	 * <p>{@code POST /auth/token/refresh}: 자격(refresh 토큰)이 쿠키가 아니라 본문에 있어 브라우저가 자동으로 붙일 수 없고,
 	 * 공격자가 그 값을 모르면 위조 요청은 401 일 뿐이다. 응답(새 토큰)도 본문이라 다른 사이트가 읽을 수 없다. 세션 쿠키가
 	 * 같이 와도 이 엔드포인트는 세션을 읽거나 바꾸지 않는다.
+	 *
+	 * <p>{@code POST /auth/phone/verify?token=jwt} (TASK-7): login?token=jwt 와 같은 이유. 단 {@code link=true} 가 붙으면 현재
+	 * 로그인(세션 쿠키)에 identity 를 붙이는 상태 변경이라 면제하지 않는다. (컨트롤러도 link 와 token 을 같이 받지 않는다.)
 	 */
 	static RequestMatcher csrfExempt() {
 		RequestMatcher login = PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/login");
 		RequestMatcher refresh = PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/token/refresh");
+		RequestMatcher phoneVerify = PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/phone/verify");
 		return request -> refresh.matches(request)
-				|| (login.matches(request) && "jwt".equals(queryParam(request, "token")));
+				|| (login.matches(request) && "jwt".equals(queryParam(request, "token")))
+				|| (phoneVerify.matches(request) && "jwt".equals(queryParam(request, "token"))
+						&& !"true".equalsIgnoreCase(queryParam(request, "link")));
 	}
 
 	private static String queryParam(HttpServletRequest request, String name) {

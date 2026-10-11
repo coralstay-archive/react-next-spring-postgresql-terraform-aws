@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.example.board.auth.oauth.OAuth2UserInfo;
+import com.example.board.user.AuthProvider;
 import com.example.board.user.User;
 import com.example.board.user.UserIdentity;
 import com.example.board.user.UserIdentityRepository;
@@ -58,6 +59,10 @@ public class IdentityResolver {
 		}
 		User user = users.getReferenceById(userId);
 		identities.saveAndFlush(UserIdentity.link(user, info.provider(), info.subject(), info.email()));
+		if (info.provider() == AuthProvider.PHONE && user.getPhone() == null) {
+			// 휴대폰 연결(TASK-7): 연락용 번호가 비어 있으면 채운다(이미 있으면 바꾸지 않는다).
+			user.changePhone(info.subject());
+		}
 		return true;
 	}
 
@@ -69,6 +74,10 @@ public class IdentityResolver {
 		User user = User.create(Nicknames.from(info.displayName()));
 		if (info.emailVerified() && info.email() != null) {
 			user.changeEmail(info.email());
+		}
+		if (info.provider() == AuthProvider.PHONE) {
+			// 휴대폰 가입(TASK-7): subject 가 OTP 로 확인한 E.164 번호다.
+			user.changePhone(info.subject());
 		}
 		users.save(user);
 		identities.saveAndFlush(UserIdentity.link(user, info.provider(), info.subject(), info.email()));
