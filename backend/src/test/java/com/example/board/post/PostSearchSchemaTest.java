@@ -3,11 +3,13 @@ package com.example.board.post;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
+import java.util.List;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.example.board.support.AuthFixtures;
 import com.example.board.support.BoardFixtures;
@@ -25,6 +27,9 @@ class PostSearchSchemaTest {
 
 	@Autowired
 	BoardFixtures board;
+
+	@Autowired
+	TransactionTemplate tx;
 
 	private String indexDef(String name) {
 		return jdbc.queryForObject("select indexdef from pg_indexes where tablename = 'posts' and indexname = ?",
@@ -64,6 +69,41 @@ class PostSearchSchemaTest {
 
 	private String tsv(long id) {
 		return jdbc.queryForObject("select search_tsv::text from posts where id = ?", String.class, id);
+	}
+
+	@Test
+	@DisplayName("TASK-10#2 pg_trgm 확장과 title·content 의 gin_trgm_ops 인덱스가 있다")
+	void trigramIndexes() {
+		assertThat(jdbc.queryForList("select extname from pg_extension", String.class)).contains("pg_trgm");
+		assertThat(indexDef("posts_title_trgm_ix")).contains("USING gin").contains("title gin_trgm_ops");
+		assertThat(indexDef("posts_content_trgm_ix")).contains("USING gin").contains("content gin_trgm_ops");
+	}
+
+	@Test
+	@DisplayName("TASK-10#2 한국어 부분 일치: simple tsvector 로는 못 찾는 '스프링' → '스프링부트' 를 ILIKE 가 찾는다")
+	void koreanPartialMatchNeedsIlike() {
+		long authorId = fixtures.user().getId();
+		long id = board.post(authorId, null, "스프링부트 입문", "본문", Instant.now());
+
+		Boolean fts = jdbc.queryForObject(
+				"select search_tsv @@ websearch_to_tsquery('simple', '스프링') from posts where id = ?", Boolean.class, id);
+		Boolean ilike = jdbc.queryForObject("select title ilike '%스프링%' from posts where id = ?", Boolean.class, id);
+
+		assertThat(fts).isFalse();
+		assertThat(ilike).isTrue();
+	}
+
+	@Test
+	@DisplayName("TASK-10#2 ILIKE '%q%' 와 search_tsv @@ 조건에 인덱스를 쓸 수 있다(EXPLAIN 스모크, seqscan 끔)")
+	void indexesAreUsable() {
+		List<String> plan = tx.execute(status -> {
+			jdbc.execute("set local enable_seqscan = off");
+			return jdbc.queryForList("explain select id from posts where search_tsv @@ websearch_to_tsquery('simple', 'spring') "
+					+ "or title ilike '%스프링%' or content ilike '%스프링%'", String.class);
+		});
+
+		String text = String.join("\n", plan);
+		assertThat(text).contains("posts_search_tsv_ix").contains("posts_title_trgm_ix").contains("posts_content_trgm_ix");
 	}
 
 }
