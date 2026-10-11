@@ -1,10 +1,10 @@
 ---
 id: TASK-16
 title: Terraform 인프라
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 18:19'
+updated_date: '2026-10-11 23:05'
 labels:
   - infra
 dependencies:
