@@ -8,7 +8,7 @@ import org.springframework.test.context.DynamicPropertyRegistrar;
 
 /** 통합 테스트 전용 픽스처(테스트 컨트롤러, 인증 헬퍼, OAuth 제공자 stub)를 모아 등록한다. */
 @TestConfiguration(proxyBeanMethods = false)
-@Import({ AuthFixtures.class, ProtectedResourceTestController.class })
+@Import({ AuthFixtures.class, BoardFixtures.class, ProtectedResourceTestController.class })
 public class TestFixturesConfiguration {
 
 	/** TASK-7 만료·레이트리밋 테스트용 시계(앱의 Clock 빈을 대신한다). 움직인 테스트는 끝날 때 reset 한다. */

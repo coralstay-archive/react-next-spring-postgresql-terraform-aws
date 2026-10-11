@@ -11,6 +11,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 컨트롤러 오류를 JSON 으로 바꾼다. 모양은 보안 체인의 401/403 과 같다({@code status, error, message}).
@@ -45,6 +46,12 @@ public class ApiExceptionHandler {
 	@ExceptionHandler(HttpMessageNotReadableException.class)
 	ResponseEntity<Map<String, Object>> handle(HttpMessageNotReadableException ex) {
 		return body(HttpStatus.BAD_REQUEST, "bad_request", "요청 본문을 읽을 수 없습니다", null);
+	}
+
+	/** 쿼리·경로 파라미터 형식 오류(예: {@code ?page=abc}). */
+	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
+	ResponseEntity<Map<String, Object>> handle(MethodArgumentTypeMismatchException ex) {
+		return body(HttpStatus.BAD_REQUEST, "bad_request", "파라미터 형식이 올바르지 않습니다: " + ex.getName(), null);
 	}
 
 	private static ResponseEntity<Map<String, Object>> body(HttpStatus status, String error, String message,

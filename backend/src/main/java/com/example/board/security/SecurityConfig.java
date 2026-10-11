@@ -131,6 +131,8 @@ public class SecurityConfig {
 					.permitAll()
 				// 휴대폰 OTP 발송·검증 (TASK-7). 세션 경로는 CSRF 검사 대상이다.
 				.requestMatchers(HttpMethod.POST, "/auth/phone/otp", "/auth/phone/verify").permitAll()
+				// 게시판 읽기 (TASK-8): 글 목록·상세는 익명도 본다. 쓰기는 아래 기본 규칙(인증) + CSRF + 정지·step-up 필터.
+				.requestMatchers(HttpMethod.GET, "/posts", "/posts/*").permitAll()
 				.requestMatchers("/error").permitAll()
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
 				.anyRequest().authenticated())
