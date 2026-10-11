@@ -1,10 +1,10 @@
 ---
 id: TASK-9
 title: '게시판: 댓글 + 좋아요 + 조회수'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 18:19'
+updated_date: '2026-10-11 18:35'
 labels:
   - backend
   - board
@@ -27,10 +27,10 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 댓글 목록·작성·삭제(작성자|ADMIN)
-- [ ] #2 POST/DELETE /api/posts/{id}/like
-- [ ] #3 GET /api/posts/{id} 조회수 증가
-- [ ] #4 sort=popular(좋아요 기준)
+- [x] #1 댓글 목록·작성·삭제(작성자|ADMIN)
+- [x] #2 POST/DELETE /api/posts/{id}/like
+- [x] #3 GET /api/posts/{id} 조회수 증가
+- [x] #4 sort=popular(좋아요 기준)
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -56,3 +56,9 @@ documentation:
 - 구현은 서브에이전트가 메인 작업 디렉토리에서 한다(훅이 브랜치를 확인하므로 워크트리는 쓰지 않음). 부모가 `cleanTest` 후 `make test`로 다시 검증하고 Done 처리한다.
 - `.env*` 토큰은 Bash에 쓰지 않는다(보호 훅). 실제 AWS에는 apply나 호출을 하지 않는다(TASK-18 제외, 유저 확인 후).
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+댓글, 좋아요, 조회수, 인기순을 구현했다(V6). 댓글: 공개 목록(오래된 순, 삭제 댓글은 deleted:true 자리표시), 작성(삭제·숨김 글은 ADMIN 포함 404, FOR SHARE로 경쟁 방지 B3), DELETE /api/comments/{id}(@ownership, soft). 좋아요: 멱등 POST/DELETE → {liked, likeCount}, ON CONFLICT·DELETE의 영향 행이 1일 때만 카운터 ±1(동시 30건 테스트 B1), 카운터 컬럼은 insertable/updatable=false. 조회수: post_views upsert WHERE viewed_at<=now-30m(Clock), viewer는 u:<id> 또는 s:<sha256(VID 쿠키)>, 익명 세션 생성 없음(B2). sort=popular와 부분 인덱스. 검증: cleanTest 후 make test 통과(backend 469, 스킵 0). 후속: post_views 정리 잡 없음, 댓글 수와 댓글 수정 API 없음(범위 밖), 엔티티 created_at은 Instant.now() 사용.
+<!-- SECTION:FINAL_SUMMARY:END -->
