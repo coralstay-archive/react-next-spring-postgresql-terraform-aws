@@ -38,6 +38,15 @@ public final class TagNames {
 		return name;
 	}
 
+	/** 검색 접두어용 느슨한 정규화: 같은 규칙이되 빈 값은 "" 이고 길이 오류를 내지 않는다. */
+	public static String normalizePrefix(String raw) {
+		if (raw == null) {
+			return "";
+		}
+		return WHITESPACE.matcher(Normalizer.normalize(raw, Normalizer.Form.NFC).strip()).replaceAll(" ")
+			.toLowerCase(Locale.ROOT);
+	}
+
 	private static ApiException invalid(String message) {
 		return new ApiException(HttpStatus.BAD_REQUEST, INVALID, message);
 	}
