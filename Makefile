@@ -1,3 +1,7 @@
+# repo 루트의 .env 가 있으면 읽어서 하위 명령(docker compose, gradlew)에 넘긴다. 없으면 기본값을 쓴다.
+-include .env
+export
+
 .PHONY: help test dev-db dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build
 
 help: ## 타깃 목록
