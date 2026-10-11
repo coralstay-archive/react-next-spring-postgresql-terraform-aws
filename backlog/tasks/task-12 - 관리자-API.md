@@ -1,10 +1,10 @@
 ---
 id: TASK-12
 title: 관리자 API
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 19:18'
+updated_date: '2026-10-11 19:34'
 labels:
   - backend
   - admin
@@ -28,9 +28,9 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 GET /api/admin/users, 정지/해제
-- [ ] #2 글 숨김/복구
-- [ ] #3 카테고리 생성·수정·삭제
+- [x] #1 GET /api/admin/users, 정지/해제
+- [x] #2 글 숨김/복구
+- [x] #3 카테고리 생성·수정·삭제
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -51,3 +51,9 @@ documentation:
 - 구현은 서브에이전트가 메인 작업 디렉토리에서 한다(훅이 브랜치를 확인하므로 워크트리는 쓰지 않음). 부모가 `cleanTest` 후 `make test`로 다시 검증하고 Done 처리한다.
 - `.env*` 토큰은 Bash에 쓰지 않는다(보호 훅). 실제 AWS에는 apply나 호출을 하지 않는다(TASK-18 제외, 유저 확인 후).
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+관리자 API를 구현했다. /api/admin/**는 체인에서 hasRole ADMIN(익명 401, USER·정지 403, B1). ADMIN 쓰기에도 CSRF·suspended·step-up을 그대로 적용한다. 사용자: 목록(q는 닉네임·이메일·전화 숫자 매칭, providers 일괄 로딩), suspend·unsuspend(멱등). 정지는 사용자 행을 잠그고 SUSPENDED로 바꾼 뒤 refresh 전부 폐기와 감사 기록을 한 트랜잭션에서 하고, 커밋 후 findByPrincipalName(userId)로 세션을 삭제한다. 세션 인덱스는 AuthUserAuthentication.getName()=userId라 변경 불필요(테스트로 확인). 자기 정지 409 cannot_suspend_self, 다른 ADMIN 409 cannot_suspend_admin(B2). 글: hide·unhide·restore(멱등). 카테고리 CRUD(slug 규칙, 409 slug_taken, 삭제 시 FK SET NULL). V10 admin_actions 감사 로그(MANDATORY 전파), GET /api/admin/actions. 검증: cleanTest 후 make test 통과(backend 567, 스킵 0). 후속(범위 밖): 정지 커밋 직전에 진행 중이던 로그인의 세션이 남는 경쟁(읽기만 가능), 역할 변경 API가 생기면 stale role 문제, sortOrder 범위 제한 없음.
+<!-- SECTION:FINAL_SUMMARY:END -->
