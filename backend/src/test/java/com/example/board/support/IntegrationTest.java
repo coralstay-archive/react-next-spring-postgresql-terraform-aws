@@ -23,7 +23,9 @@ import com.example.board.TestcontainersConfiguration;
 @Documented
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 		properties = { "app.admin.email=" + IntegrationTest.ADMIN_EMAIL,
-				"app.public-base-url=" + IntegrationTest.PUBLIC_BASE_URL })
+				"app.public-base-url=" + IntegrationTest.PUBLIC_BASE_URL,
+				// TASK-7#1 SMS 는 메모리 수신함(InMemorySmsSender)으로 받는다
+				"app.sms.provider=memory" })
 @Import({ TestcontainersConfiguration.class, TestFixturesConfiguration.class })
 public @interface IntegrationTest {
 

@@ -28,6 +28,15 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
 	implementation("org.flywaydb:flyway-database-postgresql")
+	// 휴대폰 번호 E.164 정규화 (TASK-7#1)
+	implementation("com.googlecode.libphonenumber:libphonenumber:9.0.41")
+	// AWS End User Messaging SMS (pinpoint-sms-voice-v2) SendTextMessage (TASK-7#1). HTTP 클라이언트는 JDK 내장(url-connection)만 쓴다.
+	implementation(platform("software.amazon.awssdk:bom:2.55.14"))
+	implementation("software.amazon.awssdk:pinpointsmsvoicev2") {
+		exclude(group = "software.amazon.awssdk", module = "apache-client")
+		exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
+	}
+	implementation("software.amazon.awssdk:url-connection-client")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
