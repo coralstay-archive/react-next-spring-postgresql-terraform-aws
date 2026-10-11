@@ -1,13 +1,17 @@
 ---
-id: DRAFT-10
+id: TASK-10
 title: '게시판: 검색'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - backend
   - board
-dependencies: []
+dependencies:
+  - TASK-8
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

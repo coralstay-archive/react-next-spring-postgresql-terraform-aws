@@ -1,13 +1,20 @@
 ---
-id: DRAFT-3
+id: TASK-3
 title: '인증: LOCAL 가입·로그인·로그아웃·me + JWT'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - backend
   - auth
-dependencies: []
+dependencies:
+  - TASK-2
+references:
+  - decision-4
+  - decision-5
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

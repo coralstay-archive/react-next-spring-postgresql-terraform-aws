@@ -1,13 +1,26 @@
 ---
-id: DRAFT-18
+id: TASK-18
 title: 첫 배포 + 외부 설정 + 문서
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - infra
   - docs
-dependencies: []
+dependencies:
+  - TASK-17
+  - TASK-14
+  - TASK-15
+  - TASK-5
+  - TASK-6
+  - TASK-7
+references:
+  - decision-9
+  - decision-6
+  - decision-7
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

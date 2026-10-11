@@ -1,13 +1,21 @@
 ---
-id: DRAFT-7
+id: TASK-7
 title: '인증: 휴대폰 OTP 로그인'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - backend
   - auth
-dependencies: []
+dependencies:
+  - TASK-3
+references:
+  - decision-7
+  - decision-4
+  - decision-5
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

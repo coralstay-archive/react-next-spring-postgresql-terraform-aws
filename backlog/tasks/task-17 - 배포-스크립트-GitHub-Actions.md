@@ -1,13 +1,19 @@
 ---
-id: DRAFT-17
+id: TASK-17
 title: 배포 스크립트 + GitHub Actions
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - infra
   - ci
-dependencies: []
+dependencies:
+  - TASK-16
+references:
+  - decision-1
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

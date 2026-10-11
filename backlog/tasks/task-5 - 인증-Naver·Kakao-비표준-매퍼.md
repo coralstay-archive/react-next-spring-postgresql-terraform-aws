@@ -1,13 +1,20 @@
 ---
-id: DRAFT-5
+id: TASK-5
 title: '인증: Naver·Kakao (비표준 매퍼)'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - backend
   - auth
-dependencies: []
+dependencies:
+  - TASK-4
+references:
+  - decision-4
+  - decision-8
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

@@ -1,14 +1,21 @@
 ---
-id: DRAFT-6
+id: TASK-6
 title: '인증: Cognito OIDC'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - backend
   - auth
   - infra
-dependencies: []
+dependencies:
+  - TASK-4
+references:
+  - decision-6
+  - decision-4
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

@@ -1,12 +1,21 @@
 ---
-id: DRAFT-16
+id: TASK-16
 title: Terraform 인프라
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - infra
-dependencies: []
+dependencies:
+  - TASK-1
+references:
+  - decision-1
+  - decision-2
+  - decision-3
+  - decision-9
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

@@ -1,13 +1,20 @@
 ---
-id: DRAFT-15
+id: TASK-15
 title: '프론트: 관리자 화면'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - frontend
   - admin
-dependencies: []
+dependencies:
+  - TASK-13
+  - TASK-12
+references:
+  - decision-10
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

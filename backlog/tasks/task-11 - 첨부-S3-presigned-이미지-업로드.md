@@ -1,13 +1,19 @@
 ---
-id: DRAFT-11
+id: TASK-11
 title: '첨부: S3 presigned 이미지 업로드'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - backend
   - infra
-dependencies: []
+dependencies:
+  - TASK-8
+references:
+  - decision-3
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

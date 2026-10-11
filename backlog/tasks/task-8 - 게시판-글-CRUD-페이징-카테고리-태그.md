@@ -1,13 +1,17 @@
 ---
-id: DRAFT-8
+id: TASK-8
 title: '게시판: 글 CRUD + 페이징 + 카테고리/태그'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - backend
   - board
-dependencies: []
+dependencies:
+  - TASK-2
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

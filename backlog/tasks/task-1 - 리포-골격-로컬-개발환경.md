@@ -1,13 +1,20 @@
 ---
-id: DRAFT-1
+id: TASK-1
 title: 리포 골격 + 로컬 개발환경
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - infra
   - dx
 dependencies: []
+references:
+  - decision-1
+  - decision-2
+  - decision-10
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

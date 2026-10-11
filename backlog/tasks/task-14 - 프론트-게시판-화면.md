@@ -1,13 +1,22 @@
 ---
-id: DRAFT-14
+id: TASK-14
 title: '프론트: 게시판 화면'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - frontend
   - board
-dependencies: []
+dependencies:
+  - TASK-13
+  - TASK-9
+  - TASK-10
+  - TASK-11
+references:
+  - decision-10
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

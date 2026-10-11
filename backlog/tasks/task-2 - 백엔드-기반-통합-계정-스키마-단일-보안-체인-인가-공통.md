@@ -1,13 +1,20 @@
 ---
-id: DRAFT-2
+id: TASK-2
 title: '백엔드 기반: 통합 계정 스키마 + 단일 보안 체인 + 인가 공통'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - backend
   - auth
-dependencies: []
+dependencies:
+  - TASK-1
+references:
+  - decision-4
+  - decision-5
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

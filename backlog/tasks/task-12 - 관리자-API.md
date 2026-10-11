@@ -1,13 +1,19 @@
 ---
-id: DRAFT-12
+id: TASK-12
 title: 관리자 API
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - backend
   - admin
-dependencies: []
+dependencies:
+  - TASK-8
+references:
+  - decision-5
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

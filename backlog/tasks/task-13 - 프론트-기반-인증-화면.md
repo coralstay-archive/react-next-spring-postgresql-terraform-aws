@@ -1,13 +1,21 @@
 ---
-id: DRAFT-13
+id: TASK-13
 title: '프론트: 기반 + 인증 화면'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-11 13:03'
+updated_date: '2026-10-11 13:19'
 labels:
   - frontend
   - auth
-dependencies: []
+dependencies:
+  - TASK-3
+references:
+  - decision-10
+  - decision-3
+  - decision-5
+documentation:
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description
