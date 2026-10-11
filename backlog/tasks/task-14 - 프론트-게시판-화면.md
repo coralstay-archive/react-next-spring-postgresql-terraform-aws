@@ -1,10 +1,10 @@
 ---
 id: TASK-14
 title: '프론트: 게시판 화면'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 18:19'
+updated_date: '2026-10-11 19:56'
 labels:
   - frontend
   - board
