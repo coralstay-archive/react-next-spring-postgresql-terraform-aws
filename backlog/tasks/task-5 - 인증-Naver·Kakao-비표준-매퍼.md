@@ -1,10 +1,10 @@
 ---
 id: TASK-5
 title: '인증: Naver·Kakao (비표준 매퍼)'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 13:19'
+updated_date: '2026-10-11 14:36'
 labels:
   - backend
   - auth
