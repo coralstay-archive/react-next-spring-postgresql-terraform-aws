@@ -1,7 +1,7 @@
 ---
 id: TASK-9
 title: '게시판: 댓글 + 좋아요 + 조회수'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 13:03'
 updated_date: '2026-10-11 18:19'
