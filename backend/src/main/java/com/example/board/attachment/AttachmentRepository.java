@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
 
@@ -21,6 +22,12 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select a from Attachment a where a.id in :ids order by a.id")
 	List<Attachment> findAllForUpdate(Collection<Long> ids);
+
+	/** PENDING → CONFIRMED. 이미 확정됐거나(경쟁) 정리돼 없으면 0. */
+	@Transactional
+	@Modifying(clearAutomatically = true)
+	@Query("update Attachment a set a.status = com.example.board.attachment.AttachmentStatus.CONFIRMED, a.confirmedAt = :now where a.id = :id and a.status = com.example.board.attachment.AttachmentStatus.PENDING")
+	int markConfirmed(Long id, Instant now);
 
 	/** 정리 대상: {@code cutoff} 보다 먼저 만든 PENDING. */
 	@Query("select a from Attachment a where a.status = com.example.board.attachment.AttachmentStatus.PENDING and a.createdAt < :cutoff order by a.id")

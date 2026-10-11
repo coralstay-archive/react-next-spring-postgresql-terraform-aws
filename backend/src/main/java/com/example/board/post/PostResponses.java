@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import com.example.board.attachment.AttachmentResponses.AttachmentView;
 import com.example.board.category.Category;
 import com.example.board.tag.Tag;
 import com.example.board.user.User;
@@ -52,21 +53,23 @@ public final class PostResponses {
 	/**
 	 * 상세. {@code editable}: 보는 사람이 수정·삭제할 수 있는지(작성자 또는 ADMIN, 삭제된 글은 false). {@code likedByMe}: 보는
 	 * 사람이 좋아요를 눌렀는지(익명 false, TASK-9#2). {@code viewCount}: 이번 조회가 집계됐으면 그것까지 포함(TASK-9#3).
+	 * {@code attachments}: 붙은 이미지(올린 순, TASK-11#2).
 	 */
 	public record PostDetail(Long id, String title, String content, AuthorRef author, CategoryRef category,
 			List<String> tags, Instant createdAt, Instant updatedAt, boolean editable, boolean deleted,
-			boolean hidden, long likeCount, boolean likedByMe, long viewCount) {
+			boolean hidden, long likeCount, boolean likedByMe, long viewCount, List<AttachmentView> attachments) {
 
-		static PostDetail of(Post post, boolean editable, boolean likedByMe) {
+		static PostDetail of(Post post, boolean editable, boolean likedByMe, List<AttachmentView> attachments) {
 			return new PostDetail(post.getId(), post.getTitle(), post.getContent(), AuthorRef.of(post.getAuthor()),
 					CategoryRef.of(post.getCategory()), tagNames(post), post.getCreatedAt(), post.getUpdatedAt(),
-					editable, post.isDeleted(), post.isHidden(), post.getLikeCount(), likedByMe, post.getViewCount());
+					editable, post.isDeleted(), post.isHidden(), post.getLikeCount(), likedByMe, post.getViewCount(),
+					attachments);
 		}
 
 		/** 이번 조회가 집계됐을 때: viewCount + 1. */
 		PostDetail withCountedView() {
 			return new PostDetail(id, title, content, author, category, tags, createdAt, updatedAt, editable, deleted,
-					hidden, likeCount, likedByMe, viewCount + 1);
+					hidden, likeCount, likedByMe, viewCount + 1, attachments);
 		}
 
 	}

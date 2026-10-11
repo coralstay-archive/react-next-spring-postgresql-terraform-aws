@@ -3,10 +3,12 @@ package com.example.board.attachment;
 import jakarta.validation.Valid;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.board.attachment.AttachmentResponses.AttachmentView;
 import com.example.board.attachment.AttachmentResponses.Presigned;
 import com.example.board.auth.AuthUser;
 
@@ -27,6 +29,12 @@ public class AttachmentController {
 	public Presigned presign(@Valid @RequestBody AttachmentRequests.Presign request,
 			@AuthenticationPrincipal AuthUser user) {
 		return attachments.presign(user, request);
+	}
+
+	/** 업로드 확정 (TASK-11#2). 본인만. */
+	@PostMapping("/attachments/{id}/confirm")
+	public AttachmentView confirm(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+		return attachments.confirm(id, user);
 	}
 
 }

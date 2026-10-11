@@ -13,6 +13,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.board.attachment.AttachmentService;
 import com.example.board.auth.AuthUser;
 import com.example.board.category.Category;
 import com.example.board.category.CategoryRepository;
@@ -55,13 +56,16 @@ public class PostService {
 
 	private final PostLikeService likes;
 
+	private final AttachmentService attachments;
+
 	public PostService(PostRepository posts, CategoryRepository categories, UserRepository users, TagService tags,
-			PostLikeService likes) {
+			PostLikeService likes, AttachmentService attachments) {
 		this.posts = posts;
 		this.categories = categories;
 		this.users = users;
 		this.tags = tags;
 		this.likes = likes;
+		this.attachments = attachments;
 	}
 
 	/** 목록. 페이지 조회(+count) 다음에 그 페이지 글들의 작성자·카테고리·태그를 한 쿼리로 붙인다. */
@@ -82,7 +86,7 @@ public class PostService {
 	@Transactional(readOnly = true)
 	public PostDetail get(Long id, AuthUser viewer) {
 		Post post = posts.findDetailById(id).filter(p -> canSee(p, viewer)).orElseThrow(PostService::notFound);
-		return PostDetail.of(post, canModify(post, viewer), likes.isLiked(id, viewer));
+		return PostDetail.of(post, canModify(post, viewer), likes.isLiked(id, viewer), attachments.forPost(id));
 	}
 
 	/** 작성 (TASK-8#3). */
@@ -96,7 +100,10 @@ public class PostService {
 			post.replaceTags(tags.resolve(request.tags()));
 		}
 		posts.saveAndFlush(post);
-		return PostDetail.of(post, true, false);
+		if (request.attachmentIds() != null) {
+			attachments.replaceLinks(post.getId(), author.getId(), writer, request.attachmentIds());
+		}
+		return PostDetail.of(post, true, false, attachments.forPost(post.getId()));
 	}
 
 	/** 부분 수정 (TASK-8#3). 인가는 호출 전에 끝났다(@PreAuthorize). */
@@ -115,9 +122,12 @@ public class PostService {
 		if (request.tags() != null) {
 			post.replaceTags(tags.resolve(request.tags()));
 		}
+		if (request.attachmentIds() != null) {
+			attachments.replaceLinks(id, post.getOwnerId(), editor, request.attachmentIds());
+		}
 		post.touch(Instant.now());
 		posts.flush();
-		return PostDetail.of(post, true, likes.isLiked(id, editor));
+		return PostDetail.of(post, true, likes.isLiked(id, editor), attachments.forPost(id));
 	}
 
 	/** soft delete (TASK-8#3). */

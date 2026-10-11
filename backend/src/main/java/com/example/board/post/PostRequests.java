@@ -6,8 +6,13 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+import com.example.board.attachment.AttachmentService;
+
 /** 게시글 쓰기 요청 (TASK-8#3). */
 public final class PostRequests {
+
+	/** 글당 첨부 수 상한 (TASK-11). */
+	static final int MAX_ATTACHMENTS = AttachmentService.MAX_PER_POST;
 
 	/** 공백만으로 된 값은 안 된다. */
 	static final String NOT_BLANK = "(?s).*\\S.*";
@@ -19,7 +24,8 @@ public final class PostRequests {
 	}
 
 	/**
-	 * 작성. {@code categorySlug} 생략 시 카테고리 없음. 태그는 정규화·중복 제거 후 최대 5개(B3).
+	 * 작성. {@code categorySlug} 생략 시 카테고리 없음. 태그는 정규화·중복 제거 후 최대 5개(B3). {@code attachmentIds}: 본인이
+	 * 올려 확정한 첨부(TASK-11 B2).
 	 */
 	public record Create(
 			@NotNull(message = "제목을 입력하세요") @Size(min = 1, max = 100, message = "제목은 1~100자입니다")
@@ -27,17 +33,20 @@ public final class PostRequests {
 			@NotNull(message = "본문을 입력하세요") @Size(min = 1, max = 20000, message = "본문은 1~20000자입니다")
 			@Pattern(regexp = NOT_BLANK, message = "본문을 입력하세요") String content,
 			String categorySlug,
-			@Size(max = MAX_RAW_TAGS, message = "태그가 너무 많습니다") List<String> tags) {
+			@Size(max = MAX_RAW_TAGS, message = "태그가 너무 많습니다") List<String> tags,
+			@Size(max = MAX_ATTACHMENTS, message = "첨부는 " + MAX_ATTACHMENTS + "개까지입니다") List<@NotNull(message = "첨부 id 가 비었습니다") Long> attachmentIds) {
 	}
 
 	/**
 	 * 부분 수정. null(생략)인 필드는 그대로 둔다. {@code categorySlug: ""} 는 카테고리를 빼고, {@code tags: []} 는 태그를 비운다.
+	 * {@code attachmentIds} 는 첨부 목록을 통째로 바꾼다({@code []} 는 모두 해제, TASK-11).
 	 */
 	public record Update(
 			@Size(min = 1, max = 100, message = "제목은 1~100자입니다") @Pattern(regexp = NOT_BLANK, message = "제목을 입력하세요") String title,
 			@Size(min = 1, max = 20000, message = "본문은 1~20000자입니다") @Pattern(regexp = NOT_BLANK, message = "본문을 입력하세요") String content,
 			String categorySlug,
-			@Size(max = MAX_RAW_TAGS, message = "태그가 너무 많습니다") List<String> tags) {
+			@Size(max = MAX_RAW_TAGS, message = "태그가 너무 많습니다") List<String> tags,
+			@Size(max = MAX_ATTACHMENTS, message = "첨부는 " + MAX_ATTACHMENTS + "개까지입니다") List<@NotNull(message = "첨부 id 가 비었습니다") Long> attachmentIds) {
 	}
 
 }
