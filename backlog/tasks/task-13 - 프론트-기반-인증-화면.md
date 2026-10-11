@@ -1,10 +1,10 @@
 ---
 id: TASK-13
 title: '프론트: 기반 + 인증 화면'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 19:34'
+updated_date: '2026-10-11 19:56'
 labels:
   - frontend
   - auth
@@ -26,12 +26,12 @@ API 클라이언트와 모든 로그인 수단 화면을 만든다.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 fetch 래퍼(XSRF 헤더, 401 처리) + TanStack Query
-- [ ] #2 레이아웃·헤더·useMe 가드
-- [ ] #3 로그인 화면: LOCAL, 소셜 5종 버튼, 휴대폰 OTP
-- [ ] #4 가입 화면
-- [ ] #5 내 계정: 연결된 수단 목록·연결·해제
-- [ ] #6 next dev에서 /api rewrite로 로컬 백엔드 연동
+- [x] #1 fetch 래퍼(XSRF 헤더, 401 처리) + TanStack Query
+- [x] #2 레이아웃·헤더·useMe 가드
+- [x] #3 로그인 화면: LOCAL, 소셜 5종 버튼, 휴대폰 OTP
+- [x] #4 가입 화면
+- [x] #5 내 계정: 연결된 수단 목록·연결·해제
+- [x] #6 next dev에서 /api rewrite로 로컬 백엔드 연동
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -56,3 +56,9 @@ API 클라이언트와 모든 로그인 수단 화면을 만든다.
 - 구현은 서브에이전트가 메인 작업 디렉토리에서 한다(훅이 브랜치를 확인하므로 워크트리는 쓰지 않음). 부모가 `cleanTest` 후 `make test`로 다시 검증하고 Done 처리한다.
 - `.env*` 토큰은 Bash에 쓰지 않는다(보호 훅). 실제 AWS에는 apply나 호출을 하지 않는다(TASK-18 제외, 유저 확인 후).
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+프론트 기반과 인증 화면을 구현했다. next.config는 phase 함수로, dev에서만 /api rewrite(BACKEND_URL) + skipTrailingSlashRedirect, build는 정적 export. api.ts: 같은 오리진 /api, credentials include, 상태 변경 시 XSRF 쿠키를 헤더로(없으면 /auth/csrf, 동시 요청 공유), 매 요청 쿠키 재조회로 회전 대응, 403 csrf 시 1회 재시도, ApiError(code, fields, retryAfter). TanStack Query(4xx 재시도 없음, 401 unauthorized면 me=null). 레이아웃·헤더·useMe·RequireAuth/RequireAdmin·step-up 배너. /login/(LOCAL, 소셜 5종 링크, 휴대폰 OTP 3분·429 카운트다운), /auth/callback/, /signup/(서버 규칙 미러, 가입 후 자동 로그인), /account/(identity 목록·연결·해제, 휴대폰 링크, LOCAL step-up). 한국어 오류 맵. 검증: cleanTest 후 make test(backend 567, frontend 53), tsc·lint·build 통과, 실제 백엔드와 next dev 프록시로 CSRF·로그인·OTP·429 curl 확인. 후속: TASK-14 상세는 쿼리 파라미터 라우트, 오류 코드 맵 추가. TASK-16 CloudFront /api/*는 쿼리·쿠키 전달, 트레일링 슬래시 추가 금지. 실제 소셜 로그인과 브라우저 시각 확인은 미검증.
+<!-- SECTION:FINAL_SUMMARY:END -->
