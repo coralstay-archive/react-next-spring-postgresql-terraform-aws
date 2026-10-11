@@ -12,7 +12,7 @@ import jakarta.persistence.Table;
 
 /**
  * 게시판 카테고리 (TASK-8#1). {@code adminOnly} 카테고리(기본 시드: {@code notice} 공지)는 ADMIN 만 글을 쓰거나 글을 옮겨 올 수
- * 있다. 관리 API(추가·수정)는 TASK-12.
+ * 있다. 관리 API(생성·수정·삭제)는 {@code AdminCategoryController} (TASK-12#3).
  */
 @Entity
 @Table(name = "categories")
@@ -49,6 +49,22 @@ public class Category {
 
 	public static Category create(String slug, String name, int sortOrder, boolean adminOnly) {
 		return new Category(slug, name, sortOrder, adminOnly);
+	}
+
+	/** 관리자 수정 (TASK-12#3). null 인 값은 그대로 둔다. */
+	public void update(String slug, String name, Integer sortOrder, Boolean adminOnly) {
+		if (slug != null) {
+			this.slug = slug;
+		}
+		if (name != null) {
+			this.name = name;
+		}
+		if (sortOrder != null) {
+			this.sortOrder = sortOrder;
+		}
+		if (adminOnly != null) {
+			this.adminOnly = adminOnly;
+		}
 	}
 
 	@PrePersist
