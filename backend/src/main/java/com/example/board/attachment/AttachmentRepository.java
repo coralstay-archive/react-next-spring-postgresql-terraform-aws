@@ -34,6 +34,7 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
 	List<Attachment> findPendingCreatedBefore(Instant cutoff, Limit limit);
 
 	/** PENDING 인 것만 지운다(그사이 confirm 된 행은 남는다). 지운 행 수. */
+	@Transactional
 	@Modifying
 	@Query("delete from Attachment a where a.id in :ids and a.status = com.example.board.attachment.AttachmentStatus.PENDING")
 	int deletePending(Collection<Long> ids);

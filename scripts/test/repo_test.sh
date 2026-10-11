@@ -84,6 +84,7 @@ check "TASK-11#3 make dev-storage 타깃" has_make_target dev-storage
 for k in UPLOADS_BUCKET UPLOADS_REGION UPLOADS_ENDPOINT UPLOADS_PATH_STYLE UPLOADS_ACCESS_KEY UPLOADS_SECRET_KEY UPLOADS_PUBLIC_BASE_PATH; do
   check "TASK-11#3 example.env 에 $k" grep -Eq "^#? ?$k=" example.env
 done
+check "TASK-11#4 uploads 모듈 테스트 존재" sh -c 'ls infra/main/modules/uploads/tests/*.tftest.hcl'
 
 echo "repo tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]
