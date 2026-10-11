@@ -362,6 +362,24 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 - **오류 문장** `src/lib/errors.ts`: 백엔드·OAuth 오류 코드 → 한국어. 표에 없으면 서버 `message`.
 - **테스트**: Vitest + Testing Library + MSW(`src/test/server.ts`, 모르는 요청은 실패). 쿠키는 jsdom `document.cookie`로 흉내 낸다.
 
+### 게시판 화면 (TASK-14)
+
+| 경로 | 내용 |
+|---|---|
+| `/` | 게시판 목록. 카테고리 탭(`/api/categories`), 인기 태그 칩(`/api/tags?limit=20`), 검색(`q`), 정렬(최신순·인기순), 이전·다음 페이지. 상태는 모두 URL 쿼리 `?category&tag&q&sort=popular&page=<1부터>&includeHidden=true`에 있어서 링크를 공유하거나 뒤로 가기를 할 수 있다(기본값은 생략, API `page`는 0부터라 1을 뺀다). ADMIN은 "숨김·삭제 글 포함" 토글과 배지를 본다 |
+| `/posts/view/?id=` | 상세. 본문은 텍스트 노드 + `white-space: pre-wrap`(HTML 해석 없음), 첨부 이미지 `attachments[].url`, 조회수, 좋아요(낙관적 반영, 실패 시 되돌림), 댓글 목록(삭제 자리표시)·작성·삭제. `editable`일 때만 수정·삭제 버튼 |
+| `/posts/new/`, `/posts/edit/?id=` | 작성·수정(`RequireAuth`). 수정은 `PATCH`이고 `editable=false`면 폼 대신 권한 없음 안내 |
+
+- **라우트**: 정적 export는 동적 세그먼트(`/posts/[id]`)를 미리 만들 수 없으므로 id를 쿼리 파라미터로 받는다. 뷰는 `<Suspense>` 안에서 `useSearchParams`로 읽는다. 잘못된 id는 요청 없이, 404는 응답을 보고 "없는 글"로 안내한다.
+- **검색어**: 서버(`PostController.searchTerm`)와 같이 Java `strip()` 뒤 2~100자(코드 포인트). 비면 검색하지 않고, 1자는 요청하지 않고 안내한다.
+- **태그 입력**: `src/lib/tags.ts`가 서버 `TagNames`와 같은 순서로 정규화한다(NFC → Java `strip` → ASCII 공백 축약 → 소문자 → 30자). 입력 중 "저장될 이름"을 미리 보여 주고, Enter·쉼표로 추가하며, 중복은 합치고 5개까지 받는다. 입력칸에 남은 값도 등록할 때 붙인다.
+- **카테고리**: `adminOnly`(공지)는 ADMIN에게만 보인다. 서버도 403 `category_admin_only`로 막는다.
+- **이미지 업로드** `src/lib/uploads.ts`: 타입(png·jpeg·webp·gif)·크기(5MB)·개수(10)를 먼저 확인한 뒤 presign → `uploadUrl`로 XHR `PUT`(받은 `headers`를 그대로 보내고, 쿠키·CSRF는 보내지 않는다. 진행률은 `upload.onprogress`) → confirm 순서로 진행한다. 확정된 id를 `attachmentIds`로 보낸다. 파일은 하나씩 올리고, 올리는 동안에는 등록 버튼을 막는다. S3 PUT 실패는 `upload_failed`다.
+- **권한 UI**: 수정·삭제는 서버가 준 `editable`만 보고, 화면에서 역할이나 작성자를 다시 계산하지 않는다. 403 `forbidden`, 404 `post_not_found`·`comment_not_found`, 403 `step_up_required`(`/account/#step-up` 링크), 401(로그인 링크)은 `ApiErrorAlert`가 그 자리에 보여 준다. `RequireAuth`의 `next`에는 쿼리도 들어간다(`/posts/edit/?id=3`).
+- **캐시**: 쿼리 키 `["posts", "list"|"detail"|"comments", …]`, `["categories"]`, `["tags", q]`. 좋아요를 누르면 상세 캐시만 바꾸고 목록은 stale로 표시한다. 저장하면 상세 캐시를 응답으로 채우고 목록·태그를 다시 받는다. 수정 화면도 상세 API를 읽으므로 조회수 규칙(30분에 1회)을 따른다.
+- **E2E용 `data-testid`**: 목록 `post-list`·`post-item`·`post-item-link`·`category-tab`·`tag-chip`·`search-input`·`search-submit`·`sort-select`·`pagination-prev`/`next`·`new-post-link`. 상세 `post-title`·`post-content`·`post-attachments`·`view-count`·`like-button`·`like-count`·`post-edit-link`·`post-delete-button`·`comment-list`·`comment-item`·`comment-input`·`comment-submit`·`comment-delete`·`post-not-found`. 편집기 `post-editor`·`editor-title`·`editor-content`·`editor-category`·`editor-tag-input`·`editor-tag-preview`·`editor-tags`·`editor-file-input`·`editor-attachments`·`editor-upload-progress`·`editor-submit`.
+- **로컬 업로드 확인**: `make dev-db && make dev-storage`를 실행하고, `example.env`의 `UPLOADS_*` 값으로 백엔드를 띄운다. 그다음 `make frontend-dev`를 실행한다. MinIO(:9000)가 `http://localhost:3000` 오리진의 PUT preflight를 허용한다.
+
 ## 개발 워크플로
 
 이 리포는 [backlog.md](https://github.com/MrLesk/Backlog.md) 태스크 단위로 작업한다.
