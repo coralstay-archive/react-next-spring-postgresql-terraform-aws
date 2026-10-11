@@ -76,6 +76,10 @@ public class Post implements OwnedResource {
 	@Column(name = "like_count", nullable = false, insertable = false, updatable = false)
 	private int likeCount;
 
+	/** 조회수 (TASK-9#3). {@link PostViewService} 가 SQL 로만 +1 한다. 읽기 전용 매핑. */
+	@Column(name = "view_count", nullable = false, insertable = false, updatable = false)
+	private long viewCount;
+
 	protected Post() {
 	}
 
@@ -172,6 +176,10 @@ public class Post implements OwnedResource {
 
 	public int getLikeCount() {
 		return likeCount;
+	}
+
+	public long getViewCount() {
+		return viewCount;
 	}
 
 	public boolean isDeleted() {

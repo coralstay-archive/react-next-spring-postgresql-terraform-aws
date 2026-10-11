@@ -2,6 +2,8 @@ package com.example.board.post;
 
 import java.net.URI;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
@@ -37,8 +39,14 @@ public class PostController {
 
 	private final PostService posts;
 
-	public PostController(PostService posts) {
+	private final PostViewService views;
+
+	private final ViewerKeys viewerKeys;
+
+	public PostController(PostService posts, PostViewService views, ViewerKeys viewerKeys) {
 		this.posts = posts;
+		this.views = views;
+		this.viewerKeys = viewerKeys;
 	}
 
 	/**
@@ -60,10 +68,21 @@ public class PostController {
 		return posts.list(query, page, size);
 	}
 
-	/** 상세 (TASK-8#2). 삭제·숨김 글은 ADMIN 이 아니면 404(B2). */
+	/**
+	 * 상세 (TASK-8#2). 삭제·숨김 글은 ADMIN 이 아니면 404(B2).
+	 *
+	 * <p>조회수 (TASK-9#3): 읽기 트랜잭션이 끝난 뒤 별도 트랜잭션에서 집계한다. 보이는 글(삭제·숨김 아님)만 세고, 같은 방문자는 30분에
+	 * 1회(TASK-9 B2, {@link PostViewService}). 익명 방문자에게는 세션 대신 VID 쿠키를 준다({@link ViewerKeys}).
+	 */
 	@GetMapping("/posts/{id}")
-	public PostDetail get(@PathVariable Long id, @AuthenticationPrincipal AuthUser viewer) {
-		return posts.get(id, viewer);
+	public PostDetail get(@PathVariable Long id, @AuthenticationPrincipal AuthUser viewer, HttpServletRequest request,
+			HttpServletResponse response) {
+		PostDetail detail = posts.get(id, viewer);
+		if (detail.deleted() || detail.hidden()) {
+			return detail;
+		}
+		boolean counted = views.record(id, viewerKeys.resolve(viewer, request, response));
+		return counted ? detail.withCountedView() : detail;
 	}
 
 	/** 작성 (TASK-8#3). 201 + Location + 상세. */

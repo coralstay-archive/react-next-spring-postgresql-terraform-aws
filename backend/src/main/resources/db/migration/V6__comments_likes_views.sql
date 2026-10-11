@@ -25,3 +25,16 @@ CREATE TABLE post_likes (
 	PRIMARY KEY (post_id, user_id)
 );
 CREATE INDEX post_likes_user_id_ix ON post_likes (user_id);
+
+-- 조회수 (TASK-9#3). 같은 방문자의 조회는 30분에 한 번만 센다(B2).
+-- viewer_key: 로그인 사용자 'u:<user id>', 익명 's:<VID 쿠키의 SHA-256 hex>'. 방문자마다 마지막으로 센 시각(viewed_at)을 둔다.
+ALTER TABLE posts ADD COLUMN view_count BIGINT NOT NULL DEFAULT 0;
+
+CREATE TABLE post_views (
+	post_id     BIGINT      NOT NULL REFERENCES posts (id) ON DELETE CASCADE,
+	viewer_key  VARCHAR(80) NOT NULL,
+	viewed_at   TIMESTAMPTZ NOT NULL,
+	PRIMARY KEY (post_id, viewer_key)
+);
+-- 오래된 행 정리(후속 작업)용
+CREATE INDEX post_views_viewed_at_ix ON post_views (viewed_at);

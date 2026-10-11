@@ -37,28 +37,36 @@ public final class PostResponses {
 
 	/** 목록 항목. {@code deleted}·{@code hidden} 은 ADMIN 의 includeHidden 목록에서만 true 일 수 있다. */
 	public record PostSummary(Long id, String title, String excerpt, AuthorRef author, CategoryRef category,
-			List<String> tags, Instant createdAt, Instant updatedAt, boolean deleted, boolean hidden, long likeCount) {
+			List<String> tags, Instant createdAt, Instant updatedAt, boolean deleted, boolean hidden, long likeCount,
+			long viewCount) {
 
 		static PostSummary of(Post post) {
 			return new PostSummary(post.getId(), post.getTitle(), PostResponses.excerpt(post.getContent()),
 					AuthorRef.of(post.getAuthor()), CategoryRef.of(post.getCategory()), tagNames(post),
-					post.getCreatedAt(), post.getUpdatedAt(), post.isDeleted(), post.isHidden(), post.getLikeCount());
+					post.getCreatedAt(), post.getUpdatedAt(), post.isDeleted(), post.isHidden(), post.getLikeCount(),
+					post.getViewCount());
 		}
 
 	}
 
 	/**
 	 * 상세. {@code editable}: 보는 사람이 수정·삭제할 수 있는지(작성자 또는 ADMIN, 삭제된 글은 false). {@code likedByMe}: 보는
-	 * 사람이 좋아요를 눌렀는지(익명 false, TASK-9#2).
+	 * 사람이 좋아요를 눌렀는지(익명 false, TASK-9#2). {@code viewCount}: 이번 조회가 집계됐으면 그것까지 포함(TASK-9#3).
 	 */
 	public record PostDetail(Long id, String title, String content, AuthorRef author, CategoryRef category,
 			List<String> tags, Instant createdAt, Instant updatedAt, boolean editable, boolean deleted,
-			boolean hidden, long likeCount, boolean likedByMe) {
+			boolean hidden, long likeCount, boolean likedByMe, long viewCount) {
 
 		static PostDetail of(Post post, boolean editable, boolean likedByMe) {
 			return new PostDetail(post.getId(), post.getTitle(), post.getContent(), AuthorRef.of(post.getAuthor()),
 					CategoryRef.of(post.getCategory()), tagNames(post), post.getCreatedAt(), post.getUpdatedAt(),
-					editable, post.isDeleted(), post.isHidden(), post.getLikeCount(), likedByMe);
+					editable, post.isDeleted(), post.isHidden(), post.getLikeCount(), likedByMe, post.getViewCount());
+		}
+
+		/** 이번 조회가 집계됐을 때: viewCount + 1. */
+		PostDetail withCountedView() {
+			return new PostDetail(id, title, content, author, category, tags, createdAt, updatedAt, editable, deleted,
+					hidden, likeCount, likedByMe, viewCount + 1);
 		}
 
 	}
