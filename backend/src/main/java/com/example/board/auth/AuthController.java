@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.board.auth.local.LocalAccountService;
 import com.example.board.auth.local.LoginRequest;
 import com.example.board.auth.local.SignupRequest;
+import com.example.board.auth.token.RefreshRequest;
 import com.example.board.auth.token.TokenService;
 import com.example.board.common.ApiException;
 import com.example.board.security.BearerRequests;
@@ -97,6 +99,29 @@ public class AuthController {
 		}
 		sessionLogin.login(user, request, response);
 		return summary(user);
+	}
+
+	/**
+	 * 로그아웃. 항상 204 (로그인하지 않은 상태여도 멱등).
+	 *
+	 * <ul>
+	 * <li>세션: 세션 무효화 + SESSION 쿠키 만료 + XSRF-TOKEN 삭제. CSRF 검사 대상이다(강제 로그아웃 방지).</li>
+	 * <li>Bearer: 본문 {@code {refreshToken}} 이 있으면 그 family 를 폐기한다. access 토큰은 상태가 없어 만료(최대 15분)까지
+	 * 유효하다 — 클라이언트가 버린다.</li>
+	 * </ul>
+	 * 정지된 사용자도 로그아웃은 해야 하므로 {@code SuspendedUserWriteFilter} 의 예외 경로다.
+	 */
+	@PostMapping("/auth/logout")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void logout(@RequestBody(required = false) RefreshRequest body, @AuthenticationPrincipal AuthUser user,
+			HttpServletRequest request, HttpServletResponse response) {
+		if (BearerRequests.isBearer(request)) {
+			if (user != null && body != null && body.refreshToken() != null && !body.refreshToken().isBlank()) {
+				tokens.revokeFamilyOf(user.id(), body.refreshToken());
+			}
+			return;
+		}
+		sessionLogin.logout(request, response);
 	}
 
 	private UserSummary summary(User user) {

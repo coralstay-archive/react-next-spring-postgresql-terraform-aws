@@ -48,6 +48,17 @@ public class TokenService {
 		return issue(user, UUID.randomUUID());
 	}
 
+	/**
+	 * 로그아웃: 이 사용자의 refresh 토큰이면 그 family 전체를 폐기한다. 모르는 토큰이나 남의 토큰은 조용히 무시한다
+	 * (로그아웃은 항상 성공 응답이고, 남의 세션을 끊는 수단이 되면 안 된다).
+	 */
+	@Transactional
+	public void revokeFamilyOf(Long userId, String rawRefreshToken) {
+		refreshTokens.findByTokenHash(hash(rawRefreshToken))
+			.filter(token -> token.getUserId().equals(userId))
+			.ifPresent(token -> refreshTokens.revokeFamily(token.getFamilyId(), now()));
+	}
+
 	TokenResponse issue(User user, UUID familyId) {
 		return respond(user, store(user.getId(), familyId).raw());
 	}

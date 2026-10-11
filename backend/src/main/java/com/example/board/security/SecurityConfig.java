@@ -49,6 +49,9 @@ import com.example.board.user.UserRepository;
 @EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
+	/** 정지된 사용자도 할 수 있어야 하는 쓰기: 로그아웃 (TASK-3#3). */
+	static final RequestMatcher LOGOUT = PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/logout");
+
 	@Bean
 	SecurityContextRepository securityContextRepository() {
 		return new SessionUnlessBearerSecurityContextRepository();
@@ -106,12 +109,12 @@ public class SecurityConfig {
 				// 공개 엔드포인트. 새 공개 API(예: 게시글 목록, 로그인)는 여기에 명시적으로 더한다.
 				.requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
 				.requestMatchers(HttpMethod.GET, "/auth/csrf").permitAll()
-				.requestMatchers(HttpMethod.POST, "/auth/signup", "/auth/login").permitAll()
+				.requestMatchers(HttpMethod.POST, "/auth/signup", "/auth/login", "/auth/logout").permitAll()
 				.requestMatchers("/error").permitAll()
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
 				.anyRequest().authenticated())
 			// SUSPENDED 쓰기 차단(B3). 여기서 던진 AccessDeniedException 도 ExceptionTranslationFilter 가 403 JSON 으로 바꾼다.
-			.addFilterAfter(new SuspendedUserWriteFilter(users, List.of()), AuthorizationFilter.class);
+			.addFilterAfter(new SuspendedUserWriteFilter(users, List.of(LOGOUT)), AuthorizationFilter.class);
 		return http.build();
 	}
 
