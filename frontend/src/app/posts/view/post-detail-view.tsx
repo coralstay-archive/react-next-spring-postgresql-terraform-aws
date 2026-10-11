@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { ApiErrorAlert } from "@/components/board/api-error-alert";
 import { CommentSection } from "@/components/board/comment-section";
+import { PostActions } from "@/components/board/post-actions";
 import { PostFlags } from "@/components/board/post-flags";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -66,6 +67,9 @@ function PostBody({ post }: { post: PostDetail }) {
             </Link>
           )}
           <PostFlags deleted={post.deleted} hidden={post.hidden} />
+          <div className="ml-auto">
+            <PostActions post={post} />
+          </div>
         </div>
         <h1 className="text-2xl font-semibold tracking-tight break-words" data-testid="post-title">
           {post.title}

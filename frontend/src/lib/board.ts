@@ -169,6 +169,20 @@ export function useToggleLike(id: number) {
   });
 }
 
+/**
+ * 글 삭제(soft). 성공하면 목록을 다시 받게 하고 상세는 stale 로만 표시한다(지금 다시 받으면 404 화면이 잠깐 보인다 — 호출자가 목록으로 이동).
+ */
+export function useDeletePost(id: number) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<void>(`/posts/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.post(id), refetchType: "none" });
+      void client.invalidateQueries({ queryKey: queryKeys.postLists });
+    },
+  });
+}
+
 export const COMMENT_PAGE_SIZE = 50;
 
 export function useComments(postId: number, page: number) {
