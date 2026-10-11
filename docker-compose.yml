@@ -1,0 +1,22 @@
+# 로컬 개발용: PostgreSQL (+ 선택적으로 api는 이후 태스크에서 추가)
+# 값은 셸 환경변수 또는 repo 루트의 env 파일(example.env 참고)로 덮어쓸 수 있다.
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: board-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-board}
+      POSTGRES_USER: ${POSTGRES_USER:-board}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-board}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
