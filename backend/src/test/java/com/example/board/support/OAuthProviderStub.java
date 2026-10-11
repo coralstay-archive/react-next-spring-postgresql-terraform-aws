@@ -41,6 +41,10 @@ import tools.jackson.databind.json.JsonMapper;
  * 서빙한다. 앱은 실제 OIDC 처럼 서명·iss·aud·nonce 를 검증한다.</li>
  * <li>GitHub(OAuth2): {@code /github/token} + {@code /github/user}.</li>
  * <li>TASK-5#3 Naver: {@code /naver/token} + {@code /naver/me}, Kakao: {@code /kakao/token} + {@code /kakao/me}.</li>
+ * <li>TASK-6#3 Cognito(OIDC): 앱에는 issuer({@link #cognitoIssuer}) 와 Hosted UI 도메인({@link #cognitoDomain}) 만 준다(엔드포인트는
+ * 앱이 만든다). 도메인 아래 {@code /oauth2/authorize}(302 로 콜백), {@code /oauth2/token}(client_secret_basic 일 때만, RS256
+ * id_token 의 iss = issuer), {@code /oauth2/userInfo}({@code email_verified} 는 Cognito 처럼 문자열), issuer 아래
+ * {@code /.well-known/jwks.json}.</li>
  * </ul>
  * 인가 엔드포인트({@code /google/authorize}, {@code /github/authorize})는 브라우저가 가는 곳이라 stub 하지 않는다. 테스트는
  * 앱이 내려준 Location 만 검사하고 바로 콜백을 부른다. 응답은 인가 코드(테스트마다 고유)로 구분하므로 테스트끼리 섞이지 않는다.
@@ -59,6 +63,16 @@ public final class OAuthProviderStub implements DisposableBean {
 
 	public static final String KAKAO_CLIENT_SECRET = "test-kakao-secret";
 
+	public static final String COGNITO_CLIENT_ID = "test-cognito-client";
+
+	public static final String COGNITO_CLIENT_SECRET = "test-cognito-secret";
+
+	/** Cognito issuer 경로 (실제: https://cognito-idp.<region>.amazonaws.com/<pool id>). */
+	static final String COGNITO_ISSUER_PATH = "/cognito-idp/us-east-1_TestPool";
+
+	/** Cognito Hosted UI 도메인 경로 (실제: https://<prefix>.auth.<region>.amazoncognito.com). */
+	static final String COGNITO_DOMAIN_PATH = "/cognito-hosted-ui";
+
 	private static final JsonMapper JSON = JsonMapper.builder().build();
 
 	private final WireMockServer server;
@@ -70,6 +84,8 @@ public final class OAuthProviderStub implements DisposableBean {
 		this.server.start();
 		this.signingKey = newKey("stub-key");
 		this.server.stubFor(get(urlPathEqualTo("/google/jwks"))
+			.willReturn(okJson(new JWKSet(this.signingKey.toPublicJWK()).toString())));
+		this.server.stubFor(get(urlPathEqualTo(COGNITO_ISSUER_PATH + "/.well-known/jwks.json"))
 			.willReturn(okJson(new JWKSet(this.signingKey.toPublicJWK()).toString())));
 	}
 
@@ -102,6 +118,20 @@ public final class OAuthProviderStub implements DisposableBean {
 		registry.add(kakao + "authorization-uri", () -> url("/kakao/authorize"));
 		registry.add(kakao + "token-uri", () -> url("/kakao/token"));
 		registry.add(kakao + "user-info-uri", () -> url("/kakao/me"));
+		// TASK-6#3 Cognito: 운영과 같은 설정 키 4개만 준다. 엔드포인트는 앱이 도메인·issuer 로 만든다.
+		String cognito = "app.oauth2.registrations.cognito.";
+		registry.add(cognito + "client-id", () -> COGNITO_CLIENT_ID);
+		registry.add(cognito + "client-secret", () -> COGNITO_CLIENT_SECRET);
+		registry.add(cognito + "issuer-uri", this::cognitoIssuer);
+		registry.add(cognito + "domain", this::cognitoDomain);
+	}
+
+	public String cognitoIssuer() {
+		return url(COGNITO_ISSUER_PATH);
+	}
+
+	public String cognitoDomain() {
+		return url(COGNITO_DOMAIN_PATH);
 	}
 
 	public String url(String path) {
@@ -243,11 +273,103 @@ public final class OAuthProviderStub implements DisposableBean {
 				.withBody(JSON.writeValueAsString(Map.of("msg", "this access token does not exist", "code", -401)))));
 	}
 
+	/**
+	 * TASK-6#3 Cognito Hosted UI 인가 엔드포인트: 앱이 보낸 state·client_id·scope 가 맞으면 사용자가 로그인한 것처럼 콜백
+	 * ({@code redirect_uri?code&state})으로 302 한다.
+	 */
+	public void stubCognitoAuthorize(String state, String redirectUri, String code) {
+		server.stubFor(get(urlPathEqualTo(COGNITO_DOMAIN_PATH + "/oauth2/authorize"))
+			.withQueryParam("state", equalTo(state))
+			.withQueryParam("response_type", equalTo("code"))
+			.withQueryParam("client_id", equalTo(COGNITO_CLIENT_ID))
+			.withQueryParam("scope", containing("openid"))
+			.withQueryParam("redirect_uri", equalTo(redirectUri))
+			.willReturn(aResponse().withStatus(302)
+				.withHeader("Location", redirectUri + "?code=" + code + "&state="
+						+ URLEncoder.encode(state, StandardCharsets.UTF_8))));
+	}
+
+	/**
+	 * TASK-6#3 Cognito 토큰·userinfo 응답. 토큰 요청은 client_secret_basic(Basic 헤더) 일 때만 맞는다. id_token 은 {@code key} 로
+	 * RS256 서명하고 iss 는 {@code issuer}(보통 {@link #cognitoIssuer}), aud 는 client id.
+	 */
+	public void stubCognito(String code, String expectedRedirectUri, String nonce, CognitoUser user, RSAKey key,
+			String issuer) {
+		String accessToken = "cognito-at-" + code;
+		Map<String, Object> token = new LinkedHashMap<>();
+		token.put("id_token", cognitoIdToken(user, nonce, key, issuer));
+		token.put("access_token", accessToken);
+		token.put("refresh_token", "cognito-rt-" + code);
+		token.put("expires_in", 3600);
+		token.put("token_type", "Bearer");
+		String basic = java.util.Base64.getEncoder()
+			.encodeToString((COGNITO_CLIENT_ID + ":" + COGNITO_CLIENT_SECRET).getBytes(StandardCharsets.UTF_8));
+		server.stubFor(post(urlPathEqualTo(COGNITO_DOMAIN_PATH + "/oauth2/token"))
+			.withHeader("Authorization", equalTo("Basic " + basic))
+			.withRequestBody(containing("grant_type=authorization_code"))
+			.withRequestBody(containing("code=" + code))
+			.withRequestBody(containing("redirect_uri=" + URLEncoder.encode(expectedRedirectUri, StandardCharsets.UTF_8)))
+			.willReturn(okJson(JSON.writeValueAsString(token))));
+		server.stubFor(get(urlPathEqualTo(COGNITO_DOMAIN_PATH + "/oauth2/userInfo"))
+			.withHeader("Authorization", equalTo("Bearer " + accessToken))
+			.willReturn(okJson(JSON.writeValueAsString(user.userInfo()))));
+	}
+
+	public void stubCognito(String code, String expectedRedirectUri, String nonce, CognitoUser user) {
+		stubCognito(code, expectedRedirectUri, nonce, user, signingKey, cognitoIssuer());
+	}
+
+	/** 신뢰하는 키로 서명하되 iss 만 {@code issuer} 로 (다른 User Pool 의 토큰). */
+	public void stubCognito(String code, String expectedRedirectUri, String nonce, CognitoUser user, String issuer) {
+		stubCognito(code, expectedRedirectUri, nonce, user, signingKey, issuer);
+	}
+
+	/** TASK-6#3 Cognito 토큰 엔드포인트가 받은 요청 수 (code 기준). */
+	public int cognitoTokenRequests(String code) {
+		return server.findAll(com.github.tomakehurst.wiremock.client.WireMock
+			.postRequestedFor(urlPathEqualTo(COGNITO_DOMAIN_PATH + "/oauth2/token"))
+			.withRequestBody(containing("code=" + code))).size();
+	}
+
 	/** 토큰 엔드포인트가 받은 요청 수 (code 기준). */
 	public int tokenRequests(String provider, String code) {
 		return server.findAll(com.github.tomakehurst.wiremock.client.WireMock
 			.postRequestedFor(urlPathEqualTo("/" + provider + "/token"))
 			.withRequestBody(containing("code=" + code))).size();
+	}
+
+	private static String cognitoIdToken(CognitoUser user, String nonce, RSAKey key, String issuer) {
+		Instant now = Instant.now();
+		JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder().issuer(issuer)
+			.subject(user.sub())
+			.audience(COGNITO_CLIENT_ID)
+			.issueTime(Date.from(now))
+			.expirationTime(Date.from(now.plusSeconds(3600)))
+			.claim("nonce", nonce)
+			.claim("token_use", "id")
+			.claim("auth_time", now.getEpochSecond())
+			.claim("cognito:username", user.sub());
+		if (user.email() != null) {
+			claims.claim("email", user.email());
+			if (!user.verifiedOnlyInUserInfo()) {
+				claims.claim("email_verified", user.emailVerified());
+			}
+		}
+		if (user.name() != null) {
+			claims.claim("name", user.name());
+		}
+		return sign(claims.build(), key);
+	}
+
+	private static String sign(JWTClaimsSet claims, RSAKey key) {
+		try {
+			SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(), claims);
+			jwt.sign(new RSASSASigner(key));
+			return jwt.serialize();
+		}
+		catch (JOSEException ex) {
+			throw new IllegalStateException(ex);
+		}
 	}
 
 	private String idToken(GoogleUser user, String nonce, RSAKey key) {
@@ -327,6 +449,33 @@ public final class OAuthProviderStub implements DisposableBean {
 				response.put("name", name);
 			}
 			return Map.of("resultcode", "00", "message", "success", "response", response);
+		}
+
+	}
+
+	/**
+	 * TASK-6#3 Cognito 사용자. userinfo 의 {@code email_verified} 는 실제 Cognito 처럼 문자열("true"/"false")이다.
+	 * {@code verifiedOnlyInUserInfo} 면 id_token 에는 email_verified 를 넣지 않아 문자열 값만으로 판단하게 한다.
+	 */
+	public record CognitoUser(String sub, String email, boolean emailVerified, String name,
+			boolean verifiedOnlyInUserInfo) {
+
+		public CognitoUser(String sub, String email, boolean emailVerified, String name) {
+			this(sub, email, emailVerified, name, false);
+		}
+
+		Map<String, Object> userInfo() {
+			Map<String, Object> claims = new LinkedHashMap<>();
+			claims.put("sub", sub);
+			if (email != null) {
+				claims.put("email", email);
+				claims.put("email_verified", Boolean.toString(emailVerified));
+			}
+			if (name != null) {
+				claims.put("name", name);
+			}
+			claims.put("username", sub);
+			return claims;
 		}
 
 	}

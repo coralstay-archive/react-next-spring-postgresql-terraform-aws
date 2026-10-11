@@ -1,12 +1,16 @@
 package com.example.board.support;
 
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpResponse.BodyHandlers;
 import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.web.util.UriComponentsBuilder;
 
+import com.example.board.support.OAuthProviderStub.CognitoUser;
 import com.example.board.support.OAuthProviderStub.GitHubUser;
 import com.example.board.support.OAuthProviderStub.GoogleUser;
 import com.example.board.support.OAuthProviderStub.KakaoUser;
@@ -122,6 +126,44 @@ public final class OAuthFlow {
 
 	public HttpResponse<String> kakao(KakaoUser user) {
 		return kakao("/oauth2/authorization/kakao", user);
+	}
+
+	/**
+	 * TASK-6#3 Cognito 로그인 전체 흐름: 인가 시작 → Hosted UI stub({@code /oauth2/authorize})이 콜백으로 302 → 그 Location 을
+	 * 브라우저처럼 따라 콜백을 부른다.
+	 */
+	public HttpResponse<String> cognito(String startPath, CognitoUser user) {
+		Authorization authorization = authorize(startPath);
+		String code = newCode();
+		stub.stubCognito(code, authorization.param("redirect_uri"), authorization.param("nonce"), user);
+		return followHostedUi(authorization, code);
+	}
+
+	public HttpResponse<String> cognito(CognitoUser user) {
+		return cognito("/oauth2/authorization/cognito", user);
+	}
+
+	/** TASK-6#3 Hosted UI 인가 엔드포인트를 stub 하고 따라간 뒤, 돌아온 콜백 Location 을 같은 세션으로 부른다. */
+	public HttpResponse<String> followHostedUi(Authorization authorization, String code) {
+		String redirectUri = authorization.param("redirect_uri");
+		stub.stubCognitoAuthorize(authorization.param("state"), redirectUri, code);
+		HttpResponse<String> hostedUi;
+		try {
+			hostedUi = HttpClient.newHttpClient()
+				.send(HttpRequest.newBuilder(authorization.location()).GET().build(), BodyHandlers.ofString());
+		}
+		catch (java.io.IOException ex) {
+			throw new java.io.UncheckedIOException(ex);
+		}
+		catch (InterruptedException ex) {
+			Thread.currentThread().interrupt();
+			throw new IllegalStateException(ex);
+		}
+		String callback = location(hostedUi);
+		if (!callback.startsWith(redirectUri + "?")) {
+			throw new IllegalStateException("Hosted UI 가 redirect_uri 로 돌려보내지 않았다: " + callback);
+		}
+		return get(callback.substring((PUBLIC_BASE_URL + "/api").length()));
 	}
 
 	public static String newCode() {
