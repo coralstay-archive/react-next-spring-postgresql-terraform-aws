@@ -1,0 +1,53 @@
+#!/bin/bash
+# backend_host user_data (TASK-16#2). 첫 부팅에 한 번 실행된다(cloud-init). 다시 실행해도 안전하게 쓴다.
+set -euxo pipefail
+
+# --- 데이터 EBS: 볼륨 ID 로 장치를 찾는다(nitro 는 /dev/sdf 를 /dev/nvmeXn1 로 노출). 연결이 늦을 수 있어 기다린다.
+DEV=""
+for _ in $(seq 1 120); do
+  for c in /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${volume_id_nodash} ${data_device_name} /dev/xvdf; do
+    if [ -b "$c" ]; then DEV="$(readlink -f "$c")"; break 2; fi
+  done
+  sleep 5
+done
+if [ -z "$DEV" ]; then echo "data volume ${volume_id} not attached" >&2; exit 1; fi
+
+# 파일시스템이 없을 때만 포맷한다(인스턴스를 바꿔도 기존 데이터를 지우지 않는다)
+if ! blkid "$DEV" >/dev/null 2>&1; then
+  mkfs -t xfs -L pgdata "$DEV"
+fi
+UUID="$(blkid -s UUID -o value "$DEV")"
+mkdir -p ${data_mount_path}
+if ! grep -q "UUID=$UUID" /etc/fstab; then
+  echo "UUID=$UUID ${data_mount_path} xfs defaults,nofail 0 2" >> /etc/fstab
+fi
+mount -a
+
+# --- docker + compose plugin
+dnf install -y docker
+mkdir -p /usr/local/lib/docker/cli-plugins
+%{ if compose_version == "latest" ~}
+COMPOSE_URL="https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64"
+%{ else ~}
+COMPOSE_URL="https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-aarch64"
+%{ endif ~}
+curl -fsSL --retry 5 -o /usr/local/lib/docker/cli-plugins/docker-compose "$COMPOSE_URL"
+chmod 755 /usr/local/lib/docker/cli-plugins/docker-compose
+
+# 컨테이너 로그는 기본으로 CloudWatch Logs(awslogs). compose 에서 서비스별 tag 로 스트림 이름을 정한다.
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'JSON'
+{
+  "log-driver": "awslogs",
+  "log-opts": {
+    "awslogs-region": "${region}",
+    "awslogs-group": "${log_group_name}"
+  }
+}
+JSON
+systemctl enable --now docker
+usermod -aG docker ssm-user 2>/dev/null || true
+
+# --- 배포 디렉터리 (TASK-17 deploy-backend.sh 가 compose 파일과 env 파일을 둔다)
+mkdir -p ${deploy_dir}
+chmod 750 ${deploy_dir}
