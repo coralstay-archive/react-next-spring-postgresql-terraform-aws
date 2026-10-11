@@ -331,6 +331,161 @@ t_front_real() {
 }
 check "TASK-17#2 deploy-frontend 실제 경로(가짜 aws): sync 2회 + invalidation 호출" t_front_real
 
+# ================================================================ TASK-17#3 시크릿: put-secrets(로컬 → SSM), render-env(EC2: SSM → env 파일)
+# terraform output -json 형식의 가짜 출력(AC#5 tf-outputs 테스트도 쓴다)
+export FAKE_TF_JSON="$TMP/tf-output.json"
+cat >"$FAKE_TF_JSON" <<'JSON'
+{
+  "region": {"sensitive": false, "type": "string", "value": "us-east-1"},
+  "ecr_repository_url": {"sensitive": false, "type": "string", "value": "123456789012.dkr.ecr.us-east-1.amazonaws.com/board-api"},
+  "web_bucket": {"sensitive": false, "type": "string", "value": "board-prod-web-x"},
+  "distribution_id": {"sensitive": false, "type": "string", "value": "E123ABC"},
+  "instance_id": {"sensitive": false, "type": "string", "value": "i-0abc"},
+  "ssm_parameter_path": {"sensitive": false, "type": "string", "value": "/board/prod"},
+  "log_group": {"sensitive": false, "type": "string", "value": "/board/prod"},
+  "deploy_dir": {"sensitive": false, "type": "string", "value": "/opt/board"},
+  "ci_role_arn": {"sensitive": false, "type": "string", "value": "arn:aws:iam::123456789012:role/board-prod-gha-deploy"},
+  "app_env": {"sensitive": false, "type": ["object", {}], "value": {
+    "PUBLIC_BASE_URL": "https://d111.cloudfront.net", "COOKIE_SECURE": "true", "CLIENT_IP_HEADER": "CloudFront-Viewer-Address",
+    "UPLOADS_BUCKET": "board-prod-uploads-x", "UPLOADS_REGION": "us-east-1", "UPLOADS_PUBLIC_BASE_PATH": "/uploads/",
+    "COGNITO_ISSUER_URI": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_X", "COGNITO_CLIENT_ID": "cid123",
+    "COGNITO_DOMAIN": "https://x.auth.us-east-1.amazoncognito.com", "SMS_AWS_REGION": "us-east-1"}},
+  "cognito_client_secret": {"sensitive": true, "type": "string", "value": "COGNITO-SECRET-VALUE"}
+}
+JSON
+SECRETS_IN="$TMP/secrets-input.txt"
+cat >"$SECRETS_IN" <<'TXT'
+# 주석과 빈 줄은 건너뛴다
+
+JWT_SECRET=jwt-secret-value-0123456789abcdef0123456789
+GOOGLE_CLIENT_ID=gid.apps.example
+GOOGLE_CLIENT_SECRET="google-secret-value"
+ADMIN_EMAIL=admin@example.com
+KAKAO_CLIENT_SECRET=
+PUBLIC_BASE_URL=https://board.example.com
+SMS_PROVIDER=aws
+TXT
+
+check "TASK-17#3 scripts/put-secrets.sh 실행 가능" test -x scripts/put-secrets.sh
+check "TASK-17#3 deploy/render-env.sh 실행 가능" test -x deploy/render-env.sh
+check "TASK-17#3 deploy/secrets.example.txt(입력 예시) 존재" test -f deploy/secrets.example.txt
+check "TASK-17#3 gitignore 가 실제 입력 deploy/secrets.local.txt 를 무시" git check-ignore -q --no-index deploy/secrets.local.txt
+check "TASK-17#3 gitignore 가 예시 deploy/secrets.example.txt 는 추적" sh -c '! git check-ignore -q --no-index deploy/secrets.example.txt'
+for k in DB_PASSWORD JWT_SECRET OTP_HASH_KEY ADMIN_EMAIL GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET \
+  NAVER_CLIENT_ID NAVER_CLIENT_SECRET KAKAO_CLIENT_ID KAKAO_CLIENT_SECRET SMS_PROVIDER SMS_ORIGINATION_IDENTITY; do
+  check "TASK-17#3 secrets.example.txt 에 $k" grep -Eq "^#? ?$k=" deploy/secrets.example.txt
+done
+
+t_put_dry() {
+  reset_fake
+  run_capture with_fakes env -u AWS_REGION DRY_RUN=1 ./scripts/put-secrets.sh "$SECRETS_IN"
+  [ "$RC" = 0 ] || { echo "rc=$RC"; echo "$OUT"; return 1; }
+  local p="[dry-run] aws ssm put-parameter --region us-east-1 --name /board/prod"
+  has_line "$p/JWT_SECRET --type SecureString --value '****' --overwrite" &&
+    has_line "$p/GOOGLE_CLIENT_SECRET --type SecureString --value '****' --overwrite" &&
+    has_line "$p/COGNITO_CLIENT_SECRET --type SecureString --value '****' --overwrite" &&
+    has_line "$p/GOOGLE_CLIENT_ID --type String --value gid.apps.example --overwrite" &&
+    has_line "$p/ADMIN_EMAIL --type String --value admin@example.com --overwrite" &&
+    has_line "$p/COGNITO_CLIENT_ID --type String --value cid123 --overwrite" &&
+    has_line "$p/COOKIE_SECURE --type String --value true --overwrite" &&
+    has_line "$p/CLIENT_IP_HEADER --type String --value CloudFront-Viewer-Address --overwrite" &&
+    has_line "$p/UPLOADS_BUCKET --type String --value board-prod-uploads-x --overwrite" &&
+    has_line "$p/PUBLIC_BASE_URL --type String --value https://board.example.com --overwrite" &&
+    has_line "$p/SMS_PROVIDER --type String --value aws --overwrite" &&
+    lacks_text "KAKAO_CLIENT_SECRET --type" &&
+    lacks_text "jwt-secret-value" && lacks_text "google-secret-value" && lacks_text "COGNITO-SECRET-VALUE" &&
+    ! grep -q "^aws " "$FAKE_STATE/calls.log" 2>/dev/null
+}
+check "TASK-17#3 put-secrets DRY_RUN: 시크릿 SecureString·마스킹, 나머지 String, app_env·cognito secret 병합, 입력이 우선, 빈 값은 건너뜀" t_put_dry
+t_put_generate_dry() {
+  run_capture with_fakes env DRY_RUN=1 AWS_REGION=us-east-1 ./scripts/put-secrets.sh --generate-missing "$SECRETS_IN"
+  [ "$RC" = 0 ] || { echo "$OUT"; return 1; }
+  local p="[dry-run] aws ssm put-parameter --region us-east-1 --name /board/prod"
+  has_line "$p/DB_PASSWORD --type SecureString --value '****' --overwrite" &&
+    has_line "$p/OTP_HASH_KEY --type SecureString --value '****' --overwrite" &&
+    [ "$(grep -c -- "/JWT_SECRET --type" <<<"$OUT")" = 1 ]
+}
+check "TASK-17#3 put-secrets --generate-missing: 없는 DB_PASSWORD·OTP_HASH_KEY 생성(마스킹), 입력에 있는 JWT_SECRET 은 그대로" t_put_generate_dry
+t_put_real() {
+  reset_fake
+  run_capture with_fakes env AWS_REGION=us-east-1 FAKE_EXISTING="/board/prod/DB_PASSWORD" ./scripts/put-secrets.sh --generate-missing "$SECRETS_IN"
+  [ "$RC" = 0 ] || { echo "$OUT"; return 1; }
+  local put="$FAKE_STATE/put.jsonl"
+  lacks_text "jwt-secret-value" && lacks_text "COGNITO-SECRET-VALUE" || return 1
+  jq -se '
+      (map({(.Name): .}) | add) as $m
+      | $m["/board/prod/JWT_SECRET"].Value == "jwt-secret-value-0123456789abcdef0123456789"
+      and $m["/board/prod/JWT_SECRET"].Type == "SecureString" and $m["/board/prod/JWT_SECRET"].Overwrite == true
+      and $m["/board/prod/GOOGLE_CLIENT_SECRET"].Value == "google-secret-value"
+      and $m["/board/prod/COGNITO_CLIENT_SECRET"].Value == "COGNITO-SECRET-VALUE"
+      and $m["/board/prod/GOOGLE_CLIENT_ID"].Type == "String"
+      and ($m["/board/prod/OTP_HASH_KEY"].Value | length >= 32)
+      and ($m["/board/prod/DB_PASSWORD"] == null)
+    ' "$put" >/dev/null || { cat "$put"; return 1; }
+  # 값은 명령줄(argv)이 아니라 --cli-input-json 파일로 넘긴다
+  ! grep -q -- "--value" "$FAKE_STATE/calls.log" && grep -q "put-parameter --region us-east-1 --cli-input-json file://" "$FAKE_STATE/calls.log"
+}
+check "TASK-17#3 put-secrets 실제 경로(가짜 aws): 값은 cli-input-json 파일로, SSM 에 이미 있는 DB_PASSWORD 는 다시 만들지 않음" t_put_real
+t_put_warn_missing() {
+  run_capture with_fakes env DRY_RUN=1 AWS_REGION=us-east-1 ./scripts/put-secrets.sh "$SECRETS_IN"
+  [ "$RC" = 0 ] && has_text "DB_PASSWORD" && has_text "--generate-missing" && lacks_text "/DB_PASSWORD --type"
+}
+check "TASK-17#3 put-secrets: --generate-missing 없이 필수 시크릿이 없으면 경고만(생성 안 함)" t_put_warn_missing
+t_put_bad_key() {
+  local f="$TMP/bad.txt"; printf 'bad-key=1\n' >"$f"
+  run_capture with_fakes env DRY_RUN=1 AWS_REGION=us-east-1 ./scripts/put-secrets.sh "$f"
+  [ "$RC" != 0 ] && has_text "bad-key"
+}
+check "TASK-17#3 put-secrets: 키 형식이 아닌 줄은 거부" t_put_bad_key
+t_put_usage() { run_capture with_fakes env DRY_RUN=1 ./scripts/put-secrets.sh; [ "$RC" != 0 ] && has_text "usage"; }
+check "TASK-17#3 put-secrets: 입력 파일 인자가 없으면 usage" t_put_usage
+
+# render-env: 까다로운 값($, ", \, ', 공백, #, 백틱, 줄바꿈)이 compose env_file 에서 그대로 읽히는지
+RENDER_PARAMS="$TMP/render-params.json"
+cat >"$RENDER_PARAMS" <<'JSON'
+{"Parameters":[
+  {"Name":"/board/prod/DB_PASSWORD","Type":"SecureString","Value":"pw$HOME \"dq\" \\back 'sq' `bt` # hash"},
+  {"Name":"/board/prod/JWT_SECRET","Type":"SecureString","Value":"line1\nline2  "},
+  {"Name":"/board/prod/OTP_HASH_KEY","Type":"SecureString","Value":"otp${X}key\\"},
+  {"Name":"/board/prod/PUBLIC_BASE_URL","Type":"String","Value":"https://board.example.com"},
+  {"Name":"/board/prod/nested/IGNORED","Type":"String","Value":"x"},
+  {"Name":"/board/prod/bad-key","Type":"String","Value":"x"}
+]}
+JSON
+mode_of() { python3 -c 'import os,sys;print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "$1"; }
+t_render_env() {
+  reset_fake
+  local d="$TMP/render"; rm -rf "$d"
+  run_capture with_fakes env AWS_REGION=us-east-1 FAKE_PARAMS_JSON="$RENDER_PARAMS" deploy/render-env.sh /board/prod "$d"
+  [ "$RC" = 0 ] || { echo "$OUT"; return 1; }
+  grep -qF "aws ssm get-parameters-by-path --region us-east-1 --path /board/prod --recursive --with-decryption" "$FAKE_STATE/calls.log" || return 1
+  [ "$(mode_of "$d/app.env")" = 0o600 ] && [ "$(mode_of "$d/db.env")" = 0o600 ] || { echo "mode"; return 1; }
+  local json
+  json="$(DEPLOY_DIR="$d" ECR_REPOSITORY_URL=r/x IMAGE_TAG=t AWS_REGION=us-east-1 docker compose -f deploy/docker-compose.prod.yml config --format json)" || return 1
+  # compose config 는 $ 를 $$ 로 다시 이스케이프해 보인다
+  jq -n --slurpfile p "$RENDER_PARAMS" --argjson c "$json" '
+    ($p[0].Parameters | map({(.Name | sub("^/board/prod/"; "")): .Value}) | add) as $want
+    | ($c.services.api.environment | map_values(gsub("\\$\\$"; "$"))) as $api
+    | ($c.services.db.environment | map_values(gsub("\\$\\$"; "$"))) as $db
+    | $api.DB_PASSWORD == $want.DB_PASSWORD and $api.JWT_SECRET == $want.JWT_SECRET and $api.OTP_HASH_KEY == $want.OTP_HASH_KEY
+      and $api.PUBLIC_BASE_URL == "https://board.example.com"
+      and $api.DB_URL == "jdbc:postgresql://db:5432/board" and $api.DB_USERNAME == "board"
+      and ($api | has("IGNORED") | not) and ($api | has("bad-key") | not)
+      and $db.POSTGRES_PASSWORD == $want.DB_PASSWORD and $db.POSTGRES_USER == "board" and $db.POSTGRES_DB == "board"
+      and ($db | has("JWT_SECRET") | not)
+  ' >/dev/null || { echo "$json" | jq '.services | map_values(.environment)'; return 1; }
+}
+if command -v docker >/dev/null 2>&1; then
+  check "TASK-17#3 render-env: SSM → app.env·db.env(600), 특수문자 값이 compose 에서 그대로, DB_URL 기본값" t_render_env
+fi
+t_render_missing() {
+  local d="$TMP/render-missing"; rm -rf "$d"; local p="$TMP/p2.json"
+  echo '{"Parameters":[{"Name":"/board/prod/DB_PASSWORD","Value":"x"}]}' >"$p"
+  run_capture with_fakes env AWS_REGION=us-east-1 FAKE_PARAMS_JSON="$p" deploy/render-env.sh /board/prod "$d"
+  [ "$RC" != 0 ] && has_text "JWT_SECRET" && [ ! -e "$d/app.env" ]
+}
+check "TASK-17#3 render-env: 필수 시크릿이 없으면 파일을 만들지 않고 실패" t_render_missing
+
 # ---------------------------------------------------------------- shellcheck (모든 배포 스크립트)
 if need_linter shellcheck; then
   for f in scripts/*.sh deploy/*.sh scripts/test/*.sh; do

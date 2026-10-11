@@ -39,3 +39,7 @@ infra/main/modules/**/.terraform.lock.hcl
 
 # 로그
 *.log
+
+# 배포 시크릿 입력 (TASK-17, put-secrets.sh). 예시는 deploy/secrets.example.txt
+deploy/secrets.local.txt
+deploy/*.local.txt
