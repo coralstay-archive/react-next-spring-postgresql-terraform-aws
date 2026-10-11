@@ -1,15 +1,14 @@
-import { Button } from "@/components/ui/button";
+import { Suspense } from "react";
 
+import { PostListView } from "./post-list-view";
+
+/** 홈 = 게시판 목록(TASK-14#1). 목록 상태는 URL 쿼리에 있으므로 `useSearchParams` 를 쓰는 뷰를 Suspense 로 감싼다(정적 export). */
 export default function Home() {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-24">
-      <h1 className="text-3xl font-semibold tracking-tight">게시판</h1>
-      <p className="text-muted-foreground">
-        Next.js 정적 export + Spring Boot + PostgreSQL 게시판입니다.
-      </p>
-      <div>
-        <Button>시작하기</Button>
-      </div>
+    <main className="mx-auto flex w-full max-w-5xl flex-1 px-4 py-8">
+      <Suspense fallback={<p role="status">불러오는 중…</p>}>
+        <PostListView />
+      </Suspense>
     </main>
   );
 }

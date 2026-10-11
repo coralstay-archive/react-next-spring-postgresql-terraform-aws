@@ -9,6 +9,15 @@ import { isApiError } from "@/lib/api";
 export const queryKeys = {
   me: ["auth", "me"] as const,
   identities: ["me", "identities"] as const,
+  // 게시판(TASK-14). ["posts"] 로 무효화하면 목록·상세·댓글이 모두 해당한다.
+  posts: ["posts"] as const,
+  postLists: ["posts", "list"] as const,
+  postList: (query: object) => ["posts", "list", query] as const,
+  post: (id: number) => ["posts", "detail", id] as const,
+  comments: (postId: number) => ["posts", "comments", postId] as const,
+  commentPage: (postId: number, page: number) => ["posts", "comments", postId, page] as const,
+  categories: ["categories"] as const,
+  tags: (q: string) => ["tags", q] as const,
 };
 
 const MAX_RETRIES = 2;
