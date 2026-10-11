@@ -43,6 +43,17 @@ curl http://localhost:8080/api/actuator/health
 # {"status":"UP", ...}
 ```
 
+프론트 개발 서버(`next dev`)는 `/api/*`를 백엔드(`BACKEND_URL`, 기본 `http://localhost:8080`)로 프록시한다(`frontend/next.config.ts`의 `rewrites`).
+브라우저는 운영(CloudFront가 `/api/*`를 EC2로 보냄)처럼 한 오리진(`http://localhost:3000`)만 보므로 `SESSION`·`XSRF-TOKEN` 쿠키,
+CSRF, 소셜 로그인 리다이렉트가 그대로 동작한다. 백엔드의 `PUBLIC_BASE_URL` 기본값 `http://localhost:3000`이 이 구성을 전제로 한다.
+
+```bash
+curl -i http://localhost:3000/api/auth/csrf   # 프록시 경유: 200 + Set-Cookie: XSRF-TOKEN=...; Path=/; SameSite=Lax
+```
+
+`next build`(= `make frontend-build`)는 정적 export(`frontend/out/`)라 rewrites가 없다. 개발 서버에서만 trailing slash 리다이렉트를 꺼서
+`/api/auth/csrf`가 `/api/auth/csrf/`로 바뀌지 않게 한다.
+
 DB 스키마는 Flyway(`backend/src/main/resources/db/migration`)가 관리한다.
 끝나면 `make dev-db-down`으로 DB와 MinIO를 내린다(데이터는 `pgdata`·`miniodata` 볼륨에 남는다).
 
