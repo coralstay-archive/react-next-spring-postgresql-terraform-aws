@@ -1,9 +1,10 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useCurrentPath } from "@/hooks/use-current-path";
 import { loginHref, useMe } from "@/lib/auth";
 
 function Loading() {
@@ -14,15 +15,18 @@ function Loading() {
   );
 }
 
-/** 로그인이 필요한 화면. 익명이면 `/login/?next=<현재 경로>` 로 보낸다(정적 export 라 클라이언트에서 판단). */
+/**
+ * 로그인이 필요한 화면. 익명이면 `/login/?next=<현재 경로+쿼리>` 로 보낸다(정적 export 라 클라이언트에서 판단).
+ * 쿼리(`/posts/edit/?id=3`)까지 담으려고 `useSearchParams` 를 쓰므로 `<Suspense>` 안에서 쓴다.
+ */
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { data: me, isPending, isError } = useMe();
   const router = useRouter();
-  const pathname = usePathname();
+  const current = useCurrentPath();
 
   useEffect(() => {
-    if (me === null) router.replace(loginHref(pathname));
-  }, [me, router, pathname]);
+    if (me === null) router.replace(loginHref(current));
+  }, [me, router, current]);
 
   if (isError) return <LoadError />;
   if (isPending || !me) return <Loading />;

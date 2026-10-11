@@ -91,3 +91,53 @@ export function postHandler(post: PostDetail) {
 export function commentsHandler(postId: number, get: () => Comment[]) {
   return http.get(`*/api/posts/${postId}/comments`, () => HttpResponse.json(pageOf(get())));
 }
+
+/**
+ * 업로드 흐름 대역: presign(→ `http://storage.test/...` PUT URL) → PUT → confirm. 첨부 id 는 100부터.
+ * 받은 요청을 기록한다. `putStatus` 로 S3 PUT 실패를 흉내 낸다.
+ */
+export function presignHandlers(options: { putStatus?: number } = {}) {
+  let nextId = 100;
+  const sizes = new Map<number, { contentType: string; size: number }>();
+  const calls = {
+    presignBody: undefined as unknown,
+    putHeaders: undefined as Headers | undefined,
+    putSize: undefined as number | undefined,
+    confirmed: [] as number[],
+    handlers: [
+      http.post("*/api/attachments/presign", async ({ request }) => {
+        const body = (await request.json()) as { contentType: string; size: number };
+        calls.presignBody = body;
+        const id = nextId++;
+        sizes.set(id, body);
+        return HttpResponse.json({
+          attachmentId: id,
+          key: `uploads/1/${id}.png`,
+          uploadUrl: `http://storage.test/bucket/uploads/1/${id}.png?X-Amz-Signature=sig`,
+          method: "PUT",
+          headers: { "content-type": body.contentType, "x-amz-tagging": "status=pending" },
+          expiresAt: "2026-10-12T00:05:00Z",
+        });
+      }),
+      http.put("http://storage.test/bucket/*", async ({ request }) => {
+        calls.putHeaders = request.headers;
+        calls.putSize = (await request.arrayBuffer()).byteLength;
+        if (options.putStatus) return new HttpResponse("denied", { status: options.putStatus });
+        return new HttpResponse(null, { status: 200 });
+      }),
+      http.post("*/api/attachments/:id/confirm", ({ params }) => {
+        const id = Number(params.id);
+        calls.confirmed.push(id);
+        const meta = sizes.get(id)!;
+        return HttpResponse.json({
+          id,
+          url: `/uploads/1/${id}.png`,
+          contentType: meta.contentType,
+          size: meta.size,
+          status: "CONFIRMED",
+        });
+      }),
+    ],
+  };
+  return calls;
+}
