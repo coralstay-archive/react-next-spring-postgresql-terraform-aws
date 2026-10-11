@@ -1,10 +1,10 @@
 ---
 id: TASK-16
 title: Terraform 인프라
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 23:05'
+updated_date: '2026-10-11 23:34'
 labels:
   - infra
 dependencies:
@@ -26,12 +26,12 @@ AWS 인프라를 코드로 만든다.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 infra/bootstrap: state S3 버킷(use_lockfile)
-- [ ] #2 network(VPC, public subnet), backend_host(EC2 t4g.small, EIP, 데이터 EBS, DLM, SSM role, SG=CloudFront prefix list)
-- [ ] #3 ECR, S3 web/uploads(OAC), CloudFront(/api/*, /uploads/*, CF Function)
-- [ ] #4 ci_oidc: GitHub OIDC provider + 배포 role(최소 권한)
-- [ ] #5 dns_cert: domain_name 지정 시 Route53 + ACM(us-east-1) 활성화
-- [ ] #6 fmt -check / validate / plan 통과
+- [x] #1 infra/bootstrap: state S3 버킷(use_lockfile)
+- [x] #2 network(VPC, public subnet), backend_host(EC2 t4g.small, EIP, 데이터 EBS, DLM, SSM role, SG=CloudFront prefix list)
+- [x] #3 ECR, S3 web/uploads(OAC), CloudFront(/api/*, /uploads/*, CF Function)
+- [x] #4 ci_oidc: GitHub OIDC provider + 배포 role(최소 권한)
+- [x] #5 dns_cert: domain_name 지정 시 Route53 + ACM(us-east-1) 활성화
+- [x] #6 fmt -check / validate / plan 통과
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -61,3 +61,9 @@ AWS 인프라를 코드로 만든다.
 - 구현은 서브에이전트가 메인 작업 디렉토리에서 한다(훅이 브랜치를 확인하므로 워크트리는 쓰지 않음). 부모가 `cleanTest` 후 `make test`로 다시 검증하고 Done 처리한다.
 - `.env*` 토큰은 Bash에 쓰지 않는다(보호 훅). 실제 AWS에는 apply나 호출을 하지 않는다(TASK-18 제외, 유저 확인 후).
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+AWS 인프라를 Terraform으로 작성했다(apply·plan 없음, mock 테스트와 validate만). bootstrap: state 버킷(버전 관리, SSE, HTTPS 전용, prevent_destroy), main backend는 S3 use_lockfile + partial config. 모듈: network(VPC, public subnet, IGW), backend_host(t4g.small AL2023 arm64, IMDSv2 hop 2, 데이터 EBS gp3 20GB를 /srv/pgdata에 마운트(빈 경우만 mkfs, UUID fstab), EIP, DLM 일간 7개, SG 8080은 CloudFront prefix list만·22 없음, 최소 권한 IAM(SSM·ECR·Logs·/board/prod 파라미터·sms-voice), log group 14일, docker+compose+awslogs 기본 드라이버), frontend_cdn(ECR, web S3+OAC, CF Function index 리라이트, /api/*는 EC2 8080·CachingDisabled·all viewer 헤더 + CloudFront-Viewer-Address 커스텀 오리진 요청 정책, /uploads/*는 OAC), ci_oidc(main 브랜치 sub 정확 일치, ECR·S3·invalidation·SendCommand 범위 제한), dns_cert(domain_name 토글, ACM us-east-1, alias 레코드). cognito·uploads 연결, outputs와 app_env 제공. 커스텀 404 응답은 /api JSON을 덮어써서 쓰지 않음. 검증: make test 통과(terraform test 9개 디렉토리 57개, repo 95, CF Function Node 테스트, frontend 160). 미검증: 실제 CloudFront가 allViewerAndWhitelistCloudFront에 CloudFront-Forwarded-Proto 조합을 받는지, compose 다운로드 URL(latest).
+<!-- SECTION:FINAL_SUMMARY:END -->
