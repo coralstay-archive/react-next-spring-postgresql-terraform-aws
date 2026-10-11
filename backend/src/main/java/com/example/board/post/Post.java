@@ -129,6 +129,23 @@ public class Post implements OwnedResource {
 		}
 	}
 
+	/** 관리자 숨김 (TASK-12#2). 이미 숨겨져 있으면 처음 숨긴 시각을 유지한다. */
+	public void hide(Instant now) {
+		if (this.hiddenAt == null) {
+			this.hiddenAt = now;
+		}
+	}
+
+	/** 관리자 숨김 해제 (TASK-12#2). */
+	public void unhide() {
+		this.hiddenAt = null;
+	}
+
+	/** 삭제 복구 (TASK-12#2). 숨김 여부는 건드리지 않는다. */
+	public void restore() {
+		this.deletedAt = null;
+	}
+
 	public Long getId() {
 		return id;
 	}
