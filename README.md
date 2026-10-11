@@ -12,11 +12,12 @@ PostgreSQL로 만드는 게시판이다. 전체 설계는 [`backlog/docs/doc-1-a
 |---|---|
 | `backend/` | Spring Boot 4.1 · Java 25 · Gradle Kotlin DSL. 모든 API는 `/api` 아래 (`server.servlet.context-path=/api`) |
 | `frontend/` | Next.js 16 · App Router · `output: 'export'` · TypeScript · Tailwind CSS v4 · shadcn/ui |
-| `docker-compose.yml` | 로컬 PostgreSQL 18 |
+| `docker-compose.yml` | 로컬 PostgreSQL 18 + 첨부 저장소 MinIO(S3 호환, TASK-11) |
+| `infra/` | Terraform 모듈(`infra/main/modules/cognito`, `uploads`) |
 | `scripts/` | 로컬 `make`와 CI가 같이 호출하는 스크립트 (`scripts/test.sh` 등) |
 | `backlog/` | backlog.md 태스크·결정·문서 |
 
-`infra/`(Terraform), `deploy/`, `.github/workflows/`는 이후 태스크에서 추가한다.
+Terraform 루트 스택, `deploy/`, `.github/workflows/`는 이후 태스크에서 추가한다.
 
 ## 준비물
 
@@ -30,6 +31,7 @@ PostgreSQL로 만드는 게시판이다. 전체 설계는 [`backlog/docs/doc-1-a
 cp example.env .env
 
 make dev-db         # PostgreSQL 기동 (docker compose)
+make dev-storage    # (선택) 첨부 저장소 MinIO 기동 + 버킷 준비 — 이미지 첨부를 쓸 때
 make backend-run    # 백엔드 http://localhost:8080/api
 make frontend-dev   # 프론트 http://localhost:3000
 ```
@@ -42,7 +44,14 @@ curl http://localhost:8080/api/actuator/health
 ```
 
 DB 스키마는 Flyway(`backend/src/main/resources/db/migration`)가 관리한다.
-끝나면 `make dev-db-down`으로 DB를 내린다(데이터는 `pgdata` 볼륨에 남는다).
+끝나면 `make dev-db-down`으로 DB와 MinIO를 내린다(데이터는 `pgdata`·`miniodata` 볼륨에 남는다).
+
+로컬 첨부(MinIO): `make dev-storage`가 MinIO(API `http://localhost:9000`, 콘솔 `http://localhost:9001`, 계정 `minioadmin`/`minioadmin`)를
+띄우고 one-shot 컨테이너 `minio-init`(mc)이 버킷 `board-uploads`를 만든 뒤 `uploads/` 아래를 익명 읽기로 연다.
+백엔드는 `example.env`의 `UPLOADS_*` 값(복사한 `.env`)으로 MinIO를 쓴다. 이 값이 없으면(`UPLOADS_BUCKET` 비어 있음) 앱은 뜨지만
+첨부 API는 503 `uploads_unavailable`이다. 로컬에서 첨부 `url`은 `UPLOADS_PUBLIC_BASE_PATH`(`http://localhost:9000/board-uploads/uploads/`)
+기준이라 브라우저로 바로 열린다. CORS는 MinIO 전역 설정 `MINIO_API_CORS_ALLOW_ORIGIN`(= `PUBLIC_BASE_URL`, 기본 `http://localhost:3000`)으로
+준다(MinIO는 버킷 CORS API를 구현하지 않는다). Docker Hub의 `minio/minio` 이미지는 더 이상 받을 수 없어 `cgr.dev/chainguard/minio`를 digest로 고정해 쓴다.
 
 ## 테스트
 
@@ -50,7 +59,7 @@ DB 스키마는 Flyway(`backend/src/main/resources/db/migration`)가 관리한�
 make test   # = scripts/test.sh : 리포 검증 + Terraform(fmt·test) + 백엔드(./gradlew test) + 프론트(npm test)
 ```
 
-- 백엔드: JUnit 5 + Testcontainers(PostgreSQL). **Docker가 떠 있어야 한다.**
+- 백엔드: JUnit 5 + Testcontainers(PostgreSQL, MinIO — 컨테이너는 각각 하나를 모든 통합 테스트가 같이 쓴다). **Docker가 떠 있어야 한다.**
 - 프론트: Vitest + Testing Library.
 - 리포: `scripts/test/repo_test.sh` (Makefile 타깃, hooks 설정, gitignore 등 골격 검증)
 - Terraform: `terraform fmt -check -recursive infra` + `tests/*.tftest.hcl`이 있는 모듈마다 `terraform init -backend=false`·`validate`·`test`.
@@ -86,6 +95,12 @@ make test   # = scripts/test.sh : 리포 검증 + Terraform(fmt·test) + 백엔�
 | `OTP_HASH_KEY` | 개발용 기본값(운영 금지) | OTP 코드 해시(HMAC-SHA256) 키, 32바이트 이상이 아니면 기동 실패 |
 | `OTP_PHONE_DAILY_LIMIT` / `OTP_IP_HOURLY_LIMIT` | `10` / `20` | OTP 발송 한도: 같은 번호 24시간 N회, 같은 클라이언트 IP 1시간 M회(같은 번호 60초 1회는 고정) |
 | `CLIENT_IP_HEADER` | (비어 있음) | 클라이언트 IP를 읽을 신뢰 헤더. 비우면 remote address. CloudFront 뒤(운영)는 `CloudFront-Viewer-Address` |
+| `UPLOADS_BUCKET` | (비어 있음) | 첨부 버킷(TASK-11). 비우면 S3 클라이언트를 만들지 않고 첨부 API는 503 `uploads_unavailable`(앱은 그대로 뜬다). 운영: Terraform `uploads` 모듈 출력 `bucket_name` |
+| `UPLOADS_REGION` | `ap-northeast-2` | 버킷 리전(운영은 버킷이 있는 리전으로 반드시 지정. 로컬 MinIO는 `us-east-1`) |
+| `UPLOADS_ENDPOINT` / `UPLOADS_PATH_STYLE` | (비어 있음) / `false` | S3 호환 엔드포인트와 path-style 주소. 로컬 MinIO는 `http://localhost:9000` / `true`, 운영 S3는 비움 / `false` |
+| `UPLOADS_ACCESS_KEY` / `UPLOADS_SECRET_KEY` | (비어 있음) | 정적 자격 증명(로컬 MinIO 전용). 비우면 SDK 기본 체인(EC2 인스턴스 프로파일) |
+| `UPLOADS_PUBLIC_BASE_PATH` | `/uploads/` | 첨부 공개 URL 앞부분. url = 이 값 + 키에서 `uploads/` 뒤. 운영은 CloudFront `/uploads/*`(같은 오리진), 로컬은 `http://localhost:9000/board-uploads/uploads/` |
+| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` / `MINIO_PORT` / `MINIO_CONSOLE_PORT` | `minioadmin` / `minioadmin` / `9000` / `9001` | 로컬 MinIO 컨테이너 |
 
 ## 인증·인가 모델 (백엔드)
 
@@ -213,9 +228,9 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | 요청 | 설명 |
 |---|---|
 | `GET /api/posts?category=<slug>&tag=<name>&q=<검색어>&page=0&size=20&sort=latest` | `{items:[{id, title, excerpt, author:{id, nickname}, category:{id, slug, name}\|null, tags, createdAt, updatedAt, deleted, hidden, likeCount, viewCount}], page, size, totalElements, totalPages}`. 오프셋 페이징. `size` 1~50(기본 20), `page` ≥ 0. `sort`는 `latest`(기본, `created_at`·`id` 내림차순)와 `popular`(TASK-9: `like_count` 내림차순, 같으면 최신순)만 받고 대소문자는 가리지 않는다. 범위를 벗어나거나 형식이 틀리면 400. `tag`는 태그와 같은 규칙으로 정규화한다. `excerpt`는 공백을 접은 본문 앞 200자이고, 잘렸으면 끝에 `…`를 붙인다 |
-| `GET /api/posts/{id}` | `{id, title, content, author, category, tags, createdAt, updatedAt, editable, deleted, hidden, likeCount, likedByMe, viewCount}`. `editable`은 보는 사람이 작성자나 ADMIN이고 글이 삭제되지 않았을 때 true. `likedByMe`는 보는 사람이 좋아요를 눌렀는지(익명은 false). 조회수를 올린다(아래 TASK-9). 없으면 404 `post_not_found` |
-| `POST /api/posts` `{title, content, categorySlug?, tags?}` | 201 + `Location` + 상세. 제목은 1~100자, 본문은 1~20000자이고 둘 다 공백만으로는 쓸 수 없다(어기면 400 `validation`). 없는 카테고리는 400 `unknown_category` |
-| `PATCH /api/posts/{id}` | 보낸 필드만 바꾼다(빠진 필드나 null은 그대로 둔다). `categorySlug:""`는 카테고리를 빼고, `tags:[]`는 태그를 모두 지운다. 200 + 상세 |
+| `GET /api/posts/{id}` | `{id, title, content, author, category, tags, createdAt, updatedAt, editable, deleted, hidden, likeCount, likedByMe, viewCount, attachments}`. `attachments`는 붙은 이미지 `[{id, url, contentType, size, status}]`(올린 순, 아래 TASK-11). `editable`은 보는 사람이 작성자나 ADMIN이고 글이 삭제되지 않았을 때 true. `likedByMe`는 보는 사람이 좋아요를 눌렀는지(익명은 false). 조회수를 올린다(아래 TASK-9). 없으면 404 `post_not_found` |
+| `POST /api/posts` `{title, content, categorySlug?, tags?, attachmentIds?}` | 201 + `Location` + 상세. `attachmentIds`(최대 10)는 본인이 올려 확정한 첨부(아래 TASK-11). 제목은 1~100자, 본문은 1~20000자이고 둘 다 공백만으로는 쓸 수 없다(어기면 400 `validation`). 없는 카테고리는 400 `unknown_category` |
+| `PATCH /api/posts/{id}` | 보낸 필드만 바꾼다(빠진 필드나 null은 그대로 둔다). `categorySlug:""`는 카테고리를 빼고, `tags:[]`는 태그를 모두 지운다. `attachmentIds`는 첨부 목록을 통째로 바꾸고(빠진 첨부는 연결 해제), `[]`는 모두 뗀다. 200 + 상세 |
 | `DELETE /api/posts/{id}` | soft delete(`deleted_at`). 204 |
 | `GET /api/categories` | `[{id, slug, name, sortOrder, adminOnly}]`(sort_order 순). 기본 카테고리는 `notice`(공지, ADMIN 전용)와 `free`(자유게시판) |
 | `GET /api/tags?q=<접두어>&limit=20` | `[{name, postCount}]`. 보이는 글에 붙은 태그만, 글 수 내림차순(같으면 이름순)이다. `q`는 소문자와 공백을 정규화한 접두어이고 `%`·`_`도 글자 그대로 비교한다. `limit`은 1~100 |
@@ -253,6 +268,36 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 - **한국어**: 형태소 분석기가 없어서 `simple` 구성(공백·구두점 분리, 소문자화, 어간 처리 없음)을 쓴다. 그래서 '스프링'은 tsvector로는 '스프링부트'와 맞지 않는다. 이 경우를 ILIKE 부분 일치가 맡는다. `pg_trgm` 확장과 `title`·`content`의 `gin_trgm_ops` 인덱스(V8, `posts_title_trgm_ix`·`posts_content_trgm_ix`)로 ILIKE를 인덱스로 처리한다. 트라이그램은 3글자 단위라서 2글자 검색어는 인덱스가 잘 걸러 주지 못한다.
 - **구현**: Criteria에서 `search_tsv`를 쓰려고 `posts`를 한 번 더 매핑한 읽기 전용 엔티티 `PostSearchDocument`를 두었다. `Post`에 매핑하면 글을 읽을 때마다 tsvector를 함께 가져오기 때문이다. `@@`는 `FunctionContributor`(`SearchFunctions`)가 등록한 패턴 함수 `post_fts_match`로 그린다. 조건은 `p.id in (select d.id from posts d where …)`라는 비상관 서브쿼리이고, 페이지·count·`fetchDetails` 일괄 로딩 구조(N+1 없음)는 그대로다.
 - **관련도 정렬 없음**: `sort=relevance`(ts_rank)는 만들지 않았다. ILIKE로만 맞은 글은 순위를 매길 수 없고, Spring Data `Sort`로 함수 정렬을 하려면 별도 쿼리가 필요하다. 제목 가중치(A)는 나중에 순위를 붙일 때 쓰려고 넣어 두었다.
+
+### 이미지 첨부 (TASK-11)
+
+업로드 본문은 앱을 거치지 않는다. 앱이 서명한 S3 presigned PUT URL로 브라우저가 직접 올리고, 앱은 확인만 한다. 모든 요청은 로그인이 필요하고, 세션이면 CSRF 토큰도 필요하다. 정지 계정과 제한 세션은 403이다.
+
+1. `POST /api/attachments/presign` `{contentType, size, filename?}` → 200 `{attachmentId, key, uploadUrl, method:"PUT", headers, expiresAt}`
+2. 클라이언트가 `uploadUrl`로 `PUT`하면서 `headers`(`content-type`, `x-amz-tagging: status=pending`)를 그대로 보낸다. 본문 길이는 `size`와 같아야 한다. `Content-Length`와 `Host`는 HTTP 클라이언트(브라우저)가 붙이므로 `headers`에 넣지 않았다. 셋 다 서명돼 있어서 값이 다르면 S3가 403(SignatureDoesNotMatch)으로 거부한다. URL은 5분간 유효하다.
+3. `POST /api/attachments/{attachmentId}/confirm` → 200 `{id, url, contentType, size, status:"CONFIRMED"}`
+4. 글 작성·수정에 `attachmentIds:[...]`를 넣으면 붙고, 상세 `attachments`에 나온다.
+
+| 오류 | 언제 |
+|---|---|
+| 400 `attachment_type_not_allowed` | presign: `image/png`·`image/jpeg`·`image/webp`·`image/gif`가 아니다(대소문자·앞뒤 공백은 무시, `;charset` 같은 파라미터가 붙으면 거부) (B1) |
+| 400 `attachment_too_large` | presign: `size` > 5MB(5242880바이트) (B1) |
+| 400 `validation` | `contentType`·`size` 누락, `size` ≤ 0, `filename` 255자 초과, `attachmentIds` 10개 초과·null 원소 |
+| 503 `uploads_unavailable` | 버킷이 설정되지 않았다(`UPLOADS_BUCKET` 비어 있음) |
+| 404 `attachment_not_found` | confirm: 없는 첨부(또는 정리됨) |
+| 403 `attachment_forbidden` | confirm: 남의 첨부(ADMIN 포함). 글 연결: 남이 올린 첨부, 또는 남의 글에 새 첨부를 붙이려 함 (B2) |
+| 400 `attachment_not_uploaded` | confirm: 저장소에 객체가 없다(아직 PUT 전) |
+| 400 `attachment_mismatch` | confirm: 저장된 객체의 크기·타입이 presign 때와 다르다. 객체는 지운다 |
+| 400 `unknown_attachment` | 글 연결: 없는 첨부 id |
+| 400 `attachment_not_confirmed` | 글 연결: confirm 전(PENDING) 첨부 |
+| 400 `attachment_in_use` | 글 연결: 이미 다른 글에 붙은 첨부 |
+
+- **키와 URL**: 키는 `uploads/{userId}/{uuid}.{ext}`다. 확장자는 타입에서 정하고(`jpg`·`png`·`webp`·`gif`), `filename`은 키에 쓰지 않는다(경로 조작 불가). 공개 `url`은 `UPLOADS_PUBLIC_BASE_PATH`에 키의 `uploads/` 뒤를 붙인 값이다. 운영은 `/uploads/7/<uuid>.png`처럼 같은 오리진 상대 경로이고, CloudFront `/uploads/*` 동작이 같은 키로 S3(OAC)를 읽는다(TASK-16).
+- **confirm(AC#2)**: 본인만 할 수 있다. HeadObject로 객체가 있는지, 크기가 presign 때와 같고 5MB 이하인지, Content-Type이 같은지 다시 확인한다. 통과하면 객체 태그를 지우고(DeleteObjectTagging) `CONFIRMED`로 바꾼다. 이미 확정된 첨부를 다시 confirm하면 그대로 200이다. S3 호출 중에는 DB 트랜잭션을 잡지 않는다.
+- **글 연결(B2)**: 새로 붙이는 첨부는 요청자 본인이 올렸고 글 작성자도 본인이어야 하며, `CONFIRMED`이고 다른 글에 붙어 있지 않아야 한다. 이미 그 글에 붙은 첨부는 그대로 둘 수 있다. ADMIN이 남의 글을 고칠 때도 기존 첨부를 유지하거나 뗄 수는 있지만 새로 붙일 수는 없다. 첨부 행을 `FOR UPDATE`로 잠근 뒤 연결하므로 같은 첨부가 두 글에 붙지 않는다. 실패하면 글 작성·수정 전체가 롤백된다. 연결을 뗀 첨부는 다시 붙일 수 있고, 글을 지워도 객체는 지우지 않는다.
+- **미확정 정리(AC#4)**: presign이 `x-amz-tagging: status=pending`을 서명에 넣으므로 모든 업로드 객체에 태그가 붙는다. confirm이 이 태그를 지운다. S3 lifecycle(Terraform `infra/main/modules/uploads`)은 `uploads/` 아래 태그가 남은 객체를 1일 뒤 지운다. DB에서는 앱 스케줄러 `PendingAttachmentCleanup`이 1시간마다(`app.uploads.cleanup-interval`) 24시간(`app.uploads.pending-ttl`)이 지난 `PENDING` 행을 지우고, 객체도 best-effort로 지운다.
+- **스키마**: V9 `attachments(owner_id, post_id NULL, s3_key UNIQUE, content_type, size, status PENDING|CONFIRMED, created_at, confirmed_at)`. CHECK 제약으로 타입·5MB와 "글에는 CONFIRMED만"을 DB에서도 막는다.
+- **운영 권한**: 앱(EC2 role)에는 `uploads` 모듈 출력 `app_policy_json`을 붙인다. 내용은 `uploads/*`에 대한 Put/Get/Delete Object와 Put/Get/Delete ObjectTagging이다. presigned URL은 앱 자격 증명으로 서명하므로 PutObject와 PutObjectTagging 권한도 앱에 있어야 한다.
 
 ## 개발 워크플로
 
