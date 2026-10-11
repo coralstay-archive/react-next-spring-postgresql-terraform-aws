@@ -24,6 +24,10 @@ public interface UserIdentityRepository extends JpaRepository<UserIdentity, Long
 	@Query("select i from UserIdentity i join fetch i.user where i.provider = :provider and i.subject = :subject")
 	Optional<UserIdentity> findWithUserByProviderAndSubject(AuthProvider provider, String subject);
 
+	/** 여러 계정의 로그인 수단을 한 번에 읽는다 (관리자 사용자 목록, N+1 방지). 행은 {@code [userId, provider]}. */
+	@Query("select i.user.id, i.provider from UserIdentity i where i.user.id in :userIds order by i.linkedAt, i.id")
+	List<Object[]> findProvidersByUserIdIn(java.util.Collection<Long> userIds);
+
 	/** 계정에 연결된 로그인 수단 목록. */
 	@Query("select i.provider from UserIdentity i where i.user.id = :userId")
 	List<AuthProvider> findProvidersByUserId(Long userId);

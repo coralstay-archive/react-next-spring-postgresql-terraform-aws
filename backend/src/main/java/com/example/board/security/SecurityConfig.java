@@ -136,6 +136,8 @@ public class SecurityConfig {
 				// 댓글 목록 (TASK-9#1). 작성·삭제·좋아요는 기본 규칙(인증) + CSRF + 정지·step-up 필터.
 				.requestMatchers(HttpMethod.GET, "/posts/*/comments").permitAll()
 				.requestMatchers("/error").permitAll()
+				// 관리자 API (TASK-12 B1): 체인에서 ADMIN 만. 익명은 401, 비ADMIN 은 403. 쓰기는 여전히 CSRF·정지·step-up 필터를 거친다.
+				.requestMatchers("/admin/**").hasRole("ADMIN")
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
 				.anyRequest().authenticated())
 			// SUSPENDED 쓰기 차단(B3). 여기서 던진 AccessDeniedException 도 ExceptionTranslationFilter 가 403 JSON 으로 바꾼다.

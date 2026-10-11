@@ -28,4 +28,9 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
 	@Query("update RefreshToken t set t.revokedAt = :now where t.familyId = :familyId and t.revokedAt is null")
 	int revokeFamily(UUID familyId, Instant now);
 
+	/** 사용자의 살아 있는 refresh 토큰을 family 구분 없이 모두 폐기한다 (TASK-12 관리자 정지). 바뀐 행 수를 돌려준다. */
+	@Modifying(flushAutomatically = true, clearAutomatically = true)
+	@Query("update RefreshToken t set t.revokedAt = :now where t.userId = :userId and t.revokedAt is null")
+	int revokeAllOfUser(Long userId, Instant now);
+
 }
