@@ -1,10 +1,10 @@
 ---
 id: TASK-7
 title: '인증: 휴대폰 OTP 로그인'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 13:19'
+updated_date: '2026-10-11 15:02'
 labels:
   - backend
   - auth
