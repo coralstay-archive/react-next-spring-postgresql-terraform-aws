@@ -23,6 +23,7 @@ import com.example.board.auth.oauth.OAuth2Properties;
 import com.example.board.auth.oauth.PublicUrls;
 import com.example.board.common.ApiException;
 import com.example.board.security.BearerRequests;
+import com.example.board.security.StepUpRequiredException;
 
 /** 내 로그인 수단 관리 ({@code /api/me/identities}). 인증 필요(보안 체인 기본 규칙). */
 @RestController
@@ -69,6 +70,10 @@ public class IdentityController {
 			HttpServletRequest request) {
 		if (BearerRequests.isBearer(request)) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "bad_request", "계정 연결은 브라우저 세션으로만 시작할 수 있습니다");
+		}
+		if (user.stepUpRequired()) {
+			// 제한 세션(TASK-7 B4)이 새 수단을 붙여 그 수단으로 step-up 하는 우회를 막는다. GET 이라 쓰기 필터가 보지 않는다.
+			throw StepUpRequiredException.apiException();
 		}
 		String registrationId = provider.toLowerCase(Locale.ROOT);
 		if (registrations.findByRegistrationId(registrationId) == null) {

@@ -23,6 +23,8 @@ import com.example.board.auth.token.TokenService;
 import com.example.board.common.ApiException;
 import com.example.board.security.BearerRequests;
 import com.example.board.security.ClientIpResolver;
+import com.example.board.security.StepUpRequiredException;
+import com.example.board.user.AuthProvider;
 import com.example.board.user.User;
 import com.example.board.user.UserIdentityRepository;
 import com.example.board.user.UserRepository;
@@ -77,6 +79,9 @@ public class PhoneAuthController {
 	 * 아니고 token 과 같이 쓸 수 없다. 다른 계정의 번호면 409 identity_in_use.</li>
 	 * </ul>
 	 * 코드가 틀리거나 챌린지가 없·만료·소멸·폐기됐으면 모두 같은 401 {@code invalid_otp}. 정지 계정은 403.
+	 *
+	 * <p>B4 재활용 번호 보호: 로그인한 계정에 PHONE 말고 다른 수단(LOCAL·소셜·Cognito)도 있으면 제한 세션·토큰
+	 * ({@code stepUpRequired})이다. 제한 세션은 연결 모드를 쓸 수 없다(403 step_up_required).
 	 */
 	@PostMapping("/auth/phone/verify")
 	public Object verify(@Valid @RequestBody PhoneVerifyRequest body,
@@ -97,11 +102,13 @@ public class PhoneAuthController {
 		if (user.getStatus() != UserStatus.ACTIVE) {
 			throw new ApiException(HttpStatus.FORBIDDEN, "suspended", "정지된 계정은 로그인할 수 없습니다");
 		}
+		// B4 재활용 번호 보호: 다른 수단도 있는 계정이면 기존 수단으로 다시 인증하기 전까지 제한 세션·토큰이다.
+		boolean stepUpRequired = identities.existsByUserIdAndProviderNot(user.getId(), AuthProvider.PHONE);
 		if (token != null) {
-			return tokens.issueForLogin(user);
+			return tokens.issueForLogin(user, stepUpRequired);
 		}
-		sessionLogin.login(user, request, response);
-		return summary(user);
+		sessionLogin.login(user, stepUpRequired, request, response);
+		return UserSummary.of(user, identities.findProvidersByUserId(user.getId()), stepUpRequired);
 	}
 
 	private UserSummary link(PhoneVerifyRequest body, String token, AuthUser principal) {
@@ -110,6 +117,10 @@ public class PhoneAuthController {
 		}
 		if (principal == null) {
 			throw new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "로그인한 뒤 연결할 수 있습니다");
+		}
+		if (principal.stepUpRequired()) {
+			// 제한 세션이 새 수단을 붙여 그 수단으로 step-up 하는 우회를 막는다 (B4).
+			throw StepUpRequiredException.apiException();
 		}
 		String phone = verifiedPhone(body);
 		phoneIdentities.link(principal.id(), phone);

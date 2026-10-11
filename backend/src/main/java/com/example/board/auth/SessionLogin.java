@@ -40,11 +40,19 @@ public class SessionLogin {
 	}
 
 	public void login(User user, HttpServletRequest request, HttpServletResponse response) {
+		login(user, false, request, response);
+	}
+
+	/**
+	 * {@code stepUpRequired} 면 제한 세션(TASK-7 B4)이다. 제한 없는 로그인(step-up, 다른 수단 로그인)은 같은 방법으로 세션 ID 를 바꾸며
+	 * principal 을 덮어쓴다.
+	 */
+	public void login(User user, boolean stepUpRequired, HttpServletRequest request, HttpServletResponse response) {
 		if (request.getSession(false) != null) {
 			request.changeSessionId();
 		}
 		SecurityContext context = holder.createEmptyContext();
-		context.setAuthentication(AuthUserAuthentication.of(AuthUser.from(user)));
+		context.setAuthentication(AuthUserAuthentication.of(AuthUser.from(user, stepUpRequired)));
 		holder.setContext(context);
 		contextRepository.saveContext(context, request, response);
 		csrfTokens.saveToken(csrfTokens.generateToken(request), request, response);

@@ -54,7 +54,16 @@ public class TokenService {
 	/** 로그인: 새 family 를 시작한다. */
 	@Transactional
 	public TokenResponse issueForLogin(User user) {
-		return issue(user, UUID.randomUUID());
+		return issueForLogin(user, false);
+	}
+
+	/**
+	 * 로그인: 새 family 를 시작한다. {@code stepUpRequired} 면 제한 토큰(TASK-7 B4)이고, 이 family 를 로테이션해 받는 토큰도 계속
+	 * 제한이다.
+	 */
+	@Transactional
+	public TokenResponse issueForLogin(User user, boolean stepUpRequired) {
+		return respond(user, store(user.getId(), UUID.randomUUID(), stepUpRequired).raw(), stepUpRequired);
 	}
 
 	/**
@@ -105,9 +114,9 @@ public class TokenService {
 			refreshTokens.revokeFamily(token.getFamilyId(), now);
 			return Rotation.SUSPENDED;
 		}
-		Issued next = store(user.getId(), token.getFamilyId());
+		Issued next = store(user.getId(), token.getFamilyId(), token.isStepUpRequired());
 		token.rotatedTo(next.token(), now);
-		return new Rotation(Rotation.Outcome.ROTATED, respond(user, next.raw()));
+		return new Rotation(Rotation.Outcome.ROTATED, respond(user, next.raw(), token.isStepUpRequired()));
 	}
 
 	/** {@link #rotate} 결과. ROTATED 일 때만 tokens 가 있다. */
@@ -123,23 +132,20 @@ public class TokenService {
 
 	}
 
-	TokenResponse issue(User user, UUID familyId) {
-		return respond(user, store(user.getId(), familyId).raw());
-	}
-
 	/** 새 refresh 토큰을 만들어 해시만 저장하고, 원문과 저장된 엔티티를 돌려준다. */
-	Issued store(Long userId, UUID familyId) {
+	Issued store(Long userId, UUID familyId, boolean stepUpRequired) {
 		byte[] bytes = new byte[REFRESH_TOKEN_BYTES];
 		random.nextBytes(bytes);
 		String raw = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
 		Instant now = clock.instant();
 		RefreshToken saved = refreshTokens
-			.saveAndFlush(RefreshToken.issue(userId, hash(raw), familyId, now.plus(properties.refreshTokenTtl())));
+			.saveAndFlush(RefreshToken.issue(userId, hash(raw), familyId, now.plus(properties.refreshTokenTtl()),
+					stepUpRequired));
 		return new Issued(raw, saved);
 	}
 
-	TokenResponse respond(User user, String rawRefreshToken) {
-		return TokenResponse.bearer(jwt.issueAccessToken(AuthUser.from(user)), rawRefreshToken,
+	TokenResponse respond(User user, String rawRefreshToken, boolean stepUpRequired) {
+		return TokenResponse.bearer(jwt.issueAccessToken(AuthUser.from(user, stepUpRequired)), rawRefreshToken,
 				properties.accessTokenTtl().toSeconds());
 	}
 

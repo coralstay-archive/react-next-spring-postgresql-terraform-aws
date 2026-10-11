@@ -92,6 +92,30 @@ public class LocalAccountService {
 		return identity.get().getUser();
 	}
 
+	/**
+	 * step-up(TASK-7 B4): 이 계정의 LOCAL 비밀번호를 확인한다. LOCAL 이 없으면 빈 값, 틀리면 401 invalid_credentials
+	 * (로그인과 같은 규칙: 72바이트 초과 입력도 틀린 것).
+	 *
+	 * @return LOCAL 이 있고 비밀번호가 맞으면 true, LOCAL 이 없으면 false
+	 */
+	@Transactional(readOnly = true)
+	public boolean verifyPassword(Long userId, String password) {
+		Optional<LocalCredential> credential = identities.findByUserId(userId)
+			.stream()
+			.filter(identity -> identity.getProvider() == AuthProvider.LOCAL)
+			.findFirst()
+			.flatMap(identity -> credentials.findById(identity.getId()));
+		if (credential.isEmpty()) {
+			return false;
+		}
+		String raw = password == null ? "" : password;
+		if (!passwordEncoder.matches(raw, credential.get().getPasswordHash())
+				|| raw.getBytes(StandardCharsets.UTF_8).length > PasswordPolicy.MAX_BYTES) {
+			throw invalidCredentials();
+		}
+		return true;
+	}
+
 	public static ApiException invalidCredentials() {
 		return new ApiException(HttpStatus.UNAUTHORIZED, INVALID_CREDENTIALS, "이메일 또는 비밀번호가 올바르지 않습니다");
 	}

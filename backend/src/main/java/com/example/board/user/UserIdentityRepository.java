@@ -17,6 +17,9 @@ public interface UserIdentityRepository extends JpaRepository<UserIdentity, Long
 
 	long countByUserId(Long userId);
 
+	/** 계정에 이 수단 말고 다른 수단도 있는가 (TASK-7 B4: PHONE 로그인 제한 판정). */
+	boolean existsByUserIdAndProviderNot(Long userId, AuthProvider provider);
+
 	/** 로그인용: identity 와 계정을 한 번에 읽는다. */
 	@Query("select i from UserIdentity i join fetch i.user where i.provider = :provider and i.subject = :subject")
 	Optional<UserIdentity> findWithUserByProviderAndSubject(AuthProvider provider, String subject);

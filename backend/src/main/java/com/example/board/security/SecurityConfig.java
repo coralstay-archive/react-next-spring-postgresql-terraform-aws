@@ -39,7 +39,8 @@ import com.example.board.user.UserRepository;
  * <li>CSRF: 세션 경로만 검사한다. {@code XSRF-TOKEN} 쿠키(JS 가 읽음) 값을 {@code X-XSRF-TOKEN} 헤더로 보내는 더블 서브밋.
  * Bearer 경로는 면제한다(브라우저가 자동으로 붙이는 자격이 아니므로).</li>
  * <li>인가: 기본은 인증 필요. 역할·소유권은 {@code @PreAuthorize}(+ {@link OwnershipChecker}),
- * SUSPENDED 계정의 쓰기 차단은 {@link SuspendedUserWriteFilter} 가 모든 요청에 공통으로 한다.</li>
+ * SUSPENDED 계정의 쓰기 차단은 {@link SuspendedUserWriteFilter}, 제한 세션(재활용 번호 보호, TASK-7 B4)의 쓰기 차단은
+ * {@link StepUpRequiredWriteFilter} 가 모든 요청에 공통으로 한다.</li>
  * <li>미인증은 401 JSON, 권한 없음은 403 JSON. 로그인 페이지·리다이렉트·HTTP Basic 은 없다.</li>
  * <li>소셜 로그인(TASK-4): {@code oauth2Login} 필터가 {@code /oauth2/authorization/{id}} 와 {@code /login/oauth2/code/{id}} 만
  * 처리한다(인가 규칙보다 앞이라 permitAll 이 필요 없다). 성공·실패는 프론트로 302 ({@link OAuth2LoginCustomizer}).</li>
@@ -54,6 +55,18 @@ public class SecurityConfig {
 
 	/** 정지된 사용자도 할 수 있어야 하는 쓰기: 로그아웃 (TASK-3#3). */
 	static final RequestMatcher LOGOUT = PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/logout");
+
+	/**
+	 * 제한 세션·토큰(TASK-7 B4)도 할 수 있는 쓰기: 로그아웃, step-up, 다시 로그인하기(로그인 계열). 다시 로그인하면 새 세션·토큰으로
+	 * 바뀌므로 제한을 우회하는 길이 아니다.
+	 */
+	static final List<RequestMatcher> STEP_UP_EXEMPT = List.of(LOGOUT,
+			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/step-up/**"),
+			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/login"),
+			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/signup"),
+			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/token/refresh"),
+			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/phone/otp"),
+			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/phone/verify"));
 
 	@Bean
 	SecurityContextRepository securityContextRepository() {
@@ -122,7 +135,9 @@ public class SecurityConfig {
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
 				.anyRequest().authenticated())
 			// SUSPENDED 쓰기 차단(B3). 여기서 던진 AccessDeniedException 도 ExceptionTranslationFilter 가 403 JSON 으로 바꾼다.
-			.addFilterAfter(new SuspendedUserWriteFilter(users, List.of(LOGOUT)), AuthorizationFilter.class);
+			.addFilterAfter(new SuspendedUserWriteFilter(users, List.of(LOGOUT)), AuthorizationFilter.class)
+			// 재활용 번호 보호(TASK-7 B4): 제한 세션·토큰의 쓰기 차단. 정지 판정 다음에 둔다(정지가 우선).
+			.addFilterAfter(new StepUpRequiredWriteFilter(STEP_UP_EXEMPT), SuspendedUserWriteFilter.class);
 		return http.build();
 	}
 

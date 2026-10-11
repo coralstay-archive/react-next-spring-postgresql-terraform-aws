@@ -36,7 +36,7 @@ import com.example.board.user.UserStatus;
  * {@link #toAuthentication} 을 쓰고, 로그인 API(TASK-3)는 {@link #issueAccessToken} 을 쓴다.
  *
  * <p>클레임: {@code iss}, {@code sub}(user id), {@code iat}, {@code exp}, {@code jti}, {@code role}, {@code status},
- * {@code token_type=access}. refresh 토큰은 JWT 가 아니라 DB(refresh_tokens)에 해시로 둔다.
+ * {@code token_type=access}, {@code step_up_required}(TASK-7 B4). refresh 토큰은 JWT 가 아니라 DB(refresh_tokens)에 해시로 둔다.
  */
 @Service
 public class JwtTokenService {
@@ -48,6 +48,9 @@ public class JwtTokenService {
 	public static final String CLAIM_STATUS = "status";
 
 	public static final String CLAIM_TOKEN_TYPE = "token_type";
+
+	/** 제한 토큰 표시 (TASK-7 B4). true 면 step-up 전까지 쓰기 403. 없으면 false 로 본다. */
+	public static final String CLAIM_STEP_UP_REQUIRED = "step_up_required";
 
 	public static final String ACCESS = "access";
 
@@ -90,6 +93,7 @@ public class JwtTokenService {
 			.claim(CLAIM_ROLE, user.role().name())
 			.claim(CLAIM_STATUS, user.status().name())
 			.claim(CLAIM_TOKEN_TYPE, ACCESS)
+			.claim(CLAIM_STEP_UP_REQUIRED, user.stepUpRequired())
 			.build();
 		return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims))
 			.getTokenValue();
@@ -103,7 +107,8 @@ public class JwtTokenService {
 	public AuthUser toAuthUser(Jwt jwt) {
 		try {
 			return new AuthUser(Long.valueOf(jwt.getSubject()), Role.valueOf(jwt.getClaimAsString(CLAIM_ROLE)),
-					UserStatus.valueOf(jwt.getClaimAsString(CLAIM_STATUS)));
+					UserStatus.valueOf(jwt.getClaimAsString(CLAIM_STATUS)),
+					Boolean.TRUE.equals(jwt.getClaimAsBoolean(CLAIM_STEP_UP_REQUIRED)));
 		}
 		catch (RuntimeException ex) {
 			throw new InvalidBearerTokenException("access 토큰 클레임이 올바르지 않다", ex);

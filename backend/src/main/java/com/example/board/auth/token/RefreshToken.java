@@ -50,18 +50,32 @@ public class RefreshToken {
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
+	/** 제한 토큰 family (TASK-7 B4). 로테이션해도 유지된다. */
+	@Column(name = "step_up_required", nullable = false)
+	private boolean stepUpRequired;
+
 	protected RefreshToken() {
 	}
 
-	private RefreshToken(Long userId, String tokenHash, UUID familyId, Instant expiresAt) {
+	private RefreshToken(Long userId, String tokenHash, UUID familyId, Instant expiresAt, boolean stepUpRequired) {
 		this.userId = Objects.requireNonNull(userId, "userId");
 		this.tokenHash = Objects.requireNonNull(tokenHash, "tokenHash");
 		this.familyId = Objects.requireNonNull(familyId, "familyId");
 		this.expiresAt = Objects.requireNonNull(expiresAt, "expiresAt");
+		this.stepUpRequired = stepUpRequired;
 	}
 
 	public static RefreshToken issue(Long userId, String tokenHash, UUID familyId, Instant expiresAt) {
-		return new RefreshToken(userId, tokenHash, familyId, expiresAt);
+		return issue(userId, tokenHash, familyId, expiresAt, false);
+	}
+
+	public static RefreshToken issue(Long userId, String tokenHash, UUID familyId, Instant expiresAt,
+			boolean stepUpRequired) {
+		return new RefreshToken(userId, tokenHash, familyId, expiresAt, stepUpRequired);
+	}
+
+	public boolean isStepUpRequired() {
+		return stepUpRequired;
 	}
 
 	@PrePersist

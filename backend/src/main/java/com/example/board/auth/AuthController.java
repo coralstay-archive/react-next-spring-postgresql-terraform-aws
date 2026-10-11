@@ -147,13 +147,14 @@ public class AuthController {
 
 	/**
 	 * 현재 사용자. 세션·Bearer 공통. 세션·토큰에 실린 role/status 는 발급 시점 값이라, 응답은 DB 의 최신 값으로 만든다.
-	 * 계정이 지워졌으면 401. 익명은 보안 체인이 401 로 막는다.
+	 * 계정이 지워졌으면 401. 익명은 보안 체인이 401 로 막는다. {@code stepUpRequired}·{@code stepUpProviders} 는 이 세션·토큰의
+	 * 제한 여부와 다시 인증할 수 있는 수단이다(TASK-7 B4).
 	 */
 	@GetMapping("/auth/me")
 	public UserSummary me(@AuthenticationPrincipal AuthUser principal) {
 		User user = users.findById(principal.id())
 			.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "인증이 필요합니다"));
-		return summary(user);
+		return UserSummary.of(user, identities.findProvidersByUserId(user.getId()), principal.stepUpRequired());
 	}
 
 	private static ApiException suspended() {

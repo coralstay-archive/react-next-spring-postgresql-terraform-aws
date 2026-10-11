@@ -23,6 +23,7 @@ import com.example.board.auth.AuthUser;
 import com.example.board.auth.SessionLogin;
 import com.example.board.auth.identity.IdentityInUseException;
 import com.example.board.auth.identity.IdentityResolver;
+import com.example.board.security.StepUpRequiredException;
 import com.example.board.user.User;
 import com.example.board.user.UserRepository;
 import com.example.board.user.UserStatus;
@@ -36,6 +37,9 @@ import com.example.board.user.UserStatus;
  * 이후 요청의 principal 은 수단과 상관없이 항상 {@code AuthUser} 다.
  *
  * <p>SUSPENDED 계정은 세션을 만들지 않고 {@code ?error=suspended} 로 돌려보낸다.
+ *
+ * <p>휴대폰 로그인의 제한 세션(TASK-7 B4)에서 로그인 모드로 들어오면, 찾은 계정으로 {@link SessionLogin} 이 제한 없는 새 세션을
+ * 만든다 — 같은 계정의 소셜·Cognito identity 로 로그인하는 것이 곧 step-up 이다.
  *
  * <p><b>연결 모드</b>(세션에 {@link LinkIntent}): 로그인하지 않고, 세션의 현재 사용자(로그인 필터가 세션의 SecurityContext 를
  * 건드리지 않으므로 그대로 남아 있다)에게 identity 를 붙인 뒤 계정 화면으로 보낸다. 플래그가 그 사용자·제공자의 것이 아니거나
@@ -99,6 +103,10 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 		AuthUser current = sessionUser(request);
 		if (!intent.isValidFor(current, registrationId, Instant.now())) {
 			return redirects.linkFailed(LINK_EXPIRED);
+		}
+		if (current.stepUpRequired()) {
+			// 제한 세션(TASK-7 B4)은 수단을 연결할 수 없다. (연결 시작에서 이미 막지만 콜백에서도 확인한다.)
+			return redirects.linkFailed(StepUpRequiredException.CODE);
 		}
 		UserStatus status = users.findStatusById(current.id()).orElse(null);
 		if (status == null) {
