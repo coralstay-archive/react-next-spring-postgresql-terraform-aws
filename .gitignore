@@ -1,0 +1,39 @@
+# OS / 에디터
+.DS_Store
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# 비밀값 — 실제 값은 example.env를 복사한 .env에만 둔다
+.env
+.env.*
+*.pem
+*.p12
+*.jks
+*.keystore
+
+# backend (Gradle)
+backend/.gradle/
+backend/build/
+backend/bin/
+backend/out/
+!backend/gradle/wrapper/gradle-wrapper.jar
+
+# frontend (Next.js)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/coverage/
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# 로그
+*.log
