@@ -10,14 +10,13 @@ import java.net.http.HttpResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import com.example.board.support.IntegrationTest;
+
 /** TASK-1#2 백엔드가 PostgreSQL에 접속하고 /api/actuator/health 가 UP 이다. */
-@Import(TestcontainersConfiguration.class)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@IntegrationTest
 class HealthEndpointTest {
 
 	@LocalServerPort
