@@ -1,11 +1,23 @@
 package com.example.board.post;
 
+import java.net.URI;
+
+import jakarta.validation.Valid;
+
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import com.example.board.auth.AuthUser;
 import com.example.board.common.ApiException;
@@ -14,7 +26,10 @@ import com.example.board.post.PostResponses.PostDetail;
 import com.example.board.post.PostResponses.PostSummary;
 import com.example.board.tag.TagNames;
 
-/** 게시글 API (TASK-8). 목록·상세는 공개(익명 가능, SecurityConfig permitAll). */
+/**
+ * 게시글 API (TASK-8). 목록·상세는 공개(익명 가능, SecurityConfig permitAll). 쓰기는 인증 필요(세션이면 CSRF), 정지 계정·제한 세션은
+ * 보안 체인의 공통 필터가 403 으로 막는다.
+ */
 @RestController
 public class PostController {
 
@@ -49,6 +64,31 @@ public class PostController {
 	@GetMapping("/posts/{id}")
 	public PostDetail get(@PathVariable Long id, @AuthenticationPrincipal AuthUser viewer) {
 		return posts.get(id, viewer);
+	}
+
+	/** 작성 (TASK-8#3). 201 + Location + 상세. */
+	@PostMapping("/posts")
+	public ResponseEntity<PostDetail> create(@Valid @RequestBody PostRequests.Create request,
+			@AuthenticationPrincipal AuthUser user) {
+		PostDetail created = posts.create(user, request);
+		URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(created.id()).toUri();
+		return ResponseEntity.created(location).body(created);
+	}
+
+	/** 부분 수정 (TASK-8#3). 작성자 또는 ADMIN(B1): 없으면 404, 남의 글이면 403. */
+	@PatchMapping("/posts/{id}")
+	@PreAuthorize("@ownership.canModify(authentication, @postService.ownerOf(#id, authentication))")
+	public PostDetail update(@PathVariable Long id, @Valid @RequestBody PostRequests.Update request,
+			@AuthenticationPrincipal AuthUser user) {
+		return posts.update(id, user, request);
+	}
+
+	/** soft delete (TASK-8#3). 204. 작성자 또는 ADMIN(B1). */
+	@DeleteMapping("/posts/{id}")
+	@PreAuthorize("@ownership.canModify(authentication, @postService.ownerOf(#id, authentication))")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void delete(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+		posts.delete(id, user);
 	}
 
 	private static String blankToNull(String value) {

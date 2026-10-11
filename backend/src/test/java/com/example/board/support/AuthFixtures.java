@@ -63,6 +63,11 @@ public class AuthFixtures {
 		return jwt.issueAccessToken(AuthUser.from(user));
 	}
 
+	/** 제한(step-up 필요, TASK-7 B4) access 토큰. */
+	public String stepUpBearer(User user) {
+		return jwt.issueAccessToken(AuthUser.from(user, true));
+	}
+
 	/** 세션을 만들고 {@code SESSION=<base64 id>} 쿠키 문자열을 돌려준다. */
 	public String sessionCookie(User user) {
 		SecurityContext context = new SecurityContextImpl(AuthUserAuthentication.of(AuthUser.from(user)));
