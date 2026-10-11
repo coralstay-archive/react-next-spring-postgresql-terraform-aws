@@ -74,5 +74,16 @@ for p in infra/main/modules/cognito/.terraform/x infra/main/modules/cognito/.ter
 done
 check "TASK-6#1 gitignore가 루트 스택 lock 파일은 추적" sh -c '! git check-ignore -q --no-index infra/main/envs/prod/.terraform.lock.hcl'
 
+# TASK-11#3 로컬 첨부 저장소: docker compose 에 MinIO + 버킷 init(mc), make dev-storage, example.env 의 UPLOADS_* 값
+check "TASK-11#3 docker-compose 에 minio 서비스" grep -Eq "^  minio:" docker-compose.yml
+check "TASK-11#3 docker-compose 에 minio-init(버킷 생성) 서비스" grep -Eq "^  minio-init:" docker-compose.yml
+check "TASK-11#3 minio-init 은 mc 로 버킷을 만든다" grep -q "mc mb" docker-compose.yml
+check "TASK-11#3 MinIO CORS 는 프론트 개발 서버 origin 을 허용" grep -q "MINIO_API_CORS_ALLOW_ORIGIN" docker-compose.yml
+check "TASK-11#3 docker-compose 와 테스트가 같은 MinIO 이미지" sh -c 'img=$(grep -Eo "cgr.dev/chainguard/minio@sha256:[0-9a-f]+" docker-compose.yml | sort -u); [ -n "$img" ] && grep -q "$img" backend/src/test/java/com/example/board/TestcontainersConfiguration.java'
+check "TASK-11#3 make dev-storage 타깃" has_make_target dev-storage
+for k in UPLOADS_BUCKET UPLOADS_REGION UPLOADS_ENDPOINT UPLOADS_PATH_STYLE UPLOADS_ACCESS_KEY UPLOADS_SECRET_KEY UPLOADS_PUBLIC_BASE_PATH; do
+  check "TASK-11#3 example.env 에 $k" grep -Eq "^#? ?$k=" example.env
+done
+
 echo "repo tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

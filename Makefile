@@ -2,7 +2,7 @@
 -include .env
 export
 
-.PHONY: help test dev-db dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build
+.PHONY: help test dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build
 
 help: ## 타깃 목록
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -13,7 +13,11 @@ test: ## 리포·Terraform·백엔드·프론트 테스트 일괄 실행
 dev-db: ## 로컬 PostgreSQL 기동 (docker compose)
 	docker compose up -d --wait postgres
 
-dev-db-down: ## 로컬 PostgreSQL 중지
+dev-storage: ## 로컬 첨부 저장소 MinIO 기동 + 버킷 준비 (http://localhost:9000, 콘솔 :9001)
+	docker compose up -d --wait minio
+	docker compose run --rm minio-init
+
+dev-db-down: ## 로컬 PostgreSQL·MinIO 중지
 	docker compose down
 
 backend-run: ## 백엔드 실행 (http://localhost:8080/api)
