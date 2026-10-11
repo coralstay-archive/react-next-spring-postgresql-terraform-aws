@@ -1,5 +1,7 @@
 package com.example.board.security;
 
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -12,11 +14,13 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 import com.example.board.auth.jwt.JwtProperties;
 import com.example.board.auth.jwt.JwtTokenService;
+import com.example.board.user.UserRepository;
 
 /**
  * 단일 SecurityFilterChain (decision-5).
@@ -26,6 +30,8 @@ import com.example.board.auth.jwt.JwtTokenService;
  * <li>없으면 Spring Session JDBC 가 감싼 HttpSession 의 SecurityContext 로 인증한다.</li>
  * <li>CSRF: 세션 경로만 검사한다. {@code XSRF-TOKEN} 쿠키(JS 가 읽음) 값을 {@code X-XSRF-TOKEN} 헤더로 보내는 더블 서브밋.
  * Bearer 경로는 면제한다(브라우저가 자동으로 붙이는 자격이 아니므로).</li>
+ * <li>인가: 기본은 인증 필요. 역할·소유권은 {@code @PreAuthorize}(+ {@link OwnershipChecker}),
+ * SUSPENDED 계정의 쓰기 차단은 {@link SuspendedUserWriteFilter} 가 모든 요청에 공통으로 한다.</li>
  * <li>미인증은 401 JSON, 권한 없음은 403 JSON. 로그인 페이지·리다이렉트·HTTP Basic 은 없다.</li>
  * </ul>
  * principal 은 두 경로 모두 {@link com.example.board.auth.AuthUser} 다.
@@ -61,7 +67,7 @@ public class SecurityConfig {
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenService tokens,
 			SecurityContextRepository securityContextRepository, JwtDecoder jwtDecoder,
-			CookieCsrfTokenRepository csrfTokenRepository) throws Exception {
+			CookieCsrfTokenRepository csrfTokenRepository, UserRepository users) throws Exception {
 		JsonSecurityErrorHandler errors = new JsonSecurityErrorHandler();
 
 		http.securityContext(context -> context.securityContextRepository(securityContextRepository))
@@ -86,7 +92,9 @@ public class SecurityConfig {
 				.requestMatchers(HttpMethod.GET, "/auth/csrf").permitAll()
 				.requestMatchers("/error").permitAll()
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
-				.anyRequest().authenticated());
+				.anyRequest().authenticated())
+			// SUSPENDED 쓰기 차단(B3). 여기서 던진 AccessDeniedException 도 ExceptionTranslationFilter 가 403 JSON 으로 바꾼다.
+			.addFilterAfter(new SuspendedUserWriteFilter(users, List.of()), AuthorizationFilter.class);
 		return http.build();
 	}
 

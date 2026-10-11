@@ -36,6 +36,9 @@ public final class JsonSecurityErrorHandler implements AuthenticationEntryPoint,
 		if (ex instanceof CsrfException) {
 			write(response, HttpStatus.FORBIDDEN, "csrf", "CSRF 토큰이 없거나 올바르지 않습니다");
 		}
+		else if (ex instanceof SuspendedUserException) {
+			write(response, HttpStatus.FORBIDDEN, "suspended", "정지된 계정은 쓰기 요청을 할 수 없습니다");
+		}
 		else {
 			write(response, HttpStatus.FORBIDDEN, "forbidden", "권한이 없습니다");
 		}
