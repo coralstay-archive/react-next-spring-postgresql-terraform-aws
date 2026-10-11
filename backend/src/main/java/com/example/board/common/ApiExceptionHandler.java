@@ -3,6 +3,7 @@ package com.example.board.common;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -21,6 +22,15 @@ public class ApiExceptionHandler {
 	@ExceptionHandler(ApiException.class)
 	ResponseEntity<Map<String, Object>> handle(ApiException ex) {
 		return body(ex.getStatus(), ex.getError(), ex.getMessage(), null);
+	}
+
+	/** 429: 같은 본문 + {@code Retry-After}. */
+	@ExceptionHandler(RateLimitedException.class)
+	ResponseEntity<Map<String, Object>> handle(RateLimitedException ex) {
+		ResponseEntity<Map<String, Object>> response = body(ex.getStatus(), ex.getError(), ex.getMessage(), null);
+		return ResponseEntity.status(response.getStatusCode())
+			.header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+			.body(response.getBody());
 	}
 
 	@ExceptionHandler(MethodArgumentNotValidException.class)

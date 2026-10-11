@@ -50,9 +50,13 @@ public class PhoneOtpService {
 
 	private final TransactionTemplate tx;
 
+	private final OtpRateLimiter rateLimiter;
+
 	public PhoneOtpService(OtpChallengeRepository challenges, PhoneNumbers phones, SmsSender sms,
-			OtpProperties properties, Clock clock, PlatformTransactionManager transactionManager) {
+			OtpProperties properties, Clock clock, PlatformTransactionManager transactionManager,
+			OtpRateLimiter rateLimiter) {
 		this.challenges = challenges;
+		this.rateLimiter = rateLimiter;
 		this.phones = phones;
 		this.sms = sms;
 		this.properties = properties;
@@ -64,13 +68,17 @@ public class PhoneOtpService {
 		}
 	}
 
-	/** 번호를 정규화하고 챌린지를 만들어 SMS 를 보낸다. 잘못된 번호는 400 invalid_phone, 발송 실패는 503. */
+	/**
+	 * 번호를 정규화하고 챌린지를 만들어 SMS 를 보낸다. 잘못된 번호는 400 invalid_phone, 발송 한도 초과는 429 rate_limited
+	 * ({@link OtpRateLimiter}), 발송 실패는 503.
+	 */
 	public OtpChallengeResponse send(String rawPhone, String clientIp) {
 		String phone = phones.normalize(rawPhone);
 		String code = codes.generate();
 		UUID id = UUID.randomUUID();
 		tx.executeWithoutResult(status -> {
 			Instant now = clock.instant();
+			rateLimiter.check(phone, clientIp, now);
 			challenges.saveAndFlush(OtpChallenge.issue(id, phone, codes.hash(id, phone, code), now,
 					now.plus(properties.ttl()), clientIp));
 		});

@@ -25,7 +25,9 @@ import com.example.board.TestcontainersConfiguration;
 		properties = { "app.admin.email=" + IntegrationTest.ADMIN_EMAIL,
 				"app.public-base-url=" + IntegrationTest.PUBLIC_BASE_URL,
 				// TASK-7#1 SMS 는 메모리 수신함(InMemorySmsSender)으로 받는다
-				"app.sms.provider=memory" })
+				"app.sms.provider=memory",
+				// TASK-7#4 클라이언트 IP 는 CloudFront 처럼 신뢰 헤더로 받는다(테스트마다 다른 IP → IP 별 발송 한도를 나눠 쓰지 않는다)
+				"app.client-ip.header=CloudFront-Viewer-Address" })
 @Import({ TestcontainersConfiguration.class, TestFixturesConfiguration.class })
 public @interface IntegrationTest {
 
