@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -63,6 +65,13 @@ public class ProtectedResourceTestController {
 	public Map<String, Object> touchSession(HttpServletRequest request) {
 		request.getSession(true).setAttribute("touched", true);
 		return Map.of("ok", true);
+	}
+
+	/** 인가 규칙 없이 인증만 요구하는 쓰기 엔드포인트 (CSRF·SUSPENDED 처럼 메서드 단위 규칙만 보는 테스트용). */
+	@RequestMapping(path = "/test/echo",
+			method = { RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH, RequestMethod.DELETE })
+	public Map<String, Object> echo(HttpServletRequest request) {
+		return Map.of("method", request.getMethod());
 	}
 
 	@GetMapping("/test/resources/{id}")

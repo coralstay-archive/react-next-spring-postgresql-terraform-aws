@@ -1,5 +1,6 @@
 package com.example.board.security;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,6 +13,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 import com.example.board.auth.jwt.JwtProperties;
 import com.example.board.auth.jwt.JwtTokenService;
@@ -22,6 +24,8 @@ import com.example.board.auth.jwt.JwtTokenService;
  * <ul>
  * <li>{@code Authorization: Bearer} 가 있으면 Resource Server(자체 서명 JWT)로 인증한다. 세션은 읽지도 쓰지도 않는다.</li>
  * <li>없으면 Spring Session JDBC 가 감싼 HttpSession 의 SecurityContext 로 인증한다.</li>
+ * <li>CSRF: 세션 경로만 검사한다. {@code XSRF-TOKEN} 쿠키(JS 가 읽음) 값을 {@code X-XSRF-TOKEN} 헤더로 보내는 더블 서브밋.
+ * Bearer 경로는 면제한다(브라우저가 자동으로 붙이는 자격이 아니므로).</li>
  * <li>미인증은 401 JSON, 권한 없음은 403 JSON. 로그인 페이지·리다이렉트·HTTP Basic 은 없다.</li>
  * </ul>
  * principal 은 두 경로 모두 {@link com.example.board.auth.AuthUser} 다.
@@ -37,6 +41,18 @@ public class SecurityConfig {
 		return new SessionUnlessBearerSecurityContextRepository();
 	}
 
+	/**
+	 * {@code XSRF-TOKEN} 쿠키. 프론트 페이지(/)의 JS 가 읽어야 하므로 HttpOnly 가 아니고 path 가 {@code /} 다
+	 * (기본값은 context path {@code /api} 라 페이지에서 보이지 않는다).
+	 */
+	@Bean
+	CookieCsrfTokenRepository csrfTokenRepository(@Value("${app.security.cookie-secure:false}") boolean secure) {
+		CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+		repository.setCookiePath("/");
+		repository.setCookieCustomizer(cookie -> cookie.sameSite("Lax").secure(secure));
+		return repository;
+	}
+
 	@Bean
 	JwtDecoder jwtDecoder(JwtTokenService tokens) {
 		return tokens::decode;
@@ -44,17 +60,21 @@ public class SecurityConfig {
 
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenService tokens,
-			SecurityContextRepository securityContextRepository, JwtDecoder jwtDecoder) throws Exception {
+			SecurityContextRepository securityContextRepository, JwtDecoder jwtDecoder,
+			CookieCsrfTokenRepository csrfTokenRepository) throws Exception {
 		JsonSecurityErrorHandler errors = new JsonSecurityErrorHandler();
 
 		http.securityContext(context -> context.securityContextRepository(securityContextRepository))
 			.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+			// spa(): Spring Security 7 의 SPA 권장 구성(헤더면 원문 토큰, 폼 파라미터면 XOR 마스킹 토큰을 받는다).
+			// 저장소만 위 쿠키 설정으로 바꾸고, Bearer 경로(토큰이 맞든 틀리든)만 CSRF 검사에서 뺀다.
+			.csrf(csrf -> csrf.spa()
+				.csrfTokenRepository(csrfTokenRepository)
+				.ignoringRequestMatchers(BearerRequests.MATCHER))
 			.requestCache(cache -> cache.disable())
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
 			.logout(AbstractHttpConfigurer::disable)
-			.anonymous(anonymous -> {
-			})
 			.oauth2ResourceServer(resourceServer -> resourceServer
 				.jwt(jwt -> jwt.decoder(jwtDecoder).jwtAuthenticationConverter(tokens::toAuthentication))
 				.authenticationEntryPoint(errors)
