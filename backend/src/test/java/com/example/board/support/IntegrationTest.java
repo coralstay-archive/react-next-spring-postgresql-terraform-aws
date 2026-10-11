@@ -21,7 +21,12 @@ import com.example.board.TestcontainersConfiguration;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+		properties = "app.admin.email=" + IntegrationTest.ADMIN_EMAIL)
 @Import({ TestcontainersConfiguration.class, TestFixturesConfiguration.class })
 public @interface IntegrationTest {
+
+	/** 테스트 컨텍스트의 첫 ADMIN 이메일 (TASK-3#6). 대소문자 정규화를 확인하려고 일부러 섞었다. */
+	String ADMIN_EMAIL = "First.Admin@Board.Test";
+
 }

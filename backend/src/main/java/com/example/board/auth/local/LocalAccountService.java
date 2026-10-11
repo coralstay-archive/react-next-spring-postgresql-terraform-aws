@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.example.board.common.ApiException;
 import com.example.board.user.AuthProvider;
+import com.example.board.user.Role;
 import com.example.board.user.User;
 import com.example.board.user.UserIdentity;
 import com.example.board.user.UserIdentityRepository;
@@ -31,15 +32,18 @@ public class LocalAccountService {
 
 	private final PasswordEncoder passwordEncoder;
 
+	private final AdminBootstrap admin;
+
 	/** 없는 계정에도 같은 비용의 BCrypt 비교를 하기 위한 더미 해시 (B2 타이밍 균등화). */
 	private final String dummyHash;
 
 	public LocalAccountService(UserRepository users, UserIdentityRepository identities,
-			LocalCredentialRepository credentials, PasswordEncoder passwordEncoder) {
+			LocalCredentialRepository credentials, PasswordEncoder passwordEncoder, AdminBootstrap admin) {
 		this.users = users;
 		this.identities = identities;
 		this.credentials = credentials;
 		this.passwordEncoder = passwordEncoder;
+		this.admin = admin;
 		this.dummyHash = passwordEncoder.encode("timing-equalization-dummy-passw0rd");
 	}
 
@@ -57,6 +61,9 @@ public class LocalAccountService {
 		}
 		User user = User.create(request.nickname());
 		user.changeEmail(email);
+		if (admin.isAdminEmail(email)) {
+			user.changeRole(Role.ADMIN); // 첫 ADMIN (AC#6)
+		}
 		users.save(user);
 		UserIdentity identity = identities.saveAndFlush(UserIdentity.link(user, AuthProvider.LOCAL, email, email));
 		credentials.saveAndFlush(LocalCredential.of(identity.getId(), passwordEncoder.encode(request.password())));

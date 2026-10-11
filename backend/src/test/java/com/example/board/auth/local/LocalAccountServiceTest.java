@@ -50,7 +50,7 @@ class LocalAccountServiceTest {
 		when(identities.findWithUserByProviderAndSubject(any(), any())).thenReturn(Optional.empty());
 		RecordingEncoder encoder = new RecordingEncoder();
 		LocalAccountService service = new LocalAccountService(mock(UserRepository.class), identities,
-				mock(LocalCredentialRepository.class), encoder);
+				mock(LocalCredentialRepository.class), encoder, new AdminBootstrap(identities, mock(UserRepository.class), ""));
 
 		assertThatThrownBy(() -> service.authenticate("nobody@example.com", "passw0rd!"))
 			.isInstanceOfSatisfying(ApiException.class, ex -> {
@@ -67,7 +67,8 @@ class LocalAccountServiceTest {
 		UserIdentityRepository identities = mock(UserIdentityRepository.class);
 		when(identities.findWithUserByProviderAndSubject(AuthProvider.LOCAL, "mixed@example.com")).thenReturn(Optional.empty());
 		LocalAccountService service = new LocalAccountService(mock(UserRepository.class), identities,
-				mock(LocalCredentialRepository.class), new RecordingEncoder());
+				mock(LocalCredentialRepository.class), new RecordingEncoder(),
+				new AdminBootstrap(identities, mock(UserRepository.class), ""));
 
 		assertThatThrownBy(() -> service.authenticate("  Mixed@Example.COM ", "x")).isInstanceOf(ApiException.class);
 		org.mockito.Mockito.verify(identities).findWithUserByProviderAndSubject(AuthProvider.LOCAL, "mixed@example.com");
