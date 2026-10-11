@@ -27,6 +27,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import com.example.board.auth.jwt.JwtProperties;
 import com.example.board.auth.jwt.JwtTokenService;
+import com.example.board.auth.oauth.OAuth2LoginCustomizer;
 import com.example.board.user.UserRepository;
 
 /**
@@ -40,6 +41,8 @@ import com.example.board.user.UserRepository;
  * <li>인가: 기본은 인증 필요. 역할·소유권은 {@code @PreAuthorize}(+ {@link OwnershipChecker}),
  * SUSPENDED 계정의 쓰기 차단은 {@link SuspendedUserWriteFilter} 가 모든 요청에 공통으로 한다.</li>
  * <li>미인증은 401 JSON, 권한 없음은 403 JSON. 로그인 페이지·리다이렉트·HTTP Basic 은 없다.</li>
+ * <li>소셜 로그인(TASK-4): {@code oauth2Login} 필터가 {@code /oauth2/authorization/{id}} 와 {@code /login/oauth2/code/{id}} 만
+ * 처리한다(인가 규칙보다 앞이라 permitAll 이 필요 없다). 성공·실패는 프론트로 302 ({@link OAuth2LoginCustomizer}).</li>
  * </ul>
  * principal 은 두 경로 모두 {@link com.example.board.auth.AuthUser} 다.
  */
@@ -86,7 +89,8 @@ public class SecurityConfig {
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenService tokens,
 			SecurityContextRepository securityContextRepository, JwtDecoder jwtDecoder,
-			CookieCsrfTokenRepository csrfTokenRepository, UserRepository users) throws Exception {
+			CookieCsrfTokenRepository csrfTokenRepository, UserRepository users, OAuth2LoginCustomizer oauth2Login)
+			throws Exception {
 		JsonSecurityErrorHandler errors = new JsonSecurityErrorHandler();
 
 		http.securityContext(context -> context.securityContextRepository(securityContextRepository))
@@ -100,6 +104,7 @@ public class SecurityConfig {
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
 			.logout(AbstractHttpConfigurer::disable)
+			.oauth2Login(oauth2Login)
 			.oauth2ResourceServer(resourceServer -> resourceServer
 				.jwt(jwt -> jwt.decoder(jwtDecoder).jwtAuthenticationConverter(tokens::toAuthentication))
 				.authenticationEntryPoint(errors)
