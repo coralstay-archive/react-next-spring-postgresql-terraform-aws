@@ -12,6 +12,11 @@ public interface UserIdentityRepository extends JpaRepository<UserIdentity, Long
 
 	List<UserIdentity> findByUserId(Long userId);
 
+	/** 내 로그인 수단 목록 (연결 순서). */
+	List<UserIdentity> findByUserIdOrderByLinkedAtAscIdAsc(Long userId);
+
+	long countByUserId(Long userId);
+
 	/** 로그인용: identity 와 계정을 한 번에 읽는다. */
 	@Query("select i from UserIdentity i join fetch i.user where i.provider = :provider and i.subject = :subject")
 	Optional<UserIdentity> findWithUserByProviderAndSubject(AuthProvider provider, String subject);

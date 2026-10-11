@@ -2,6 +2,7 @@ package com.example.board.auth.identity;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -9,8 +10,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.board.auth.AuthUser;
@@ -31,10 +34,27 @@ public class IdentityController {
 
 	private final PublicUrls urls;
 
-	public IdentityController(OAuth2ClientRegistrations registrations, OAuth2Properties properties, PublicUrls urls) {
+	private final IdentityService identities;
+
+	public IdentityController(OAuth2ClientRegistrations registrations, OAuth2Properties properties, PublicUrls urls,
+			IdentityService identities) {
 		this.registrations = registrations;
 		this.properties = properties;
 		this.urls = urls;
+		this.identities = identities;
+	}
+
+	/** 내 로그인 수단 목록 (TASK-4#4). 세션·Bearer 공통. */
+	@GetMapping("/me/identities")
+	public List<IdentityResponse> list(@AuthenticationPrincipal AuthUser user) {
+		return identities.list(user.id());
+	}
+
+	/** 로그인 수단 해제 (TASK-4#4). 204. 남의 것 404, 마지막 하나 409 (B3). 세션이면 CSRF 필요, 정지 계정 403. */
+	@DeleteMapping("/me/identities/{id}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	public void unlink(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
+		identities.unlink(user.id(), id);
 	}
 
 	/**
