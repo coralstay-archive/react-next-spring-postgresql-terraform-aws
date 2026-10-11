@@ -80,6 +80,12 @@ make test   # = scripts/test.sh : 리포 검증 + Terraform(fmt·test) + 백엔�
 | `KAKAO_CLIENT_ID` / `KAKAO_CLIENT_SECRET` | (비어 있음) | Kakao 로그인(REST API 키 / 보안 → Client Secret). 비우면 등록하지 않는다 |
 | `COGNITO_CLIENT_ID` / `COGNITO_CLIENT_SECRET` | (비어 있음) | Cognito 로그인(Terraform 출력 `client_id` / `client_secret`). 비우면 등록하지 않는다 |
 | `COGNITO_ISSUER_URI` / `COGNITO_DOMAIN` | (비어 있음) | Terraform 출력 `issuer_uri` / `domain_url`. `COGNITO_CLIENT_ID`가 있으면 둘 다 필요(없으면 기동 실패) |
+| `SMS_PROVIDER` | `console` | SMS 발송 구현. `console`(로그로만 남김, 로컬 전용) · `memory`(테스트) · `aws`(End User Messaging SMS). 그 밖의 값이면 기동 실패 |
+| `SMS_DEFAULT_REGION` | `KR` | `+` 없이 들어온 번호를 해석할 지역(E.164 정규화) |
+| `SMS_AWS_REGION` / `SMS_ORIGINATION_IDENTITY` / `SMS_CONFIGURATION_SET` | `us-east-1` / (비어 있음) / (비어 있음) | `SMS_PROVIDER=aws` 일 때 리전, 발신 identity(발신 번호·sender ID·pool ARN, 비우면 계정 기본), configuration set(선택) |
+| `OTP_HASH_KEY` | 개발용 기본값(운영 금지) | OTP 코드 해시(HMAC-SHA256) 키, 32바이트 이상이 아니면 기동 실패 |
+| `OTP_PHONE_DAILY_LIMIT` / `OTP_IP_HOURLY_LIMIT` | `10` / `20` | OTP 발송 한도: 같은 번호 24시간 N회, 같은 클라이언트 IP 1시간 M회(같은 번호 60초 1회는 고정) |
+| `CLIENT_IP_HEADER` | (비어 있음) | 클라이언트 IP를 읽을 신뢰 헤더. 비우면 remote address. CloudFront 뒤(운영)는 `CloudFront-Viewer-Address` |
 
 ## 인증·인가 모델 (백엔드)
 
@@ -91,6 +97,7 @@ make test   # = scripts/test.sh : 리포 검증 + Terraform(fmt·test) + 백엔�
 - **오류**: 미인증 401, 권한 없음 403, 모두 JSON(`{"status","error","message"}`). 로그인 페이지 리다이렉트는 없다.
 - **인가**: 기본은 인증 필요. 역할 `USER`/`ADMIN`은 `@PreAuthorize`, 수정·삭제는 `@ownership.canModify(authentication, ownerId)`
   (본인 또는 ADMIN). `SUSPENDED` 계정은 읽기만 되고 모든 쓰기가 403(DB 최신 상태 기준, 보안 체인에서 공통 처리).
+- **제한 세션**(재활용 번호 보호, 아래 휴대폰 로그인): 읽기만 되고 쓰기는 403 `step_up_required`(로그아웃·step-up·로그인 계열 제외).
 - `/api/actuator/health`는 공개, 세부 정보(DB 등)는 ADMIN에게만.
 
 ### 인증 API (LOCAL)
@@ -102,10 +109,43 @@ make test   # = scripts/test.sh : 리포 검증 + Terraform(fmt·test) + 백엔�
 | `POST /api/auth/login?token=jwt` | 세션 없이 `{accessToken, refreshToken, tokenType:"Bearer", expiresIn}`. CSRF 면제(쿠키를 만들지 않는 비브라우저 흐름) |
 | `POST /api/auth/token/refresh` `{refreshToken}` | 로테이션: 새 access+refresh. 이미 쓴 refresh를 다시 쓰면 그 로그인(family)의 토큰을 모두 폐기하고 401. Authorization 헤더 없이 호출. CSRF 면제 |
 | `POST /api/auth/logout` | 세션: 세션 삭제 + 쿠키 만료(CSRF 필요). Bearer: 본문 `{refreshToken}`이 있으면 그 family 폐기. 항상 204, 정지 계정도 가능 |
-| `GET /api/auth/me` | 현재 사용자 `{id, nickname, email, role, status, providers}` (DB 최신 값). 익명은 401 |
+| `GET /api/auth/me` | 현재 사용자 `{id, nickname, email, role, status, providers, stepUpRequired, stepUpProviders}` (DB 최신 값). 익명은 401. `stepUpRequired`면 이 세션·토큰은 제한 상태이고 `stepUpProviders`는 다시 인증할 수 있는 수단 |
 
 - 로그인 실패는 이유와 상관없이 같은 401(`invalid_credentials`)이다. 정지 계정은 비밀번호가 맞을 때만 403(`suspended`).
 - refresh 토큰은 256비트 랜덤 값이고 DB에는 SHA-256 해시만 둔다. access 토큰은 상태가 없어 로그아웃 뒤에도 만료(15분)까지 유효하다.
+
+### 휴대폰 OTP 로그인 (TASK-7)
+
+번호 + 인증번호로 하는 비밀번호 없는 로그인·가입이다(provider=`PHONE`, subject=E.164 번호, decision-7).
+
+| 요청 | 설명 |
+|---|---|
+| `POST /api/auth/phone/otp` `{phone}` | 202 `{challengeId, expiresIn:180}` + 6자리 인증번호 SMS. 계정이 있든 없든 같은 응답. 공개, CSRF 필요(Bearer는 면제) |
+| `POST /api/auth/phone/verify` `{challengeId, code}` | 맞으면 (PHONE, 번호) 계정으로 로그인, 없으면 새 계정(+ `users.phone`). 세션 로그인(세션 ID 교체 + 쿠키), 200 + 사용자 요약. CSRF 필요 |
+| `POST /api/auth/phone/verify?token=jwt` | 세션 없이 access+refresh. CSRF 면제(`login?token=jwt`와 같은 이유) |
+| `POST /api/auth/phone/verify?link=true` | (로그인 필요, 세션·Bearer) 현재 계정에 PHONE 연결 + 비어 있으면 `users.phone`, 200 + 사용자 요약. 다른 계정의 번호면 409 `identity_in_use`. 세션이면 CSRF 필요(`token`과 같이 쓸 수 없다) |
+| `POST /api/auth/step-up/local` `{password[, refreshToken]}` | (로그인 필요) 제한 세션·토큰을 비밀번호로 풀기. 세션: 세션 ID를 바꾼 제한 없는 세션. Bearer: 제한 없는 새 토큰(본문 refreshToken의 family 폐기). 틀리면 401 `invalid_credentials`, LOCAL이 없으면 400 `step_up_unavailable` |
+
+- 번호는 libphonenumber로 E.164로 정규화한다(`+` 없으면 `SMS_DEFAULT_REGION`=KR). 형식이 틀리면 400 `invalid_phone`.
+- 인증번호는 SecureRandom 6자리이고 DB(`otp_challenges`)에는 HMAC-SHA256(`OTP_HASH_KEY`, 챌린지 id·번호·코드)만 둔다.
+  **3분** 뒤 만료되고, 한 번 성공하면 소멸한다(재사용 불가). 틀린 시도가 **5번**이 되면 챌린지를 폐기한다(그 뒤에는 맞는 코드도 실패).
+  시도 횟수는 챌린지 행을 잠그고(FOR UPDATE) 세므로 동시 요청에도 정확하다.
+- 검증 실패(틀린 코드, 없음·만료·소멸·폐기된 챌린지)는 모두 같은 401 `invalid_otp`. 정지 계정은 403 `suspended`.
+- **발송 한도**(DB 기준이라 인스턴스가 여러 개여도 같다): 같은 번호 60초에 1회·24시간 10회(`OTP_PHONE_DAILY_LIMIT`), 같은 클라이언트 IP
+  1시간 20회(`OTP_IP_HOURLY_LIMIT`). 넘으면 429 `rate_limited` + `Retry-After`(초). SMS 발송 실패는 503 `sms_unavailable`.
+- **클라이언트 IP**: CloudFront 뒤에서는 EC2가 CloudFront의 IP를 보므로 `CLIENT_IP_HEADER=CloudFront-Viewer-Address`로 두고
+  그 값(`ip:port`)의 IP를 쓴다. 헤더가 없거나 형식이 틀리면 remote address. `X-Forwarded-For`는 쓰지 않는다(클라이언트가 위조 가능).
+  CloudFront 오리진 요청 정책이 `CloudFront-Viewer-Address`를 넘겨야 하고, EC2는 CloudFront를 거친 요청만 받아야 한다(TASK-16).
+- **재활용 번호 보호**: 번호는 해지 후 다른 사람에게 다시 배정될 수 있다. 그래서 PHONE 말고 다른 수단(LOCAL·소셜·Cognito)도 있는
+  계정에 PHONE으로 로그인하면 **제한 세션·토큰**(`stepUpRequired=true`, JWT 클레임 `step_up_required`, refresh로 받은 토큰도 유지)이다.
+  읽기는 되지만 쓰기는 403 `step_up_required`이고, 로그아웃·step-up·다른 로그인만 된다. 수단 연결(`?link=true`,
+  `/api/me/identities/link/{p}`)과 해제도 막힌다. 풀려면 기존 수단으로 다시 인증한다: LOCAL은 `POST /api/auth/step-up/local`,
+  소셜·Cognito는 그 수단으로 다시 로그인(`/api/oauth2/authorization/{p}`) — 같은 계정으로 들어오므로 제한 없는 새 세션이 된다.
+  PHONE만 있는 계정은 제한하지 않는다.
+- **SMS 설정**: 로컬은 `SMS_PROVIDER=console`(기본) — 인증번호가 백엔드 로그에 `[SMS console] to=... message=...`로 찍힌다.
+  운영은 `SMS_PROVIDER=aws` + `SMS_AWS_REGION`(+ `SMS_ORIGINATION_IDENTITY`). AWS End User Messaging SMS
+  (`pinpoint-sms-voice-v2` `SendTextMessage`, 메시지 유형 TRANSACTIONAL)를 EC2 인스턴스 프로파일 자격으로 부른다 —
+  IAM에 `sms-voice:SendTextMessage`가 필요하다. 샌드박스 해제와 한국행 발신 등록(발신 번호·sender ID)은 콘솔 작업이다(TASK-18).
 
 ### 소셜 로그인 (Google · GitHub · Naver · Kakao · Cognito) 과 계정 연결
 
