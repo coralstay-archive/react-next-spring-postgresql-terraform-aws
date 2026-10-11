@@ -13,11 +13,11 @@ PostgreSQL로 만드는 게시판이다. 전체 설계는 [`backlog/docs/doc-1-a
 | `backend/` | Spring Boot 4.1 · Java 25 · Gradle Kotlin DSL. 모든 API는 `/api` 아래 (`server.servlet.context-path=/api`) |
 | `frontend/` | Next.js 16 · App Router · `output: 'export'` · TypeScript · Tailwind CSS v4 · shadcn/ui |
 | `docker-compose.yml` | 로컬 PostgreSQL 18 + 첨부 저장소 MinIO(S3 호환, TASK-11) |
-| `infra/` | Terraform 모듈(`infra/main/modules/cognito`, `uploads`) |
+| `infra/` | Terraform: `infra/bootstrap`(state 버킷), `infra/main`(운영 루트 스택 + `modules/*`). [인프라](#인프라-terraform-task-16) 참고 |
 | `scripts/` | 로컬 `make`와 CI가 같이 호출하는 스크립트 (`scripts/test.sh` 등) |
 | `backlog/` | backlog.md 태스크·결정·문서 |
 
-Terraform 루트 스택, `deploy/`, `.github/workflows/`는 이후 태스크에서 추가한다.
+`deploy/`, `.github/workflows/`는 이후 태스크(TASK-17)에서 추가한다.
 
 ## 준비물
 
@@ -73,9 +73,10 @@ make test   # = scripts/test.sh : 리포 검증 + Terraform(fmt·test) + 백엔�
 - 백엔드: JUnit 5 + Testcontainers(PostgreSQL, MinIO — 컨테이너는 각각 하나를 모든 통합 테스트가 같이 쓴다). **Docker가 떠 있어야 한다.**
 - 프론트: Vitest + Testing Library.
 - 리포: `scripts/test/repo_test.sh` (Makefile 타깃, hooks 설정, gitignore 등 골격 검증)
-- Terraform: `terraform fmt -check -recursive infra` + `tests/*.tftest.hcl`이 있는 모듈마다 `terraform init -backend=false`·`validate`·`test`.
+- Terraform: `terraform fmt -check -recursive infra` + 루트 스택(`infra/bootstrap`, `infra/main`)과 `tests/*.tftest.hcl`이 있는 모듈마다 `terraform init -backend=false`·`validate`·`test`.
   테스트는 `mock_provider "aws"`라 AWS 자격 증명이 필요 없다(provider는 처음 한 번 내려받아 `~/.terraform.d/plugin-cache`에 둔다).
-  `terraform`이 없으면 경고만 내고 건너뛴다. 재사용 모듈의 `.terraform.lock.hcl`은 커밋하지 않는다(루트 스택이 버전을 고정).
+  `terraform`이 없으면 경고만 내고 건너뛴다. 재사용 모듈의 `.terraform.lock.hcl`은 커밋하지 않고, 루트 스택(`infra/bootstrap`, `infra/main`)의 lock 파일은 커밋한다.
+- CloudFront Function: `scripts/test/cf_function_test.mjs`(Node 로 index 리라이트 함수를 직접 실행, `repo_test.sh`가 호출).
 
 개별 실행: `make backend-test`, `make frontend-test`, 정적 export 빌드는 `make frontend-build`(결과물 `frontend/out/`).
 전체 타깃 목록은 `make help`.
@@ -394,6 +395,98 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 - **확인 다이얼로그**: `window.confirm` 대신 shadcn `alert-dialog`(Base UI, `role="alertdialog"`)를 쓴다. 실패하면 다이얼로그를 연 채로 오류를 보이고, 성공하면 닫는다. 빈 사유는 `{}` 본문으로 보낸다.
 - **캐시**: 쿼리 키 `["admin", "users", query]`, `["admin", "actions", page]`. 관리 쓰기 뒤에는 `["admin", "actions"]`를 무효화한다. 정지·해제 뒤에는 `["admin", "users"]`, 글 처리 뒤에는 `["posts"]`, 카테고리 변경 뒤에는 `["categories"]`와 `["posts"]`(글의 카테고리 이름·slug가 바뀐다)도 무효화한다.
 - **E2E용 `data-testid`**: `admin-view`·`admin-tab-{users|posts|categories|actions}`·`admin-forbidden`. 사용자 `admin-user-search-input`·`admin-user-search-submit`·`admin-user-status-filter`·`admin-user-row`·`admin-user-status`·`admin-user-provider`·`admin-user-role`·`admin-user-suspend`·`admin-user-unsuspend`·`admin-users-prev`/`next`. 글 `admin-post-row`·`admin-post-link`·`admin-post-hide`·`admin-post-unhide`·`admin-post-restore`. 카테고리 `admin-category-row`·`admin-category-admin-only-badge`·`admin-category-edit`·`admin-category-delete`·`admin-category-form`·`admin-category-slug`·`admin-category-name`·`admin-category-sort-order`·`admin-category-admin-only`·`admin-category-submit`·`admin-category-cancel`·`admin-category-{slug|name|sort-order}-error`·`admin-category-error`. 감사 로그 `admin-action-row`·`admin-actions-prev`/`next`. 다이얼로그 `admin-confirm-dialog`·`admin-reason-input`·`admin-confirm-submit`·`admin-confirm-cancel`·`admin-confirm-error`.
+
+## 인프라 (Terraform, TASK-16)
+
+> 아직 apply 하지 않았다. 첫 apply·배포는 TASK-18에서 유저 확인 후 한다. 검증은 `make test`(fmt·validate·mock_provider 테스트)까지.
+
+### 구성
+
+```
+infra/bootstrap/          state S3 버킷(버전·SSE·퍼블릭 차단·HTTPS 강제·prevent_destroy). 로컬 state 로 1회 apply
+infra/main/               운영 루트 스택 (backend.tf: S3 partial config + use_lockfile, providers.tf: aws + aws.us_east_1)
+  envs/prod.backend.hcl   backend 설정(bootstrap 출력 backend_config)
+  envs/prod.tfvars        prod 변수
+  modules/network         VPC 10.20.0.0/16, public subnet 1개(AZ 변수), IGW, 기본 경로
+  modules/backend_host    EC2 t4g.small(AL2023 arm64, SSM 파라미터 AMI, IMDSv2, hop 2, 루트 암호화), EIP,
+                          데이터 EBS gp3 20GB(/dev/sdf → /srv/pgdata, 비어 있을 때만 포맷, fstab UUID+nofail, final_snapshot),
+                          DLM 일일 스냅샷 7개, SG(8080 ← CloudFront origin-facing prefix list 만, 22 없음),
+                          인스턴스 role(SSM Core, ECR pull, Logs, SSM /board/prod/* 읽기 + KMS(SSM 경유), sms-voice:SendTextMessage, uploads 정책),
+                          로그 그룹 /board/prod(14일), user_data(docker + compose plugin, awslogs 기본 로그 드라이버, /opt/board)
+  modules/frontend_cdn    ECR(scan on push, 최근 20개), web S3 + OAC, CloudFront(아래)
+  modules/uploads         첨부 버킷(TASK-11). CloudFront /uploads/* OAC 정책은 배포 ARN 으로 여기서 붙는다
+  modules/cognito         User Pool + Hosted UI(TASK-6). 콜백은 PUBLIC_BASE_URL 에서
+  modules/ci_oidc         GitHub OIDC provider + main 브랜치 전용 배포 role (github_repository 를 주면 켜짐)
+  modules/dns_cert        Route53 zone(조회/생성) + ACM(us-east-1, DNS 검증) + alias A/AAAA (domain_name 을 주면 켜짐)
+```
+
+CloudFront 동작:
+
+| 경로 | 오리진 | 캐시 | 그 밖 |
+|---|---|---|---|
+| 기본(`/*`) | web S3(OAC) | Managed-CachingOptimized | viewer-request CF Function: `/x/` → `/x/index.html`, 확장자 없는 `/x` → `/x/index.html` |
+| `/api/*` | EC2 EIP public DNS, HTTP 8080 | Managed-CachingDisabled | 모든 메서드, HTTPS 전용, 함수 없음(트레일링 슬래시 리라이트 없음). origin request policy = 모든 viewer 헤더·쿠키·쿼리 + `CloudFront-Viewer-Address` |
+| `/uploads/*` | uploads S3(OAC) | Managed-CachingOptimized | GET/HEAD |
+
+- `/api/*` 헤더: `Authorization`은 cache key 나 "모든 viewer 헤더" origin request policy 로만 전달된다. CachingDisabled 는 키를 둘 수 없으므로
+  `allViewerAndWhitelistCloudFront` + `CloudFront-Viewer-Address`(앱의 `CLIENT_IP_HEADER`) 커스텀 정책을 쓴다. 이 정책은 viewer `Host`도 넘기지만
+  오리진이 가상 호스트 없는 Tomcat 이라 문제없다(OAuth redirect-uri 는 `PUBLIC_BASE_URL`로 고정).
+- `custom_error_response`(404 페이지)는 두지 않는다. 배포 전체에 걸려 `/api/*`의 404·403 JSON 을 HTML 로 덮기 때문이다. 없는 정적 경로는 S3 404.
+- 가격 등급 PriceClass_100, 인증서는 `*.cloudfront.net` 기본(decision-9). `domain_name`을 주면 aliases + ACM.
+
+### 처음 적용 순서 (TASK-18)
+
+```bash
+# 0) 자격 증명 확인
+aws sts get-caller-identity
+# 1) state 버킷 (계정당 1회, 로컬 state) — infra/bootstrap/README.md
+terraform -chdir=infra/bootstrap init
+terraform -chdir=infra/bootstrap apply -var "state_bucket_name=board-tfstate-<account id>"
+terraform -chdir=infra/bootstrap output -raw backend_config > infra/main/envs/prod.backend.hcl
+# 2) envs/prod.tfvars 의 CHANGE-ME(버킷 이름·cognito_domain_prefix), github_repository 채우기
+# 3) main 스택
+terraform -chdir=infra/main init -backend-config=envs/prod.backend.hcl
+terraform -chdir=infra/main plan  -var-file=envs/prod.tfvars -out=prod.tfplan
+terraform -chdir=infra/main apply prod.tfplan
+terraform -chdir=infra/main output            # app_env, ci_role_arn, ...
+```
+
+`envs/prod.tfvars` 항목: `region`(us-east-1), `name`, `availability_zone`, `instance_type`, `data_volume_size`, `web_bucket_name`·`uploads_bucket_name`(전역 고유),
+`ecr_repository_name`, `ssm_parameter_path`(`/board/prod`), `log_group_name`, `cognito_domain_prefix`(전역 고유), `cognito_deletion_protection`,
+`cognito_extra_callback_urls`/`cognito_extra_logout_urls`(로컬 Cognito 로그인용, 선택), `domain_name`·`subject_alternative_names`·`create_hosted_zone`(비우면 cloudfront.net),
+`github_repository`(`owner/repo`, 비우면 CI role 없음)·`github_branch`, `existing_github_oidc_provider_arn`(계정에 이미 있으면).
+
+### apply 뒤 앱 설정
+
+`terraform output app_env`가 비밀이 아닌 값을 준다. TASK-17 `put-secrets.sh`가 시크릿과 함께 SSM `/board/prod/*`에 넣는다.
+
+| env | 값 |
+|---|---|
+| `PUBLIC_BASE_URL` | `https://<cloudfront_domain 또는 domain_name>` (출력 `public_base_url`) |
+| `COOKIE_SECURE` | `true` |
+| `CLIENT_IP_HEADER` | `CloudFront-Viewer-Address` |
+| `UPLOADS_BUCKET` / `UPLOADS_REGION` | 출력 `uploads_bucket` / `us-east-1` (앱 기본값 `ap-northeast-2`라 반드시 명시) |
+| `UPLOADS_PUBLIC_BASE_PATH` | `/uploads/` (CloudFront 같은 오리진). `UPLOADS_ENDPOINT`·`UPLOADS_PATH_STYLE`·`UPLOADS_ACCESS_KEY`·`UPLOADS_SECRET_KEY`는 비움(인스턴스 프로파일) |
+| `COGNITO_ISSUER_URI` / `COGNITO_CLIENT_ID` / `COGNITO_DOMAIN` | 출력 `cognito` |
+| `COGNITO_CLIENT_SECRET` | `terraform output -raw cognito_client_secret` → SSM SecureString (state 에는 남는다) |
+| `SMS_PROVIDER` / `SMS_AWS_REGION` | `aws` / `us-east-1` |
+
+Terraform 은 SSM 파라미터(시크릿)를 만들지 않는다 — 값이 state 에 남지 않게 한다. 인스턴스 role 은 `/board/prod/*`만 읽는다.
+GitHub Actions 는 `ci_role_arn`을 assume 하고, 배포 대상 값(ECR URL·web 버킷·배포 ID·인스턴스 ID)은 리포 variables 로 넣는다(CI 는 state 를 읽지 않는다).
+EC2 의 PostgreSQL 데이터는 `/srv/pgdata`(데이터 EBS)이고 deploy compose 가 컨테이너의 `/var/lib/postgresql`에 바인드한다. 배포 디렉터리는 `/opt/board`.
+컨테이너 로그는 docker 기본 로그 드라이버 `awslogs`(그룹 `/board/prod`)로 CloudWatch 에 간다.
+
+### 비용 (us-east-1, 대략 월)
+
+t4g.small 약 $12, EBS(루트 20GB + 데이터 20GB gp3) 약 $3.2, 스냅샷(증분) 약 $0.5, 퍼블릭 IPv4(EIP) 약 $3.6, CloudWatch Logs 소량.
+CloudFront·S3·ECR(이미지 20개)·Cognito(소규모 MAU)·Route53 zone($0.5, 도메인 사용 시)은 거의 0. SMS 는 건당.
+
+### 정리 (terraform destroy 순서)
+
+1. Cognito 삭제 보호: `cognito_deletion_protection = false`로 apply.
+2. 첨부를 지워도 되면 `uploads_force_destroy = true`로 apply(아니면 버킷을 먼저 비운다). ECR 이미지가 있으면 리포 삭제가 막히니 이미지를 지운다.
+3. `terraform -chdir=infra/main destroy -var-file=envs/prod.tfvars` — 데이터 EBS 는 지워지기 전에 최종 스냅샷을 남긴다(`final_snapshot`). DLM 스냅샷은 수동 삭제.
+4. state 버킷(bootstrap)은 `prevent_destroy` 라 남는다. 지우려면 `infra/bootstrap/README.md` 참고.
 
 ## 개발 워크플로
 

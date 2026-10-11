@@ -47,3 +47,18 @@ output "deploy_dir" {
   description = "배포 디렉터리"
   value       = var.deploy_dir
 }
+
+output "subnet_id" {
+  description = "인스턴스 subnet"
+  value       = aws_instance.this.subnet_id
+}
+
+output "app_policy_json" {
+  description = "인스턴스 role 의 앱 정책 JSON"
+  value       = aws_iam_role_policy.app.policy
+}
+
+output "extra_policy_jsons" {
+  description = "인스턴스 role 에 붙은 추가 정책 JSON"
+  value       = aws_iam_role_policy.extra[*].policy
+}

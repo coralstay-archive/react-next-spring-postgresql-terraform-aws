@@ -7,3 +7,8 @@ output "oidc_provider_arn" {
   description = "GitHub OIDC provider ARN"
   value       = local.oidc_provider_arn
 }
+
+output "policy_json" {
+  description = "배포 role 권한 정책 JSON"
+  value       = aws_iam_role_policy.deploy.policy
+}

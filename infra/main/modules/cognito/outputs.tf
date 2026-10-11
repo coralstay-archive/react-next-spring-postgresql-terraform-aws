@@ -33,3 +33,8 @@ output "callback_urls" {
   description = "App Client 에 등록된 콜백 URL"
   value       = local.callback_urls
 }
+
+output "logout_urls" {
+  description = "App Client 에 등록된 로그아웃 URL"
+  value       = local.logout_urls
+}

@@ -22,3 +22,13 @@ output "app_policy_json" {
   description = "앱(EC2 role)에 붙일 IAM 정책 JSON: uploads/* 의 Put/Get/Delete Object(+Tagging)"
   value       = jsonencode(local.app_policy)
 }
+
+output "bucket_policy_json" {
+  description = "적용된 버킷 정책 JSON (CloudFront OAC 배포 ARN 확인용)"
+  value       = aws_s3_bucket_policy.this.policy
+}
+
+output "cors_allowed_origins" {
+  description = "presigned PUT CORS 허용 origin"
+  value       = var.allowed_origins
+}

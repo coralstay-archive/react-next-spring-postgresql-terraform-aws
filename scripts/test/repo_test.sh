@@ -89,5 +89,27 @@ check "TASK-11#4 uploads 모듈 테스트 존재" sh -c 'ls infra/main/modules/u
 # TASK-16#3 CloudFront Function(index 리라이트): /x/ → /x/index.html, 확장자 없는 경로도 index, 정적 파일은 그대로
 check "TASK-16#3 CloudFront Function index 리라이트(node)" node scripts/test/cf_function_test.mjs
 
+# TASK-16#6 Terraform 루트 스택: scripts/test.sh 가 infra/main·infra/bootstrap 을 init(-backend=false)·validate 하고,
+# 루트 lock 파일은 커밋(모듈 lock 은 무시), prod 변수 파일·backend 설정, bootstrap 버킷은 prevent_destroy
+check "TASK-16#6 scripts/test.sh 는 루트 스택(infra/main, infra/bootstrap)을 validate" sh -c 'grep -q "infra/main" scripts/test.sh && grep -q "infra/bootstrap" scripts/test.sh'
+for d in infra/main infra/bootstrap; do
+  check "TASK-16#6 $d/.terraform.lock.hcl 커밋됨" git ls-files --error-unmatch "$d/.terraform.lock.hcl"
+done
+for m in network backend_host frontend_cdn ci_oidc dns_cert; do
+  check "TASK-16#6 모듈 $m 테스트 존재" sh -c "ls infra/main/modules/$m/tests/*.tftest.hcl"
+  check "TASK-16#6 gitignore가 모듈 $m lock 파일을 무시" git check-ignore -q --no-index "infra/main/modules/$m/.terraform.lock.hcl"
+done
+check "TASK-16#6 루트 스택 테스트 존재" sh -c 'ls infra/main/tests/*.tftest.hcl'
+check "TASK-16#6 bootstrap state 버킷 prevent_destroy" grep -q "prevent_destroy = true" infra/bootstrap/main.tf
+check "TASK-16#6 main backend 는 S3 partial config" grep -q 'backend "s3"' infra/main/backend.tf
+check "TASK-16#6 prod backend 설정은 use_lockfile" grep -Eq "^use_lockfile += true" infra/main/envs/prod.backend.hcl
+for k in name availability_zone web_bucket_name uploads_bucket_name cognito_domain_prefix domain_name github_repository; do
+  check "TASK-16#6 envs/prod.tfvars 에 $k" grep -Eq "^$k += " infra/main/envs/prod.tfvars
+done
+check "TASK-16#6 Terraform 이 SSM 파라미터(시크릿)를 만들지 않는다" sh -c '! grep -rq "resource \"aws_ssm_parameter\"" infra --include=*.tf'
+for w in "infra/bootstrap" "envs/prod.tfvars" "terraform destroy" "CLIENT_IP_HEADER" "COOKIE_SECURE" "UPLOADS_REGION"; do
+  check "TASK-16#6 README 인프라 절에 '$w'" grep -qF "$w" README.md
+done
+
 echo "repo tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]
