@@ -31,5 +31,22 @@ check "TASK-1#3 make test 는 scripts/test.sh 를 호출" sh -c 'make -n test | 
 check "TASK-1#3 scripts/test.sh 는 백엔드 테스트를 실행" grep -q "gradlew" scripts/test.sh
 check "TASK-1#3 scripts/test.sh 는 프론트 테스트를 실행" grep -q "npm test" scripts/test.sh
 
+# TASK-1#4 .claude-code-agile-hooks.json 에 testCommand 와 testFirst(sourceGlobs·testGlobs) 설정
+check "TASK-1#4 hooks 설정이 testCommand·testFirst 를 갖는다" python3 - <<'PY'
+import json, sys
+c = json.load(open(".claude-code-agile-hooks.json"))
+tf = c["testFirst"]
+ok = (
+    isinstance(c.get("testCommand"), str) and c["testCommand"].strip()
+    and all(isinstance(tf.get(k), list) and tf[k] and all(isinstance(g, str) for g in tf[k])
+            for k in ("sourceGlobs", "testGlobs"))
+    and "backend/src/main/**" in tf["sourceGlobs"] and "frontend/src/**" in tf["sourceGlobs"]
+    and "backend/src/test/**" in tf["testGlobs"] and "scripts/test/**" in tf["testGlobs"]
+    and not any(g.startswith(("**", "frontend/**")) for g in tf["testGlobs"])
+)
+sys.exit(0 if ok else 1)
+PY
+check "TASK-1#4 testCommand 는 make test" sh -c 'python3 -c "import json;print(json.load(open(\".claude-code-agile-hooks.json\"))[\"testCommand\"])" | grep -qx "make test"'
+
 echo "repo tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

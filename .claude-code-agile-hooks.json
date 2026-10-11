@@ -1,0 +1,21 @@
+{
+  "testCommand": "make test",
+  "testFirst": {
+    "sourceGlobs": [
+      "backend/src/main/**",
+      "frontend/src/**",
+      "infra/**/*.tf",
+      "scripts/*.sh",
+      "Makefile",
+      "docker-compose.yml",
+      "deploy/**"
+    ],
+    "testGlobs": [
+      "backend/src/test/**",
+      "frontend/src/**/*.test.ts",
+      "frontend/src/**/*.test.tsx",
+      "frontend/e2e/**",
+      "scripts/test/**"
+    ]
+  }
+}
