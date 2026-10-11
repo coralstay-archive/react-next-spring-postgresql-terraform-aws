@@ -29,6 +29,14 @@ public interface OAuth2UserInfoMapper {
 	 */
 	ClientRegistration.Builder registration();
 
+	/**
+	 * 설정({@code app.oauth2.registrations.<id>.*})을 보고 기본값을 만드는 제공자용 (TASK-6 Cognito: 도메인·issuer 로 엔드포인트).
+	 * 기본은 {@link #registration()}. 설정의 개별 엔드포인트 값은 이 뒤에 덮어쓴다.
+	 */
+	default ClientRegistration.Builder registration(OAuth2Properties.Registration config) {
+		return registration();
+	}
+
 	/** 제공자 응답(OIDC 면 {@link org.springframework.security.oauth2.core.oidc.user.OidcUser})을 정규화한다. */
 	OAuth2UserInfo map(OAuth2User user);
 

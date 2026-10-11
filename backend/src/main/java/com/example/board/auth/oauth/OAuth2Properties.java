@@ -27,9 +27,11 @@ public record OAuth2Properties(String loginRedirectPath, String linkRedirectPath
 	/**
 	 * 제공자 하나의 클라이언트 설정. 엔드포인트 값은 비우면 제공자 기본값({@link OAuth2UserInfoMapper#registration})을 쓴다
 	 * (테스트는 WireMock 주소로 덮는다).
+	 *
+	 * @param domain 제공자 도메인으로 엔드포인트를 만드는 제공자용 (TASK-6 Cognito Hosted UI 주소 {@code COGNITO_DOMAIN})
 	 */
 	public record Registration(String clientId, String clientSecret, String authorizationUri, String tokenUri,
-			String userInfoUri, String jwkSetUri, String issuerUri) {
+			String userInfoUri, String jwkSetUri, String issuerUri, String domain) {
 	}
 
 }

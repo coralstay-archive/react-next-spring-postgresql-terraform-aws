@@ -18,7 +18,7 @@ class OAuth2ClientRegistrationsTest {
 	static final List<OAuth2UserInfoMapper> MAPPERS = List.of(new GoogleUserInfoMapper(), new GitHubUserInfoMapper());
 
 	static Registration clientOnly(String clientId) {
-		return new Registration(clientId, "secret", null, null, null, null, null);
+		return new Registration(clientId, "secret", null, null, null, null, null, null);
 	}
 
 	static OAuth2Properties properties(Map<String, Registration> registrations) {
@@ -57,7 +57,7 @@ class OAuth2ClientRegistrationsTest {
 	void googleIsOidcWithOverrides() {
 		OAuth2ClientRegistrations registrations = OAuth2ClientRegistrations.from(
 				properties(Map.of("google", new Registration("g-client", "g-secret", "http://stub/authorize",
-						"http://stub/token", "http://stub/userinfo", "http://stub/jwks", "http://stub"))),
+						"http://stub/token", "http://stub/userinfo", "http://stub/jwks", "http://stub", null))),
 				MAPPERS, new PublicUrls("http://localhost:3000"));
 
 		ClientRegistration google = registrations.findByRegistrationId("google");

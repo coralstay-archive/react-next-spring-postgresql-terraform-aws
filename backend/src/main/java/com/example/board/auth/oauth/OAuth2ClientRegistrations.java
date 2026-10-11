@@ -43,7 +43,7 @@ public final class OAuth2ClientRegistrations implements ClientRegistrationReposi
 			if (config == null || !StringUtils.hasText(config.clientId())) {
 				continue;
 			}
-			ClientRegistration.Builder builder = mapper.registration()
+			ClientRegistration.Builder builder = mapper.registration(config)
 				.clientId(config.clientId().strip())
 				.clientSecret(config.clientSecret() == null ? null : config.clientSecret().strip())
 				.redirectUri(urls.url(CALLBACK_PATH + id));
