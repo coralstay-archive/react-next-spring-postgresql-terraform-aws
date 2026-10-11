@@ -45,6 +45,12 @@ export const ERROR_MESSAGES: Record<string, string> = {
   category_admin_only: "이 카테고리에는 관리자만 글을 쓸 수 있습니다.",
   too_many_tags: "태그는 5개까지 붙일 수 있습니다.",
   invalid_tag: "태그는 1~30자여야 합니다.",
+  // 관리자(TASK-12·15)
+  user_not_found: "사용자를 찾을 수 없습니다.",
+  cannot_suspend_self: "자기 자신은 정지할 수 없습니다.",
+  cannot_suspend_admin: "다른 관리자는 정지할 수 없습니다.",
+  slug_taken: "이미 쓰고 있는 slug 입니다. 다른 값을 입력하세요.",
+  category_not_found: "카테고리를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
   // 첨부(TASK-11)
   attachment_type_not_allowed: "PNG·JPEG·WebP·GIF 이미지만 올릴 수 있습니다.",
   attachment_too_large: "이미지는 5MB 이하만 올릴 수 있습니다.",

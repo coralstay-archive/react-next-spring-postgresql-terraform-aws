@@ -18,6 +18,12 @@ export const queryKeys = {
   commentPage: (postId: number, page: number) => ["posts", "comments", postId, page] as const,
   categories: ["categories"] as const,
   tags: (q: string) => ["tags", q] as const,
+  // 관리자(TASK-15). 관리 쓰기 뒤에는 ["admin", "actions"](감사 로그)도 무효화한다.
+  admin: ["admin"] as const,
+  adminUsers: ["admin", "users"] as const,
+  adminUserList: (query: object) => ["admin", "users", query] as const,
+  adminActions: ["admin", "actions"] as const,
+  adminActionPage: (page: number) => ["admin", "actions", page] as const,
 };
 
 const MAX_RETRIES = 2;
