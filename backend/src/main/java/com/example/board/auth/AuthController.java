@@ -18,6 +18,7 @@ import com.example.board.auth.local.LocalAccountService;
 import com.example.board.auth.local.LoginRequest;
 import com.example.board.auth.local.SignupRequest;
 import com.example.board.auth.token.RefreshRequest;
+import com.example.board.auth.token.TokenResponse;
 import com.example.board.auth.token.TokenService;
 import com.example.board.common.ApiException;
 import com.example.board.security.BearerRequests;
@@ -93,7 +94,7 @@ public class AuthController {
 		}
 		User user = localAccounts.authenticate(body.email(), body.password());
 		if (user.getStatus() != UserStatus.ACTIVE) {
-			throw new ApiException(HttpStatus.FORBIDDEN, "suspended", "정지된 계정은 로그인할 수 없습니다");
+			throw suspended();
 		}
 		if (token != null) {
 			return tokens.issueForLogin(user);
@@ -130,6 +131,21 @@ public class AuthController {
 	}
 
 	/**
+	 * refresh 로테이션 (AC#5). Bearer 헤더 없이 호출한다(만료된 access 토큰을 같이 보내면 보안 체인이 먼저 401 을 낸다).
+	 * CSRF 면제 이유는 {@code SecurityConfig#csrfExempt}. 실패는 401 {@code invalid_refresh_token}, 정지 계정은 403.
+	 */
+	@PostMapping("/auth/token/refresh")
+	public TokenResponse refresh(@Valid @RequestBody RefreshRequest body) {
+		TokenService.Rotation rotation = tokens.rotate(body.refreshToken());
+		return switch (rotation.outcome()) {
+			case ROTATED -> rotation.tokens();
+			case SUSPENDED -> throw suspended();
+			case INVALID -> throw new ApiException(HttpStatus.UNAUTHORIZED, "invalid_refresh_token",
+					"refresh 토큰이 유효하지 않습니다. 다시 로그인하세요");
+		};
+	}
+
+	/**
 	 * 현재 사용자. 세션·Bearer 공통. 세션·토큰에 실린 role/status 는 발급 시점 값이라, 응답은 DB 의 최신 값으로 만든다.
 	 * 계정이 지워졌으면 401. 익명은 보안 체인이 401 로 막는다.
 	 */
@@ -138,6 +154,10 @@ public class AuthController {
 		User user = users.findById(principal.id())
 			.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "인증이 필요합니다"));
 		return summary(user);
+	}
+
+	private static ApiException suspended() {
+		return new ApiException(HttpStatus.FORBIDDEN, "suspended", "정지된 계정은 로그인할 수 없습니다");
 	}
 
 	private UserSummary summary(User user) {

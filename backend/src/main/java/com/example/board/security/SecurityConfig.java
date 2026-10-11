@@ -109,7 +109,8 @@ public class SecurityConfig {
 				// 공개 엔드포인트. 새 공개 API(예: 게시글 목록, 로그인)는 여기에 명시적으로 더한다.
 				.requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
 				.requestMatchers(HttpMethod.GET, "/auth/csrf").permitAll()
-				.requestMatchers(HttpMethod.POST, "/auth/signup", "/auth/login", "/auth/logout").permitAll()
+				.requestMatchers(HttpMethod.POST, "/auth/signup", "/auth/login", "/auth/logout", "/auth/token/refresh")
+					.permitAll()
 				.requestMatchers("/error").permitAll()
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
 				.anyRequest().authenticated())
@@ -127,11 +128,15 @@ public class SecurityConfig {
 	 * 없으므로 면제해도 된다. 반면 쿼리 없는 세션 로그인은 피해자 브라우저에 공격자 계정 세션을 심는 "로그인 CSRF" 가
 	 * 가능하므로 검사를 유지한다. 판정은 쿼리 문자열만 본다(본문 파라미터로는 면제되지 않는다).
 	 *
-	 * <p>{@code POST /auth/token/refresh}(AC#5)도 같은 이유로 여기에 더한다.
+	 * <p>{@code POST /auth/token/refresh}: 자격(refresh 토큰)이 쿠키가 아니라 본문에 있어 브라우저가 자동으로 붙일 수 없고,
+	 * 공격자가 그 값을 모르면 위조 요청은 401 일 뿐이다. 응답(새 토큰)도 본문이라 다른 사이트가 읽을 수 없다. 세션 쿠키가
+	 * 같이 와도 이 엔드포인트는 세션을 읽거나 바꾸지 않는다.
 	 */
 	static RequestMatcher csrfExempt() {
 		RequestMatcher login = PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/login");
-		return request -> login.matches(request) && "jwt".equals(queryParam(request, "token"));
+		RequestMatcher refresh = PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/token/refresh");
+		return request -> refresh.matches(request)
+				|| (login.matches(request) && "jwt".equals(queryParam(request, "token")));
 	}
 
 	private static String queryParam(HttpServletRequest request, String name) {
