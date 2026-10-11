@@ -486,6 +486,51 @@ t_render_missing() {
 }
 check "TASK-17#3 render-env: 필수 시크릿이 없으면 파일을 만들지 않고 실패" t_render_missing
 
+# ================================================================ TASK-17#4 GitHub Actions
+CI=.github/workflows/ci.yml
+DEPLOY=.github/workflows/deploy.yml
+check "TASK-17#4 $CI 존재" test -f "$CI"
+check "TASK-17#4 $DEPLOY 존재" test -f "$DEPLOY"
+if need_linter actionlint; then
+  check "TASK-17#4 actionlint (ci.yml, deploy.yml)" actionlint -shellcheck "$(command -v shellcheck || true)" "$CI" "$DEPLOY"
+fi
+# ci: PR + main 이 아닌 push + workflow_call(deploy 가 재사용), java 25·node 24·terraform, make test, 빌드
+check "TASK-17#4 ci: pull_request 트리거" grep -Eq '^  pull_request:' "$CI"
+check "TASK-17#4 ci: main 이 아닌 브랜치 push" sh -c "grep -A3 -E '^  push:' $CI | grep -q 'branches-ignore'"
+check "TASK-17#4 ci: workflow_call(deploy 가 재사용)" grep -Eq '^  workflow_call:' "$CI"
+check "TASK-17#4 ci: setup-java temurin 25" sh -c "grep -q 'actions/setup-java@' $CI && grep -Eq 'java-version: \"?25\"?' $CI && grep -q 'distribution: temurin' $CI"
+check "TASK-17#4 ci: setup-node 24 + npm 캐시" sh -c "grep -q 'actions/setup-node@' $CI && grep -Eq 'node-version: \"?24\"?' $CI && grep -q 'cache: npm' $CI"
+check "TASK-17#4 ci: setup-terraform (wrapper 끔)" sh -c "grep -q 'hashicorp/setup-terraform@' $CI && grep -q 'terraform_wrapper: false' $CI"
+check "TASK-17#4 ci: make test (린터 필수)" sh -c "grep -q 'run: make test' $CI && grep -q 'REQUIRE_LINTERS: \"1\"' $CI"
+check "TASK-17#4 ci: actionlint 설치" grep -q 'download-actionlint.bash' "$CI"
+check "TASK-17#4 ci: 빌드(bootJar, 프론트 build)" sh -c "grep -q 'bootJar' $CI && grep -q 'npm run build' $CI"
+check "TASK-17#4 ci: 권한은 contents: read" grep -q 'contents: read' "$CI"
+# deploy: main push + 수동, OIDC, arm 러너, 직렬화, 같은 스크립트, environment 없음
+check "TASK-17#4 deploy: main push + workflow_dispatch" sh -c "grep -A2 -E '^  push:' $DEPLOY | grep -Eq 'branches: \\[main\\]' && grep -Eq '^  workflow_dispatch:' $DEPLOY"
+check "TASK-17#4 deploy: id-token: write" grep -q 'id-token: write' "$DEPLOY"
+check "TASK-17#4 deploy: concurrency deploy-prod, 취소 안 함" sh -c "grep -q 'group: deploy-prod' $DEPLOY && grep -q 'cancel-in-progress: false' $DEPLOY"
+check "TASK-17#4 deploy: ubuntu-24.04-arm 러너" grep -q 'runs-on: ubuntu-24.04-arm' "$DEPLOY"
+check "TASK-17#4 deploy: configure-aws-credentials role-to-assume = vars.AWS_DEPLOY_ROLE_ARN" sh -c "grep -q 'aws-actions/configure-aws-credentials@' $DEPLOY && grep -q 'role-to-assume: \${{ vars.AWS_DEPLOY_ROLE_ARN }}' $DEPLOY && grep -q 'aws-region: \${{ vars.AWS_REGION }}' $DEPLOY"
+for v in ECR_REPOSITORY_URL WEB_BUCKET DISTRIBUTION_ID INSTANCE_ID AWS_REGION; do
+  check "TASK-17#4 deploy: 리포 variable $v" grep -q "$v: \${{ vars.$v }}" "$DEPLOY"
+done
+check "TASK-17#4 deploy: 테스트(ci.yml) 통과 뒤 배포" sh -c "grep -q 'uses: ./.github/workflows/ci.yml' $DEPLOY && grep -q 'needs: test' $DEPLOY"
+t_deploy_order() {
+  local a b c
+  a=$(grep -n 'scripts/build-backend.sh' "$DEPLOY" | cut -d: -f1); b=$(grep -n 'scripts/deploy-backend.sh' "$DEPLOY" | cut -d: -f1); c=$(grep -n 'scripts/deploy-frontend.sh' "$DEPLOY" | cut -d: -f1)
+  [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ]
+}
+check "TASK-17#4 deploy: build-backend → deploy-backend → deploy-frontend 순서" t_deploy_order
+check "TASK-17#4 deploy: GitHub environment 를 쓰지 않는다(OIDC sub 가 바뀐다)" sh -c "! grep -Eq '^ +environment:' $DEPLOY"
+check "TASK-17#4 deploy: main 에서만 배포 job 실행" grep -q "if: github.ref == 'refs/heads/main'" "$DEPLOY"
+t_actions_pinned() {
+  # 모든 uses: 는 메이저 버전 태그(@vN)로 고정한다(로컬 ./ 재사용 워크플로 제외)
+  local bad
+  bad="$(grep -hE '^\s*(- )?uses:' "$CI" "$DEPLOY" | grep -v 'uses: ./' | grep -Ev '@v[0-9]+$' || true)"
+  [ -z "$bad" ] || { echo "$bad"; return 1; }
+}
+check "TASK-17#4 액션은 메이저 버전(@vN)으로 고정" t_actions_pinned
+
 # ---------------------------------------------------------------- shellcheck (모든 배포 스크립트)
 if need_linter shellcheck; then
   for f in scripts/*.sh deploy/*.sh scripts/test/*.sh; do

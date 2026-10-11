@@ -1,0 +1,76 @@
+# 운영 배포 (TASK-17#4): main push(또는 수동 실행)마다 테스트(ci.yml) → 백엔드 이미지 → EC2 배포 → 프론트 배포.
+# 로컬 `make deploy` 와 같은 스크립트를 쓴다. 대상 값은 리포 variables(Settings → Secrets and variables → Actions → Variables):
+#   AWS_DEPLOY_ROLE_ARN(terraform output ci_role_arn), AWS_REGION, ECR_REPOSITORY_URL, WEB_BUCKET, DISTRIBUTION_ID, INSTANCE_ID
+# 자격 증명은 OIDC 로 ci_role_arn 을 assume 한다(장기 키 없음). role trust 는 sub = repo:<owner/repo>:ref:refs/heads/main 정확 일치라
+# GitHub environment 를 붙이면 sub 가 repo:<owner/repo>:environment:<name> 으로 바뀌어 assume 이 실패한다 → environment 를 쓰지 않는다.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 배포는 한 번에 하나. 진행 중인 배포는 취소하지 않는다(EC2 중간 상태 방지), 대기 중인 것은 최신 하나만 남는다
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: test
+    # workflow_dispatch 를 다른 브랜치에서 돌려도 OIDC trust(main 전용)에 막히므로 미리 거른다
+    if: github.ref == 'refs/heads/main'
+    # t4g(arm64) 용 이미지를 에뮬레이션 없이 빌드한다
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+      WEB_BUCKET: ${{ vars.WEB_BUCKET }}
+      DISTRIBUTION_ID: ${{ vars.DISTRIBUTION_ID }}
+      INSTANCE_ID: ${{ vars.INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-deploy-${{ github.run_id }}
+
+      - name: Ensure aws CLI and jq
+        run: |
+          if ! command -v aws >/dev/null; then
+            curl -sSfL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "$RUNNER_TEMP/awscliv2.zip"
+            unzip -q "$RUNNER_TEMP/awscliv2.zip" -d "$RUNNER_TEMP"
+            sudo "$RUNNER_TEMP/aws/install"
+          fi
+          command -v jq >/dev/null || sudo apt-get install -y jq
+          aws --version
+          aws sts get-caller-identity --query Arn --output text
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build and push backend image (linux/arm64 → ECR)
+        run: ./scripts/build-backend.sh
+
+      - name: Deploy backend (SSM send-command → compose up, health check, rollback on failure)
+        run: ./scripts/deploy-backend.sh
+
+      - name: Deploy frontend (S3 sync + CloudFront invalidation)
+        run: ./scripts/deploy-frontend.sh
