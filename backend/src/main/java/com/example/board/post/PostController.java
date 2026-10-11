@@ -51,12 +51,14 @@ public class PostController {
 
 	/**
 	 * 목록 (TASK-8#2). {@code includeHidden=true} 는 ADMIN 일 때만 효과가 있고(삭제·숨김 글 포함), 그 밖에는 무시한다(B2).
+	 * {@code q} 는 제목·본문 검색(TASK-10#3)이고 category·tag·sort 와 AND 로 조합된다.
 	 */
 	@GetMapping("/posts")
 	public PageResponse<PostSummary> list(@RequestParam(required = false) String category,
 			@RequestParam(required = false) String tag, @RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "20") int size, @RequestParam(defaultValue = "latest") String sort,
-			@RequestParam(defaultValue = "false") boolean includeHidden, @AuthenticationPrincipal AuthUser viewer) {
+			@RequestParam(defaultValue = "false") boolean includeHidden, @RequestParam(required = false) String q,
+			@AuthenticationPrincipal AuthUser viewer) {
 		if (page < 0) {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "validation", "page 는 0 이상이어야 합니다");
 		}
@@ -64,7 +66,7 @@ public class PostController {
 			throw new ApiException(HttpStatus.BAD_REQUEST, "validation", "size 는 1~" + MAX_PAGE_SIZE + " 이어야 합니다");
 		}
 		PostQuery query = new PostQuery(blankToNull(category), tag == null || tag.isBlank() ? null : TagNames.normalize(tag),
-				includeHidden && PostService.isAdmin(viewer), PostSort.parse(sort));
+				includeHidden && PostService.isAdmin(viewer), PostSort.parse(sort), searchTerm(q));
 		return posts.list(query, page, size);
 	}
 
@@ -108,6 +110,20 @@ public class PostController {
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void delete(@PathVariable Long id, @AuthenticationPrincipal AuthUser user) {
 		posts.delete(id, user);
+	}
+
+	/** 검색어 (TASK-10#3): 앞뒤 공백을 자르고, 비었으면 검색하지 않는다. 자른 뒤 2~100자(코드 포인트)가 아니면 400. */
+	static String searchTerm(String q) {
+		String term = blankToNull(q);
+		if (term == null) {
+			return null;
+		}
+		int length = term.codePointCount(0, term.length());
+		if (length < PostQuery.MIN_Q || length > PostQuery.MAX_Q) {
+			throw new ApiException(HttpStatus.BAD_REQUEST, "validation",
+					"검색어는 " + PostQuery.MIN_Q + "~" + PostQuery.MAX_Q + "자여야 합니다");
+		}
+		return term;
 	}
 
 	private static String blankToNull(String value) {
