@@ -139,6 +139,34 @@ public final class OAuthProviderStub implements DisposableBean {
 				.withBody(JSON.writeValueAsString(user.attributes()))));
 	}
 
+	/** Google 토큰 엔드포인트가 OAuth2 오류(400 {@code {"error": errorCode}})를 돌려준다 (예: 코드 재사용 invalid_grant). */
+	public void stubGoogleTokenError(String code, String errorCode) {
+		server.stubFor(post(urlPathEqualTo("/google/token")).withRequestBody(containing("code=" + code))
+			.willReturn(aResponse().withStatus(400)
+				.withHeader("Content-Type", "application/json")
+				.withBody(JSON.writeValueAsString(Map.of("error", errorCode)))));
+	}
+
+	/** GitHub 토큰은 정상, {@code /user} 가 500 이다. */
+	public void stubGitHubUserFailure(String code, String expectedRedirectUri) {
+		String accessToken = "github-at-" + code;
+		server.stubFor(post(urlPathEqualTo("/github/token"))
+			.withRequestBody(containing("code=" + code))
+			.withRequestBody(containing("redirect_uri=" + URLEncoder.encode(expectedRedirectUri, StandardCharsets.UTF_8)))
+			.willReturn(okJson(JSON.writeValueAsString(
+					Map.of("access_token", accessToken, "token_type", "bearer", "scope", "read:user")))));
+		server.stubFor(get(urlPathEqualTo("/github/user"))
+			.withHeader("Authorization", equalTo("Bearer " + accessToken))
+			.willReturn(aResponse().withStatus(500)));
+	}
+
+	/** 토큰 엔드포인트가 받은 요청 수 (code 기준). */
+	public int tokenRequests(String provider, String code) {
+		return server.findAll(com.github.tomakehurst.wiremock.client.WireMock
+			.postRequestedFor(urlPathEqualTo("/" + provider + "/token"))
+			.withRequestBody(containing("code=" + code))).size();
+	}
+
 	private String idToken(GoogleUser user, String nonce, RSAKey key) {
 		Instant now = Instant.now();
 		JWTClaimsSet.Builder claims = new JWTClaimsSet.Builder().issuer(googleIssuer())
