@@ -1,10 +1,10 @@
 ---
 id: TASK-6
 title: '인증: Cognito OIDC'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 13:19'
+updated_date: '2026-10-11 14:49'
 labels:
   - backend
   - auth
