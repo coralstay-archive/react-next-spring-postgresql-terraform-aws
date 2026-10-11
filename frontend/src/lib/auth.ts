@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 
 import { api, ApiError } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
@@ -42,10 +43,13 @@ export function useMe() {
  */
 export function useSessionChanged() {
   const client = useQueryClient();
-  return (me: Me | null) => {
-    client.removeQueries({ predicate: (query) => query.queryKey[0] !== queryKeys.me[0] });
-    client.setQueryData(queryKeys.me, me);
-  };
+  return useCallback(
+    (me: Me | null) => {
+      client.removeQueries({ predicate: (query) => query.queryKey[0] !== queryKeys.me[0] });
+      client.setQueryData(queryKeys.me, me);
+    },
+    [client],
+  );
 }
 
 export function useLogout() {
