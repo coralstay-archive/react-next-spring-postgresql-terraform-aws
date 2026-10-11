@@ -133,6 +133,8 @@ public class SecurityConfig {
 				.requestMatchers(HttpMethod.POST, "/auth/phone/otp", "/auth/phone/verify").permitAll()
 				// 게시판 읽기 (TASK-8): 글 목록·상세·카테고리·태그는 익명도 본다. 쓰기는 아래 기본 규칙(인증) + CSRF + 정지·step-up 필터.
 				.requestMatchers(HttpMethod.GET, "/posts", "/posts/*", "/categories", "/tags").permitAll()
+				// 댓글 목록 (TASK-9#1). 작성·삭제·좋아요는 기본 규칙(인증) + CSRF + 정지·step-up 필터.
+				.requestMatchers(HttpMethod.GET, "/posts/*/comments").permitAll()
 				.requestMatchers("/error").permitAll()
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
 				.anyRequest().authenticated())

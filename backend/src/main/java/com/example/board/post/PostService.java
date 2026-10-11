@@ -160,12 +160,12 @@ public class PostService {
 		return category;
 	}
 
-	static boolean isAdmin(AuthUser viewer) {
+	public static boolean isAdmin(AuthUser viewer) {
 		return viewer != null && viewer.isAdmin();
 	}
 
 	/** B2: 보이는 글이거나 ADMIN. */
-	static boolean canSee(Post post, AuthUser viewer) {
+	public static boolean canSee(Post post, AuthUser viewer) {
 		return post.isVisible() || isAdmin(viewer);
 	}
 
@@ -174,7 +174,7 @@ public class PostService {
 		return viewer != null && !post.isDeleted() && (viewer.isAdmin() || viewer.id().equals(post.getOwnerId()));
 	}
 
-	static ApiException notFound() {
+	public static ApiException notFound() {
 		return new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND, "글을 찾을 수 없습니다");
 	}
 
