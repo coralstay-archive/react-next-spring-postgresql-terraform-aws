@@ -282,6 +282,55 @@ else
   echo "  WARNING: docker 가 없어 compose config 검사를 건너뛴다" >&2
 fi
 
+# ================================================================ TASK-17#2 프론트 배포
+check "TASK-17#2 scripts/deploy-frontend.sh 실행 가능" test -x scripts/deploy-frontend.sh
+FRONT_ENV=(AWS_REGION=us-east-1 WEB_BUCKET=board-prod-web-x DISTRIBUTION_ID=E123ABC)
+t_front_dry() {
+  reset_fake
+  run_capture with_fakes env DRY_RUN=1 SKIP_BUILD=1 "${FRONT_ENV[@]}" ./scripts/deploy-frontend.sh
+  [ "$RC" = 0 ] || { echo "rc=$RC"; echo "$OUT"; return 1; }
+  # 1) 해시 붙은 정적 자산: 1년 immutable (지우지 않는다 — 열린 탭이 옛 청크를 받을 수 있게)
+  has_line "[dry-run] aws s3 sync $ROOT/frontend/out/_next/static s3://board-prod-web-x/_next/static --region us-east-1 --cache-control 'public, max-age=31536000, immutable'" &&
+    # 2) 나머지(HTML, RSC .txt 등): no-cache + --delete, _next/static 은 빼고
+    has_line "[dry-run] aws s3 sync $ROOT/frontend/out s3://board-prod-web-x --region us-east-1 --delete --exclude '_next/static/*' --cache-control no-cache" &&
+    has_line "[dry-run] aws cloudfront create-invalidation --distribution-id E123ABC --paths '/*'" &&
+    lacks_text "npm" && ! test -s "$FAKE_STATE/calls.log"
+}
+check "TASK-17#2 deploy-frontend DRY_RUN: static immutable → 나머지 no-cache --delete → invalidation /*" t_front_dry
+t_front_order() {
+  run_capture with_fakes env DRY_RUN=1 SKIP_BUILD=1 "${FRONT_ENV[@]}" ./scripts/deploy-frontend.sh
+  # 자산을 먼저 올리고 HTML 을 나중에 바꾼다 → 새 HTML 이 아직 없는 청크를 가리키는 순간이 없다
+  local a b c
+  a=$(grep -n "_next/static --region" <<<"$OUT" | cut -d: -f1); b=$(grep -n -- "--delete" <<<"$OUT" | cut -d: -f1); c=$(grep -n "create-invalidation" <<<"$OUT" | cut -d: -f1)
+  [ -n "$a" ] && [ -n "$b" ] && [ -n "$c" ] && [ "$a" -lt "$b" ] && [ "$b" -lt "$c" ]
+}
+check "TASK-17#2 deploy-frontend 순서: 정적 자산 → HTML → invalidation" t_front_order
+t_front_build() {
+  run_capture with_fakes env DRY_RUN=1 "${FRONT_ENV[@]}" ./scripts/deploy-frontend.sh
+  [ "$RC" = 0 ] && has_line "[dry-run] npm --prefix $ROOT/frontend ci" && has_line "[dry-run] npm --prefix $ROOT/frontend run build"
+}
+check "TASK-17#2 deploy-frontend 는 npm ci && npm run build 를 먼저 한다(SKIP_BUILD 없으면)" t_front_build
+t_front_requires() {
+  run_capture with_fakes env -u WEB_BUCKET DRY_RUN=1 SKIP_BUILD=1 AWS_REGION=us-east-1 DISTRIBUTION_ID=E1 ./scripts/deploy-frontend.sh
+  [ "$RC" != 0 ] && has_text "WEB_BUCKET"
+}
+check "TASK-17#2 deploy-frontend 는 WEB_BUCKET 없으면 실패" t_front_requires
+t_front_real_needs_out() {
+  reset_fake
+  run_capture with_fakes env SKIP_BUILD=1 FRONTEND_OUT_DIR="$TMP/no-such-out" "${FRONT_ENV[@]}" ./scripts/deploy-frontend.sh
+  [ "$RC" != 0 ] && has_text "index.html" && ! grep -q "s3 sync" "$FAKE_STATE/calls.log" 2>/dev/null
+}
+check "TASK-17#2 deploy-frontend 는 빌드 결과(index.html)가 없으면 sync 하지 않고 실패" t_front_real_needs_out
+t_front_real() {
+  reset_fake
+  local out="$TMP/out"; mkdir -p "$out/_next/static/chunks"; echo '<html>' >"$out/index.html"; echo x >"$out/_next/static/chunks/a.js"
+  run_capture with_fakes env SKIP_BUILD=1 FRONTEND_OUT_DIR="$out" "${FRONT_ENV[@]}" ./scripts/deploy-frontend.sh
+  [ "$RC" = 0 ] || { echo "$OUT"; return 1; }
+  grep -qF "aws s3 sync $out/_next/static s3://board-prod-web-x/_next/static --region us-east-1 --cache-control public, max-age=31536000, immutable" "$FAKE_STATE/calls.log" &&
+    grep -qF "aws cloudfront create-invalidation --distribution-id E123ABC --paths /*" "$FAKE_STATE/calls.log"
+}
+check "TASK-17#2 deploy-frontend 실제 경로(가짜 aws): sync 2회 + invalidation 호출" t_front_real
+
 # ---------------------------------------------------------------- shellcheck (모든 배포 스크립트)
 if need_linter shellcheck; then
   for f in scripts/*.sh deploy/*.sh scripts/test/*.sh; do
