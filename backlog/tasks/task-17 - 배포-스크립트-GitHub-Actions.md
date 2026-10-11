@@ -1,10 +1,10 @@
 ---
 id: TASK-17
 title: 배포 스크립트 + GitHub Actions
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 18:19'
+updated_date: '2026-10-11 23:34'
 labels:
   - infra
   - ci
