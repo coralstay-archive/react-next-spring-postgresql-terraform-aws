@@ -116,6 +116,8 @@ public class SecurityConfig {
 				.requestMatchers(HttpMethod.GET, "/auth/csrf").permitAll()
 				.requestMatchers(HttpMethod.POST, "/auth/signup", "/auth/login", "/auth/logout", "/auth/token/refresh")
 					.permitAll()
+				// 휴대폰 OTP 발송·검증 (TASK-7). 세션 경로는 CSRF 검사 대상이다.
+				.requestMatchers(HttpMethod.POST, "/auth/phone/otp", "/auth/phone/verify").permitAll()
 				.requestMatchers("/error").permitAll()
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
 				.anyRequest().authenticated())
