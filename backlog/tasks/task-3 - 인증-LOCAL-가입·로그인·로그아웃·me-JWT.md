@@ -1,10 +1,10 @@
 ---
 id: TASK-3
 title: '인증: LOCAL 가입·로그인·로그아웃·me + JWT'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 13:19'
+updated_date: '2026-10-11 13:48'
 labels:
   - backend
   - auth
