@@ -1,10 +1,10 @@
 ---
 id: TASK-12
 title: 관리자 API
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 18:19'
+updated_date: '2026-10-11 19:18'
 labels:
   - backend
   - admin
