@@ -38,6 +38,25 @@ export const ERROR_MESSAGES: Record<string, string> = {
   invalid_user_info_response: "제공자에게서 사용자 정보를 받지 못했습니다. 다시 시도하세요.",
   invalid_user_info: "제공자 사용자 정보가 올바르지 않습니다.",
   unknown_provider: "지원하지 않거나 설정되지 않은 로그인 수단입니다.",
+  // 게시판(TASK-14)
+  post_not_found: "글을 찾을 수 없습니다. 삭제되었거나 볼 수 없는 글입니다.",
+  comment_not_found: "댓글을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
+  unknown_category: "없는 카테고리입니다.",
+  category_admin_only: "이 카테고리에는 관리자만 글을 쓸 수 있습니다.",
+  too_many_tags: "태그는 5개까지 붙일 수 있습니다.",
+  invalid_tag: "태그는 1~30자여야 합니다.",
+  // 첨부(TASK-11)
+  attachment_type_not_allowed: "PNG·JPEG·WebP·GIF 이미지만 올릴 수 있습니다.",
+  attachment_too_large: "이미지는 5MB 이하만 올릴 수 있습니다.",
+  attachment_not_found: "첨부를 찾을 수 없습니다. 다시 올려 주세요.",
+  attachment_forbidden: "본인이 올린 첨부만 붙일 수 있습니다.",
+  attachment_not_uploaded: "업로드가 끝나지 않았습니다. 다시 올려 주세요.",
+  attachment_mismatch: "올린 파일이 요청한 크기·형식과 다릅니다. 다시 올려 주세요.",
+  unknown_attachment: "없는 첨부입니다. 다시 올려 주세요.",
+  attachment_not_confirmed: "확인되지 않은 첨부입니다. 다시 올려 주세요.",
+  attachment_in_use: "이미 다른 글에 붙은 첨부입니다.",
+  uploads_unavailable: "지금은 이미지를 올릴 수 없습니다(저장소 미설정).",
+  upload_failed: "이미지를 저장소에 올리지 못했습니다. 다시 시도하세요.",
 };
 
 const FALLBACK = "요청을 처리하지 못했습니다. 잠시 후 다시 시도하세요.";
