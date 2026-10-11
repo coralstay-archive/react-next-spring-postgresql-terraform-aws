@@ -38,3 +38,7 @@ CREATE TABLE post_views (
 );
 -- 오래된 행 정리(후속 작업)용
 CREATE INDEX post_views_viewed_at_ix ON post_views (viewed_at);
+
+-- 인기순 목록 (TASK-9#4, sort=popular): (like_count DESC, created_at DESC, id DESC), 보이는 글만.
+CREATE INDEX posts_visible_popular_ix ON posts (like_count DESC, created_at DESC, id DESC)
+	WHERE deleted_at IS NULL AND hidden_at IS NULL;

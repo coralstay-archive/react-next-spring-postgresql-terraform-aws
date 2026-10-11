@@ -121,11 +121,11 @@ class PostReadTest {
 	}
 
 	@Test
-	@DisplayName("TASK-8#2 page·size·sort 검증: size 1~50, page ≥ 0, sort=latest 만, 숫자가 아니면 400")
+	@DisplayName("TASK-8#2 page·size·sort 검증: size 1~50, page ≥ 0, 지원하지 않는 sort(latest·popular 외), 숫자가 아니면 400")
 	void pagingValidation() {
 		assertThat(api.get("/posts?size=50").send().statusCode()).isEqualTo(200);
 		assertThat(api.get("/posts").send().statusCode()).isEqualTo(200);
-		for (String query : List.of("size=51", "size=0", "page=-1", "sort=popular", "page=abc", "size=x")) {
+		for (String query : List.of("size=51", "size=0", "page=-1", "sort=oldest", "page=abc", "size=x")) {
 			HttpResponse<String> response = api.get("/posts?" + query).send();
 			assertThat(response.statusCode()).as(query).isEqualTo(400);
 			assertThat(AuthClient.json(response).get("status").asInt()).as(query).isEqualTo(400);
