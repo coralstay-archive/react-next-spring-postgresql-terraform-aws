@@ -12,6 +12,8 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
@@ -59,6 +61,15 @@ public class SecurityConfig {
 		return repository;
 	}
 
+	/**
+	 * 비밀번호 해시는 DelegatingPasswordEncoder 로만 만든다(기본 {@code {bcrypt}}, TASK-3 B4). 접두사가 있어 나중에 알고리즘을
+	 * 바꿔도 기존 해시를 그대로 검증할 수 있다.
+	 */
+	@Bean
+	PasswordEncoder passwordEncoder() {
+		return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+	}
+
 	@Bean
 	JwtDecoder jwtDecoder(JwtTokenService tokens) {
 		return tokens::decode;
@@ -90,6 +101,7 @@ public class SecurityConfig {
 				// 공개 엔드포인트. 새 공개 API(예: 게시글 목록, 로그인)는 여기에 명시적으로 더한다.
 				.requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
 				.requestMatchers(HttpMethod.GET, "/auth/csrf").permitAll()
+				.requestMatchers(HttpMethod.POST, "/auth/signup").permitAll()
 				.requestMatchers("/error").permitAll()
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
 				.anyRequest().authenticated())
