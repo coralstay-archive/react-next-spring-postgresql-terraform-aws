@@ -144,7 +144,7 @@ class IdentityLinkTest {
 	@Test
 	@DisplayName("TASK-4#3 설정되지 않은 제공자로 연결을 시작하면 404 unknown_provider")
 	void unknownProvider() {
-		HttpResponse<String> response = api.get("/me/identities/link/naver")
+		HttpResponse<String> response = api.get("/me/identities/link/facebook")
 			.cookie(fixtures.sessionCookie(fixtures.user()))
 			.send();
 

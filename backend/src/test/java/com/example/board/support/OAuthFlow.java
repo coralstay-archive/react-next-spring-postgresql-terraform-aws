@@ -9,6 +9,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import com.example.board.support.OAuthProviderStub.GitHubUser;
 import com.example.board.support.OAuthProviderStub.GoogleUser;
+import com.example.board.support.OAuthProviderStub.KakaoUser;
+import com.example.board.support.OAuthProviderStub.NaverUser;
 
 /**
  * TASK-4#5 브라우저 대신 OAuth 로그인 흐름을 실제 HTTP 로 몬다. 쿠키 jar 처럼 {@code SESSION} 쿠키를 응답마다 갱신해 들고 다닌다.
@@ -96,6 +98,30 @@ public final class OAuthFlow {
 
 	public HttpResponse<String> github(GitHubUser user) {
 		return github("/oauth2/authorization/github", user);
+	}
+
+	/** TASK-5#3 Naver 로그인 전체 흐름 (시작 경로 지정). */
+	public HttpResponse<String> naver(String startPath, NaverUser user) {
+		Authorization authorization = authorize(startPath);
+		String code = newCode();
+		stub.stubNaver(code, authorization.param("redirect_uri"), user);
+		return callback("naver", "code=" + code + "&state=" + authorization.param("state"));
+	}
+
+	public HttpResponse<String> naver(NaverUser user) {
+		return naver("/oauth2/authorization/naver", user);
+	}
+
+	/** TASK-5#3 Kakao 로그인 전체 흐름 (시작 경로 지정). */
+	public HttpResponse<String> kakao(String startPath, KakaoUser user) {
+		Authorization authorization = authorize(startPath);
+		String code = newCode();
+		stub.stubKakao(code, authorization.param("redirect_uri"), user);
+		return callback("kakao", "code=" + code + "&state=" + authorization.param("state"));
+	}
+
+	public HttpResponse<String> kakao(KakaoUser user) {
+		return kakao("/oauth2/authorization/kakao", user);
 	}
 
 	public static String newCode() {

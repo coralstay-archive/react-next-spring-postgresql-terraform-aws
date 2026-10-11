@@ -73,6 +73,8 @@ make test   # = scripts/test.sh : 리포 검증 + 백엔드(./gradlew test) + �
 | `PUBLIC_BASE_URL` | `http://localhost:3000` | 브라우저가 보는 공개 주소(끝 `/` 없이). OAuth redirect-uri와 로그인 후 프론트 리다이렉트를 이 값으로 만든다. 운영은 `https://<cloudfront 도메인 또는 커스텀 도메인>` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | (비어 있음) | Google 로그인. 비우면 Google을 등록하지 않는다 |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | (비어 있음) | GitHub 로그인. 비우면 GitHub를 등록하지 않는다 |
+| `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | (비어 있음) | Naver 로그인(Client ID / Client Secret). 비우면 등록하지 않는다 |
+| `KAKAO_CLIENT_ID` / `KAKAO_CLIENT_SECRET` | (비어 있음) | Kakao 로그인(REST API 키 / 보안 → Client Secret). 비우면 등록하지 않는다 |
 
 ## 인증·인가 모델 (백엔드)
 
@@ -100,15 +102,15 @@ make test   # = scripts/test.sh : 리포 검증 + 백엔드(./gradlew test) + �
 - 로그인 실패는 이유와 상관없이 같은 401(`invalid_credentials`)이다. 정지 계정은 비밀번호가 맞을 때만 403(`suspended`).
 - refresh 토큰은 256비트 랜덤 값이고 DB에는 SHA-256 해시만 둔다. access 토큰은 상태가 없어 로그아웃 뒤에도 만료(15분)까지 유효하다.
 
-### 소셜 로그인 (Google · GitHub) 과 계정 연결
+### 소셜 로그인 (Google · GitHub · Naver · Kakao) 과 계정 연결
 
 브라우저 내비게이션 흐름이다(fetch가 아니라 `location.href`로 이동한다). 모든 리다이렉트는 `PUBLIC_BASE_URL` 기준 절대 URL이다.
 
 | 요청 | 설명 |
 |---|---|
-| `GET /api/oauth2/authorization/{google\|github}` | 로그인 시작 → 제공자 인가 화면으로 302. state·nonce는 세션(Spring Session JDBC)에 저장 |
-| `GET /api/login/oauth2/code/{google\|github}` | 제공자 콜백. 성공: 세션 ID 교체 + `SESSION`·새 `XSRF-TOKEN` 쿠키 + 302 `/auth/callback/?status=ok`. 실패: 302 `/auth/callback/?error=<코드>` |
-| `GET /api/me/identities/link/{google\|github}` | (로그인 필요, 세션 전용) 현재 계정에 연결 시작. 콜백 뒤 302 `/account/?linked=<제공자>` 또는 `/account/?error=<코드>` |
+| `GET /api/oauth2/authorization/{google\|github\|naver\|kakao}` | 로그인 시작 → 제공자 인가 화면으로 302. state·nonce는 세션(Spring Session JDBC)에 저장 |
+| `GET /api/login/oauth2/code/{google\|github\|naver\|kakao}` | 제공자 콜백. 성공: 세션 ID 교체 + `SESSION`·새 `XSRF-TOKEN` 쿠키 + 302 `/auth/callback/?status=ok`. 실패: 302 `/auth/callback/?error=<코드>` |
+| `GET /api/me/identities/link/{google\|github\|naver\|kakao}` | (로그인 필요, 세션 전용) 현재 계정에 연결 시작. 콜백 뒤 302 `/account/?linked=<제공자>` 또는 `/account/?error=<코드>` |
 | `GET /api/me/identities` | 내 로그인 수단 `[{id, provider, email, linkedAt}]` |
 | `DELETE /api/me/identities/{id}` | 해제, 204. 남의 것 404, 마지막 하나는 409 `last_identity`. LOCAL을 해제하면 비밀번호도 지운다. CSRF 필요 |
 
@@ -116,8 +118,12 @@ make test   # = scripts/test.sh : 리포 검증 + 백엔드(./gradlew test) + �
   기존 계정으로 로그인한 뒤 "연결"한다. 이미 다른 계정에 붙은 수단은 연결할 수 없다(`identity_in_use`).
 - 새 계정의 닉네임은 제공자 이름(GitHub는 이름이 없으면 login)을 2~20자로 정리한 값, `users.email`은 제공자가 검증한
   이메일일 때만 채운다(GitHub 공개 이메일은 검증된 주소로 본다. 비공개면 비어 있다). email은 표시·연락용이고 로그인 키가 아니다.
+  - Naver: subject=`response.id`, 닉네임은 별명 → 이름. 이메일은 검증 여부 필드가 없지만 네이버 기본 이메일 또는 인증을 거친
+    연락처 이메일이라 검증된 것으로 본다(미동의면 비어 있다).
+  - Kakao: subject=숫자 `id`, 닉네임은 `kakao_account.profile.nickname` → `properties.nickname`. 이메일은 선택 동의라 없어도
+    가입된다(`users.email`·identity email 모두 null). `is_email_valid`와 `is_email_verified`가 모두 true일 때만 기록한다.
 - 실패 코드: `access_denied`(사용자가 거부), `authorization_request_not_found`(state 없음·만료·재사용), `invalid_id_token`,
-  `invalid_nonce`, `invalid_grant`, `invalid_user_info_response`, `unknown_provider`(설정 안 된 제공자), `suspended`,
+  `invalid_nonce`, `invalid_grant`, `invalid_token_response`(토큰 응답에 access_token 없음 — Naver 토큰 오류), `invalid_user_info_response`, `invalid_user_info`(제공자 응답에 id 없음), `unknown_provider`(설정 안 된 제공자), `suspended`,
   연결 전용 `identity_in_use`, `link_expired`(연결 시작 10분 초과 또는 그 사이 다른 계정으로 바뀜).
 
 **제공자 콘솔 설정** — Authorized redirect URI(callback URL)에 다음을 그대로 넣는다(`PUBLIC_BASE_URL`이 바뀌면 모든 콘솔에서 바꾼다):
@@ -125,13 +131,24 @@ make test   # = scripts/test.sh : 리포 검증 + 백엔드(./gradlew test) + �
 ```
 ${PUBLIC_BASE_URL}/api/login/oauth2/code/google   # Google Cloud Console → OAuth 클라이언트 ID(웹 애플리케이션)
 ${PUBLIC_BASE_URL}/api/login/oauth2/code/github   # GitHub → Settings → Developer settings → OAuth Apps
+${PUBLIC_BASE_URL}/api/login/oauth2/code/naver    # Naver Developers → 애플리케이션 → API 설정 → 네이버 로그인 Callback URL
+${PUBLIC_BASE_URL}/api/login/oauth2/code/kakao    # Kakao Developers → 앱 → 카카오 로그인 → Redirect URI
 ```
 
+- **Naver**: Naver Developers에서 애플리케이션 등록(사용 API: 네이버 로그인). "제공 정보 선택"에서 별명(또는 이름)과 이메일을
+  고른다(scope는 보내지 않고 이 설정을 따른다). 서비스 URL은 `PUBLIC_BASE_URL`. 검수 전에는 등록한 테스터 아이디만 로그인된다.
+  토큰 요청은 client_id·client_secret을 파라미터로 보낸다(`client_secret_post`).
+- **Kakao**: Kakao Developers에서 앱 생성 → 플랫폼(Web) 사이트 도메인에 `PUBLIC_BASE_URL` 등록 → 카카오 로그인 활성화 →
+  Redirect URI 등록 → 보안에서 Client Secret 사용(코드 받아 `KAKAO_CLIENT_SECRET`, `client_secret_post`). `KAKAO_CLIENT_ID`는
+  **REST API 키**. 동의 항목에 닉네임(`profile_nickname`)과 카카오계정 이메일(`account_email`, 선택 동의)을 설정한다 — 앱은
+  `scope=profile_nickname,account_email`을 요청하므로 둘 중 하나라도 설정돼 있지 않으면 Kakao가 KOE205로 거부한다. 이메일
+  동의 항목은 비즈 앱 전환이 필요할 수 있다.
+
 로컬 개발은 `PUBLIC_BASE_URL=http://localhost:3000`(Next 개발 서버가 `/api`를 백엔드로 프록시)이라 콘솔에도
-`http://localhost:3000/api/login/oauth2/code/{google|github}`를 등록한다. 프론트 프록시 없이 백엔드만 시험할 때는
+`http://localhost:3000/api/login/oauth2/code/{google|github|naver|kakao}`를 등록한다. 프론트 프록시 없이 백엔드만 시험할 때는
 `PUBLIC_BASE_URL=http://localhost:8080`으로 두고 그 주소의 콜백을 등록한다. 앱이 CloudFront 뒤에 있어 요청 Host로는 공개 주소를
 알 수 없으므로 redirect-uri를 설정값으로 고정한다. client id/secret이 없는 제공자는 등록하지 않으며 앱은 그대로 뜬다.
-새 제공자(예: Naver·Kakao)는 `OAuth2UserInfoMapper` 빈 하나와 `app.oauth2.registrations.<id>.*` 설정으로 붙인다.
+새 제공자는 `OAuth2UserInfoMapper` 빈 하나와(Naver·Kakao가 비표준 응답 예시) `app.oauth2.registrations.<id>.*` 설정으로 붙인다.
 
 ## 개발 워크플로
 

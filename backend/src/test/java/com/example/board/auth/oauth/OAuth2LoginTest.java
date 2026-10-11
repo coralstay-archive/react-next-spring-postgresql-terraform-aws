@@ -210,7 +210,7 @@ class OAuth2LoginTest {
 	@Test
 	@DisplayName("TASK-4#1 설정되지 않은 제공자(client-id 없음)로 시작하면 프론트로 302 ?error=unknown_provider")
 	void unconfiguredProvider() {
-		HttpResponse<String> response = flow.get("/oauth2/authorization/naver");
+		HttpResponse<String> response = flow.get("/oauth2/authorization/facebook");
 
 		assertThat(OAuthFlow.location(response)).isEqualTo(LOGIN_ERROR + "unknown_provider");
 	}
