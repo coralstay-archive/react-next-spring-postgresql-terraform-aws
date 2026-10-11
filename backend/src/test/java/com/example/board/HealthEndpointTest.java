@@ -2,9 +2,6 @@ package com.example.board;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
 import org.junit.jupiter.api.DisplayName;
@@ -13,6 +10,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import com.example.board.support.Api;
+import com.example.board.support.AuthFixtures;
 import com.example.board.support.IntegrationTest;
 
 /** TASK-1#2 백엔드가 PostgreSQL에 접속하고 /api/actuator/health 가 UP 이다. */
@@ -25,12 +24,15 @@ class HealthEndpointTest {
 	@Autowired
 	JdbcTemplate jdbcTemplate;
 
+	@Autowired
+	AuthFixtures fixtures;
+
 	@Test
-	@DisplayName("TASK-1#2 /api/actuator/health 가 UP 이고 DB 상태도 UP 이다")
-	void healthIsUpUnderApiContextPath() throws Exception {
-		HttpResponse<String> response = HttpClient.newHttpClient().send(
-				HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/actuator/health")).GET().build(),
-				HttpResponse.BodyHandlers.ofString());
+	@DisplayName("TASK-1#2 /api/actuator/health 가 UP 이고 DB 상태도 UP 이다 (세부 정보는 ADMIN 에게만)")
+	void healthIsUpUnderApiContextPath() {
+		HttpResponse<String> response = new Api(port).get("/actuator/health")
+			.bearer(fixtures.bearer(fixtures.admin()))
+			.send();
 
 		assertThat(response.statusCode()).isEqualTo(200);
 		assertThat(response.body()).contains("\"status\":\"UP\"");
