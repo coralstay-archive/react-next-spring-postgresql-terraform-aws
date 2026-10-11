@@ -488,6 +488,127 @@ CloudFront·S3·ECR(이미지 20개)·Cognito(소규모 MAU)·Route53 zone($0.5,
 3. `terraform -chdir=infra/main destroy -var-file=envs/prod.tfvars` — 데이터 EBS 는 지워지기 전에 최종 스냅샷을 남긴다(`final_snapshot`). DLM 스냅샷은 수동 삭제.
 4. state 버킷(bootstrap)은 `prevent_destroy` 라 남는다. 지우려면 `infra/bootstrap/README.md` 참고.
 
+## 배포 (TASK-17)
+
+> 스크립트·워크플로는 DRY_RUN·가짜 aws/docker 로만 검증했다(`make test`). 실제 첫 배포는 TASK-18 에서 유저 확인 후 한다.
+
+로컬(`make deploy`)과 GitHub Actions(`deploy.yml`)가 같은 스크립트를 쓴다. 다른 점은 대상 값의 출처뿐이다.
+로컬은 `scripts/tf-outputs.sh`가 `terraform output`에서 읽고, CI 는 리포 variables 에서 읽는다.
+모든 스크립트는 `DRY_RUN=1`이면 aws·docker·npm 명령을 `[dry-run] ...`로 출력만 한다. 예: `make deploy DRY_RUN=1`
+
+```
+backend/Dockerfile            JDK 25 빌드 스테이지(bootJar → jarmode=tools 레이어) → eclipse-temurin:25-jre, uid 10001, -XX:MaxRAMPercentage=60
+scripts/build-backend.sh      ECR 로그인 + buildx linux/arm64 --push  (태그: git short sha 12자리 + latest)
+scripts/deploy-backend.sh     SSM send-command(AWS-RunShellScript) → EC2 에서 remote-deploy.sh, get-command-invocation 폴링
+scripts/deploy-frontend.sh    npm ci·build → S3 sync 2회(캐시 헤더) → CloudFront invalidation /*
+scripts/put-secrets.sh        입력 파일 + terraform app_env·cognito secret → SSM /board/prod/*
+scripts/tf-outputs.sh         terraform output → AWS_REGION, ECR_REPOSITORY_URL, WEB_BUCKET, DISTRIBUTION_ID, INSTANCE_ID, ...
+deploy/docker-compose.prod.yml  EC2 compose: api(:8080) + postgres:18-alpine(/srv/pgdata), awslogs, healthcheck, restart
+deploy/remote-deploy.sh       (EC2) render-env → ECR 로그인 → pull·up → 헬스 대기 → 실패 시 롤백
+deploy/render-env.sh          (EC2) SSM /board/prod/* → /opt/board/app.env, db.env (600)
+deploy/secrets.example.txt    put-secrets 입력 예시 (실제 입력 deploy/secrets.local.txt 는 gitignore)
+.github/workflows/ci.yml      PR·main 이 아닌 브랜치: make test + bootJar + 프론트 build
+.github/workflows/deploy.yml  main push·수동: ci.yml → OIDC → build-backend → deploy-backend → deploy-frontend
+```
+
+### 처음 배포 순서 (TASK-18)
+
+```bash
+# 0) 위 "인프라" 절의 순서로 bootstrap → main apply 를 마친다. 확인:
+make tf-outputs
+# 1) 시크릿 입력 파일
+cp deploy/secrets.example.txt deploy/secrets.local.txt   # ADMIN_EMAIL, OAuth id·secret, SMS_* 를 채운다
+# 2) SSM 에 넣기. 처음엔 --generate-missing 으로 DB_PASSWORD·JWT_SECRET·OTP_HASH_KEY 를 만든다(SSM 에 이미 있으면 건드리지 않음)
+make put-secrets PUT_SECRETS_FLAGS=--generate-missing DRY_RUN=1   # 무엇을 넣을지 확인(시크릿은 '****')
+make put-secrets PUT_SECRETS_FLAGS=--generate-missing
+# 3) 배포(커밋된 HEAD 기준. 커밋 안 된 변경이 있으면 build-backend 가 거부한다)
+make deploy DRY_RUN=1
+make deploy
+# 4) 확인
+curl -fsS "$(terraform -chdir=infra/main output -raw public_base_url)/api/actuator/health"
+```
+
+로컬 배포에 필요한 것: aws CLI v2(관리자 자격 증명), docker buildx(Apple Silicon 은 arm64 네이티브, x86 은 QEMU), jq, terraform, Node 24.
+
+### 백엔드 배포 흐름
+
+1. `build-backend.sh`: `<ECR>:<sha>`·`:latest`를 linux/arm64 로 빌드해 push 한다(`--provenance=false`: attestation 이 ECR 수명 주기 20개를 차지하지 않게).
+2. `deploy-backend.sh`: ECR 에 `<sha>`가 있는지 확인한다. compose 파일, `render-env.sh`, `remote-deploy.sh`를 base64 로 명령에 실어 send-command 를 보낸다.
+   S3 를 거치지 않아 CI role 에 추가 권한이 필요 없다. 그 뒤 `get-command-invocation`을 끝날 때까지 폴링하고(기본 900초), 원격 stdout·stderr 를 출력한다. 실패면 종료 코드가 0 이 아니다.
+3. EC2(`/opt/board`)의 `remote-deploy.sh`:
+   SSM → `app.env`·`db.env` 렌더 → 인스턴스 role 로 ECR 로그인 → `IMAGE_TAG=<sha> docker compose pull && up -d` →
+   `http://127.0.0.1:8080/api/actuator/health` 대기(240초).
+   성공하면 `/opt/board/current_tag`에 태그를 쓰고 1주일 넘은 이미지를 정리한다. 실패하면 api 로그 100줄을 보이고 `current_tag`(직전 성공 태그)로 되돌린 뒤 실패로 끝난다.
+4. postgres 데이터: postgres 18 이미지의 `PGDATA`는 `/var/lib/postgresql/18/docker`다. 데이터 EBS `/srv/pgdata`를 부모 `/var/lib/postgresql`에 바인드한다.
+   메모리 한도는 api 1200m(힙 60% ≈ 720m), db 512m 다(t4g.small 2GB).
+
+### 시크릿 흐름 (로컬 → SSM → EC2 env 파일)
+
+- `put-secrets.sh <파일>`의 값 출처는 다음 순서로 덮어쓴다. ① `terraform output app_env`(비밀 아님) ② `cognito_client_secret` ③ 입력 파일.
+  빈 값은 넣지 않는다(앱 기본값). 이미 넣은 값을 지우려면 `aws ssm delete-parameter --name /board/prod/<KEY>`를 쓴다.
+- 이름에 SECRET·PASSWORD·KEY·TOKEN 이 들어간 키는 `SecureString`(aws/ssm KMS), 나머지는 `String`이다. 모두 `--overwrite`한다.
+  값은 명령줄이 아니라 `--cli-input-json` 임시 파일(600)로 넘기고, 출력(DRY_RUN 포함)에는 `****`만 남긴다.
+- EC2 의 `render-env.sh`는 배포마다 `get-parameters-by-path --recursive --with-decryption`으로 `/opt/board/app.env`(api)와 `db.env`(POSTGRES_* 만)를 600 으로 다시 쓴다.
+  값은 compose env_file 큰따옴표 형식으로 쓴다(`\ " $` 줄바꿈 이스케이프, 보간 없음). `DB_URL`·`DB_USERNAME`이 없으면 `jdbc:postgresql://db:5432/board`·`board`를 쓴다.
+  필수 키(DB_PASSWORD, JWT_SECRET, OTP_HASH_KEY)가 없으면 배포가 실패한다. 개발용 기본값으로 운영이 뜨지 않게 하려는 것이다.
+- 시크릿을 바꾼 뒤에는 `make deploy-backend`로 반영한다(같은 코드면 이미지 태그도 같다).
+
+### GitHub Actions 설정
+
+1. `envs/prod.tfvars`의 `github_repository = "owner/repo"`로 apply → `terraform output ci_role_arn`.
+2. 리포 Settings → Secrets and variables → Actions → **Variables**(시크릿 아님, 전부 terraform output):
+
+| variable | 값 |
+|---|---|
+| `AWS_DEPLOY_ROLE_ARN` | `ci_role_arn` |
+| `AWS_REGION` | `region` (us-east-1) |
+| `ECR_REPOSITORY_URL` | `ecr_repository_url` |
+| `WEB_BUCKET` | `web_bucket` |
+| `DISTRIBUTION_ID` | `distribution_id` |
+| `INSTANCE_ID` | `instance_id` |
+
+- OIDC: role trust 는 `repo:<owner/repo>:ref:refs/heads/main`과 정확히 일치해야 한다. GitHub **environment**를 job 에 붙이면 OIDC `sub`가
+  `repo:<owner/repo>:environment:<name>`으로 바뀌어 assume 이 실패한다. 그래서 environment 를 쓰지 않는다(승인 게이트가 필요하면 ci_oidc trust 도 함께 바꾼다).
+  `deploy` job 은 `github.ref == refs/heads/main`일 때만 돈다.
+- `deploy.yml`은 `ci.yml`(workflow_call)이 통과해야 배포하고, `concurrency: deploy-prod`(진행 중 취소 안 함)로 한 번에 하나만 돈다.
+  러너는 `ubuntu-24.04-arm`이다(arm64 이미지를 에뮬레이션 없이 빌드). 비공개 리포라면 플랜에서 arm64 호스티드 러너를 쓸 수 있는지 확인한다.
+- CI role 권한: ECR push, web 버킷 sync, invalidation, 이 인스턴스에 `AWS-RunShellScript` send-command, 명령 결과 조회. SSM 파라미터·state 는 읽지 않는다.
+  그래서 `put-secrets`는 로컬에서만 한다.
+- 액션은 메이저 버전 태그(`@v7` 등)로 고정했다. 공급망을 더 조이려면 커밋 SHA 고정 + Dependabot(github-actions)으로 바꾼다.
+- `ci.yml`은 actionlint 를 설치하고 `REQUIRE_LINTERS=1`로 `make test`를 돌린다. 로컬은 shellcheck·actionlint 가 없으면 그 검사만 건너뛴다.
+
+### 롤백
+
+- 자동: 헬스체크가 실패하면 `remote-deploy.sh`가 `/opt/board/current_tag`(직전 성공 태그)로 되돌리고 배포를 실패 처리한다.
+- 수동(특정 태그로): 빌드 없이 배포만 한다. 태그는 ECR 에 남아 있어야 한다(최근 20개).
+  ```bash
+  IMAGE_TAG=<이전 sha 12자리> ./scripts/tf-outputs.sh -- ./scripts/deploy-backend.sh
+  ```
+  `make deploy-backend`는 현재 코드로 다시 빌드하므로 롤백에 쓰지 않는다.
+- 주의: Flyway 마이그레이션은 되돌리지 않는다. 새 버전이 스키마를 바꿨다면 이전 이미지가 그 스키마에서 뜨는지 먼저 확인한다(마이그레이션은 하위 호환으로 쓴다).
+- 프론트: 이전 커밋을 체크아웃해 `make deploy-frontend`.
+
+### 로그
+
+- 컨테이너 로그: CloudWatch Logs 그룹 `/board/prod`(14일). 스트림 이름은 `api/<컨테이너 이름>`, `db/<컨테이너 이름>`이다(compose `tag`).
+  ```bash
+  aws logs tail /board/prod --follow --log-stream-name-prefix api/
+  ```
+- 배포 명령 출력: `deploy-backend.sh`가 원격 stdout·stderr 를 그대로 출력한다(SSM 은 24,000자까지 보관). 지난 명령은 `aws ssm list-command-invocations --details`로 본다.
+- 호스트 접속(SSH 없음): `aws ssm start-session --target <instance_id>` → `sudo -i; cd /opt/board; cat current_tag; docker compose -f docker-compose.prod.yml ps`.
+
+### 문제 해결
+
+| 증상 | 확인 |
+|---|---|
+| `send-command`가 `InvalidInstanceId` | 첫 부팅 직후 SSM agent 등록 전이다. `aws ssm describe-instance-information`에 나올 때까지 기다린다 |
+| `render-env: 필수 파라미터가 없다` | `make put-secrets PUT_SECRETS_FLAGS=--generate-missing` |
+| DB 접속 실패(password authentication failed) | `DB_PASSWORD`는 `/srv/pgdata`를 처음 초기화할 때만 쓰인다. SSM 값을 원래대로 돌리거나 `docker compose exec db psql -U board -c "ALTER USER board PASSWORD '...'"` 후 재배포 |
+| 헬스 대기 시간 초과 | 출력된 api 로그 → CloudWatch `api/` 스트림. 시작이 느리면 `HEALTH_TIMEOUT`(remote-deploy.sh, 기본 240) |
+| `ECR 에 이미지가 없다` | `build-backend.sh`와 태그가 다르다(커밋 안 된 변경, 다른 HEAD). `IMAGE_TAG`를 맞춘다 |
+| CI 의 `Not authorized to perform sts:AssumeRoleWithWebIdentity` | `github_repository`·브랜치·environment 미사용, `AWS_DEPLOY_ROLE_ARN` 확인 |
+| `build-backend`가 커밋 안 된 변경을 거부 | 커밋하거나 `ALLOW_DIRTY=1`(태그가 내용과 달라진다) |
+
 ## 개발 워크플로
 
 이 리포는 [backlog.md](https://github.com/MrLesk/Backlog.md) 태스크 단위로 작업한다.

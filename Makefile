@@ -2,7 +2,8 @@
 -include .env
 export
 
-.PHONY: help test dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build
+.PHONY: help test dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
+	deploy deploy-backend deploy-frontend put-secrets tf-outputs
 
 help: ## 타깃 목록
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -40,3 +41,24 @@ frontend-test: ## 프론트 테스트
 
 frontend-build: ## 프론트 정적 export (frontend/out)
 	cd frontend && npm run build
+
+# --- 배포 (TASK-17). CI(deploy.yml)와 같은 스크립트를 쓴다. 대상 값은 terraform output(infra/main)에서 읽는다(scripts/tf-outputs.sh).
+# DRY_RUN=1 이면 aws·docker 명령을 출력만 한다. 예: make deploy DRY_RUN=1
+TF_OUTPUTS := ./scripts/tf-outputs.sh --
+SECRETS_FILE ?= deploy/secrets.local.txt
+PUT_SECRETS_FLAGS ?=
+
+deploy: deploy-backend deploy-frontend ## 운영 배포: 백엔드 이미지 → EC2 → 프론트 (CI 와 같은 스크립트)
+
+deploy-backend: ## 백엔드 이미지 빌드·ECR push(arm64) + EC2 배포(SSM, 헬스·롤백)
+	$(TF_OUTPUTS) ./scripts/build-backend.sh
+	$(TF_OUTPUTS) ./scripts/deploy-backend.sh
+
+deploy-frontend: ## 프론트 빌드 + S3 sync + CloudFront invalidation
+	$(TF_OUTPUTS) ./scripts/deploy-frontend.sh
+
+put-secrets: ## SSM /board/prod 에 앱 env 넣기 (SECRETS_FILE=deploy/secrets.local.txt, 처음엔 PUT_SECRETS_FLAGS=--generate-missing)
+	./scripts/put-secrets.sh $(PUT_SECRETS_FLAGS) $(SECRETS_FILE)
+
+tf-outputs: ## 배포 대상 값(terraform output) 보기
+	./scripts/tf-outputs.sh

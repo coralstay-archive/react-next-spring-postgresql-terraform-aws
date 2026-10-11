@@ -531,6 +531,69 @@ t_actions_pinned() {
 }
 check "TASK-17#4 액션은 메이저 버전(@vN)으로 고정" t_actions_pinned
 
+# ================================================================ TASK-17#5 로컬 make deploy = CI 와 같은 스크립트 (값은 terraform output)
+check "TASK-17#5 scripts/tf-outputs.sh 실행 가능" test -x scripts/tf-outputs.sh
+t_tf_outputs_print() {
+  reset_fake
+  run_capture with_fakes ./scripts/tf-outputs.sh
+  [ "$RC" = 0 ] || { echo "$OUT"; return 1; }
+  has_line "export AWS_REGION=us-east-1" &&
+    has_line "export ECR_REPOSITORY_URL=123456789012.dkr.ecr.us-east-1.amazonaws.com/board-api" &&
+    has_line "export WEB_BUCKET=board-prod-web-x" &&
+    has_line "export DISTRIBUTION_ID=E123ABC" &&
+    has_line "export INSTANCE_ID=i-0abc" &&
+    has_line "export SSM_PARAMETER_PATH=/board/prod" &&
+    has_line "export LOG_GROUP=/board/prod" &&
+    has_line "export DEPLOY_DIR=/opt/board" &&
+    grep -q "terraform -chdir=$ROOT/infra/main output -json" "$FAKE_STATE/calls.log"
+}
+check "TASK-17#5 tf-outputs: terraform output -json → export 줄(CI 리포 variables 와 같은 이름)" t_tf_outputs_print
+t_tf_outputs_exec() {
+  # 셸에 남은 다른 리전 값보다 terraform 값이 이긴다(엉뚱한 리전에 배포 방지)
+  # shellcheck disable=SC2016 # 하위 셸에서 풀린다
+  run_capture with_fakes env AWS_REGION=ap-northeast-2 ./scripts/tf-outputs.sh -- sh -c 'echo "R=$AWS_REGION I=$INSTANCE_ID B=$WEB_BUCKET"'
+  [ "$RC" = 0 ] && has_line "R=us-east-1 I=i-0abc B=board-prod-web-x"
+}
+check "TASK-17#5 tf-outputs -- <명령>: 값을 export 하고 실행(terraform 값이 셸 값보다 우선)" t_tf_outputs_exec
+t_tf_outputs_missing() {
+  local j="$TMP/tf-empty.json"; echo '{}' >"$j"
+  run_capture with_fakes env FAKE_TF_JSON="$j" ./scripts/tf-outputs.sh
+  [ "$RC" != 0 ] && has_text "terraform"
+}
+check "TASK-17#5 tf-outputs: 출력이 없으면(apply 전) 실패" t_tf_outputs_missing
+
+for t in deploy deploy-backend deploy-frontend put-secrets; do
+  check "TASK-17#5 make $t 타깃" grep -Eq "^$t:" Makefile
+done
+check "TASK-17#5 make deploy-backend 는 tf-outputs 로 build-backend·deploy-backend 를 부른다" sh -c 'make -n deploy-backend | grep -q "tf-outputs.sh -- ./scripts/build-backend.sh" && make -n deploy-backend | grep -q "tf-outputs.sh -- ./scripts/deploy-backend.sh"'
+check "TASK-17#5 make deploy-frontend 는 tf-outputs 로 deploy-frontend 를 부른다" sh -c 'make -n deploy-frontend | grep -q "tf-outputs.sh -- ./scripts/deploy-frontend.sh"'
+check "TASK-17#5 make put-secrets 는 put-secrets.sh 에 SECRETS_FILE 을 넘긴다" sh -c 'make -n put-secrets | grep -q "put-secrets.sh .*deploy/secrets.local.txt"'
+CLEAN_ENV=(-u AWS_REGION -u ECR_REPOSITORY_URL -u WEB_BUCKET -u DISTRIBUTION_ID -u INSTANCE_ID -u SSM_PARAMETER_PATH -u LOG_GROUP -u DEPLOY_DIR)
+t_make_deploy_dry() {
+  reset_fake
+  run_capture with_fakes env "${CLEAN_ENV[@]}" DRY_RUN=1 IMAGE_TAG=abc123 SKIP_BUILD=1 make -s deploy
+  [ "$RC" = 0 ] || { echo "$OUT"; return 1; }
+  has_line "[dry-run] docker buildx build --platform linux/arm64 --provenance=false --tag 123456789012.dkr.ecr.us-east-1.amazonaws.com/board-api:abc123 --tag 123456789012.dkr.ecr.us-east-1.amazonaws.com/board-api:latest --push $ROOT/backend" &&
+    has_text "[dry-run] aws ssm send-command --region us-east-1 --instance-ids i-0abc --document-name AWS-RunShellScript" &&
+    has_line "[dry-run] aws s3 sync $ROOT/frontend/out s3://board-prod-web-x --region us-east-1 --delete --exclude '_next/static/*' --cache-control no-cache" &&
+    has_line "[dry-run] aws cloudfront create-invalidation --distribution-id E123ABC --paths '/*'" &&
+    ! grep -q "^aws " "$FAKE_STATE/calls.log"
+}
+check "TASK-17#5 DRY_RUN=1 make deploy: terraform output 값으로 CI 와 같은 명령(빌드·send-command·sync·invalidation)" t_make_deploy_dry
+t_make_put_secrets_dry() {
+  reset_fake
+  run_capture with_fakes env "${CLEAN_ENV[@]}" DRY_RUN=1 make -s put-secrets SECRETS_FILE="$SECRETS_IN"
+  [ "$RC" = 0 ] && has_line "[dry-run] aws ssm put-parameter --region us-east-1 --name /board/prod/JWT_SECRET --type SecureString --value '****' --overwrite" &&
+    lacks_text "jwt-secret-value"
+}
+check "TASK-17#5 DRY_RUN=1 make put-secrets SECRETS_FILE=...: 마스킹된 put-parameter" t_make_put_secrets_dry
+
+# README 배포 절
+for w in "## 배포 (TASK-17)" "make put-secrets" "make deploy" "AWS_DEPLOY_ROLE_ARN" "ECR_REPOSITORY_URL" "WEB_BUCKET" "DISTRIBUTION_ID" "INSTANCE_ID" \
+  "current_tag" "environment" "DRY_RUN=1" "/board/prod" "--generate-missing"; do
+  check "TASK-17#5 README 배포 절에 '$w'" grep -qF -- "$w" README.md
+done
+
 # ---------------------------------------------------------------- shellcheck (모든 배포 스크립트)
 if need_linter shellcheck; then
   for f in scripts/*.sh deploy/*.sh scripts/test/*.sh; do
