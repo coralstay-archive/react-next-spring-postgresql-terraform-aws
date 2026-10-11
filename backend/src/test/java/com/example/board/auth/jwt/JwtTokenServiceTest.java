@@ -19,7 +19,7 @@ class JwtTokenServiceTest {
 
 	static final String SECRET = "0123456789abcdef0123456789abcdef";
 
-	JwtTokenService service = new JwtTokenService(new JwtProperties(SECRET, "board-test", Duration.ofMinutes(5)));
+	JwtTokenService service = new JwtTokenService(new JwtProperties(SECRET, "board-test", Duration.ofMinutes(5), Duration.ofDays(14)));
 
 	@Test
 	@DisplayName("TASK-2#2 발급한 access 토큰을 검증하면 같은 AuthUser 가 나온다")
@@ -37,7 +37,7 @@ class JwtTokenServiceTest {
 	@Test
 	@DisplayName("TASK-2#2 다른 발급자(iss) 토큰은 거부한다")
 	void rejectsOtherIssuer() {
-		JwtTokenService other = new JwtTokenService(new JwtProperties(SECRET, "someone-else", Duration.ofMinutes(5)));
+		JwtTokenService other = new JwtTokenService(new JwtProperties(SECRET, "someone-else", Duration.ofMinutes(5), Duration.ofDays(14)));
 		String token = other.issueAccessToken(new AuthUser(1L, Role.USER, UserStatus.ACTIVE));
 
 		assertThatThrownBy(() -> service.decode(token)).isInstanceOf(JwtException.class);
@@ -46,7 +46,7 @@ class JwtTokenServiceTest {
 	@Test
 	@DisplayName("TASK-2#2 HMAC 키가 32바이트보다 짧으면 시작할 수 없다")
 	void rejectsShortSecret() {
-		assertThatThrownBy(() -> new JwtProperties("too-short", "board", Duration.ofMinutes(5)))
+		assertThatThrownBy(() -> new JwtProperties("too-short", "board", Duration.ofMinutes(5), Duration.ofDays(14)))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("app.jwt.secret");
 	}

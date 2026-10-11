@@ -2,6 +2,8 @@ package com.example.board.security;
 
 import java.util.List;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -19,6 +21,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import com.example.board.auth.jwt.JwtProperties;
 import com.example.board.auth.jwt.JwtTokenService;
@@ -87,7 +92,7 @@ public class SecurityConfig {
 			// 저장소만 위 쿠키 설정으로 바꾸고, Bearer 경로(토큰이 맞든 틀리든)만 CSRF 검사에서 뺀다.
 			.csrf(csrf -> csrf.spa()
 				.csrfTokenRepository(csrfTokenRepository)
-				.ignoringRequestMatchers(BearerRequests.MATCHER))
+				.ignoringRequestMatchers(BearerRequests.MATCHER, csrfExempt()))
 			.requestCache(cache -> cache.disable())
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
@@ -101,13 +106,37 @@ public class SecurityConfig {
 				// 공개 엔드포인트. 새 공개 API(예: 게시글 목록, 로그인)는 여기에 명시적으로 더한다.
 				.requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
 				.requestMatchers(HttpMethod.GET, "/auth/csrf").permitAll()
-				.requestMatchers(HttpMethod.POST, "/auth/signup").permitAll()
+				.requestMatchers(HttpMethod.POST, "/auth/signup", "/auth/login").permitAll()
 				.requestMatchers("/error").permitAll()
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
 				.anyRequest().authenticated())
 			// SUSPENDED 쓰기 차단(B3). 여기서 던진 AccessDeniedException 도 ExceptionTranslationFilter 가 403 JSON 으로 바꾼다.
 			.addFilterAfter(new SuspendedUserWriteFilter(users, List.of()), AuthorizationFilter.class);
 		return http.build();
+	}
+
+	/**
+	 * Bearer 헤더가 없어도 CSRF 검사를 하지 않는 "토큰 발급" 요청 (TASK-3).
+	 *
+	 * <p>{@code POST /auth/login?token=jwt}: CSRF 는 브라우저가 자동으로 붙이는 자격(쿠키)을 악용해 피해자 이름으로 상태를
+	 * 바꾸는 공격이다. 이 요청은 (1) 인증되지 않은 요청이라 피해자 자격을 쓰지 않고, (2) 세션도 쿠키도 만들지 않으며
+	 * (토큰은 응답 본문으로만 나간다), (3) 그 본문은 동일 출처 정책 때문에 다른 사이트가 읽을 수 없다. 공격자가 얻는 것이
+	 * 없으므로 면제해도 된다. 반면 쿼리 없는 세션 로그인은 피해자 브라우저에 공격자 계정 세션을 심는 "로그인 CSRF" 가
+	 * 가능하므로 검사를 유지한다. 판정은 쿼리 문자열만 본다(본문 파라미터로는 면제되지 않는다).
+	 *
+	 * <p>{@code POST /auth/token/refresh}(AC#5)도 같은 이유로 여기에 더한다.
+	 */
+	static RequestMatcher csrfExempt() {
+		RequestMatcher login = PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/login");
+		return request -> login.matches(request) && "jwt".equals(queryParam(request, "token"));
+	}
+
+	private static String queryParam(HttpServletRequest request, String name) {
+		String query = request.getQueryString();
+		if (query == null) {
+			return null;
+		}
+		return UriComponentsBuilder.newInstance().query(query).build().getQueryParams().getFirst(name);
 	}
 
 }

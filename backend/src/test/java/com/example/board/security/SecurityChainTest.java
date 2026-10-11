@@ -109,7 +109,7 @@ class SecurityChainTest {
 	void forgedOrExpiredTokenIs401() {
 		User user = fixtures.user();
 		JwtTokenService otherKey = new JwtTokenService(new JwtProperties(
-				"another-secret-another-secret-another-secret!!", jwtProperties.issuer(), Duration.ofMinutes(5)));
+				"another-secret-another-secret-another-secret!!", jwtProperties.issuer(), Duration.ofMinutes(5), Duration.ofDays(14)));
 		JwtTokenService pastClock = new JwtTokenService(jwtProperties,
 				Clock.fixed(Instant.now().minus(Duration.ofDays(1)), ZoneOffset.UTC));
 
