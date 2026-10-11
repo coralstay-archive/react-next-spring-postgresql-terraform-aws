@@ -38,15 +38,16 @@ export function useMe() {
 }
 
 /**
- * 로그인 계열(LOCAL 로그인, OTP 검증, step-up) 성공 뒤 호출: 세션이 바뀌었으니 me 를 응답으로 채우고 다른 캐시는 버린다.
+ * 로그인 계열(LOCAL 로그인, OTP 검증, step-up) 성공 뒤 호출: 세션이 바뀌었으니 me 를 응답으로 채우고 다른 캐시는 초기화한다.
  * CSRF 토큰은 응답 쿠키로 회전했고, api() 가 요청마다 쿠키를 다시 읽는다.
  */
 export function useSessionChanged() {
   const client = useQueryClient();
   return useCallback(
     (me: Me | null) => {
-      client.removeQueries({ predicate: (query) => query.queryKey[0] !== queryKeys.me[0] });
       client.setQueryData(queryKeys.me, me);
+      // 사용자·권한이 바뀌었을 수 있다: 다른 쿼리는 데이터를 버리고(화면에 떠 있는 것은 바로) 다시 받는다.
+      void client.resetQueries({ predicate: (query) => query.queryKey[0] !== queryKeys.me[0] });
     },
     [client],
   );
