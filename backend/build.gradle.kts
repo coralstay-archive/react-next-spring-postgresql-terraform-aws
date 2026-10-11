@@ -36,6 +36,11 @@ dependencies {
 		exclude(group = "software.amazon.awssdk", module = "apache-client")
 		exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
 	}
+	// 첨부 이미지 S3 presigned PUT·HeadObject·태그 (TASK-11#1). 위와 같이 url-connection 클라이언트만 쓴다.
+	implementation("software.amazon.awssdk:s3") {
+		exclude(group = "software.amazon.awssdk", module = "apache-client")
+		exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
+	}
 	implementation("software.amazon.awssdk:url-connection-client")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
@@ -47,6 +52,8 @@ dependencies {
 	testImplementation("org.springframework.boot:spring-boot-testcontainers")
 	testImplementation("org.testcontainers:testcontainers-junit-jupiter")
 	testImplementation("org.testcontainers:testcontainers-postgresql")
+	// 첨부 업로드용 S3 호환 저장소 (TASK-11#3)
+	testImplementation("org.testcontainers:testcontainers-minio")
 	// OAuth 제공자(토큰·userinfo·JWKS) stub (TASK-4#5). standalone 은 Jetty·Jackson 을 shade 해 앱 의존성과 충돌하지 않는다.
 	testImplementation("org.wiremock:wiremock-standalone:3.13.2")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
