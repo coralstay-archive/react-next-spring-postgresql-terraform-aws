@@ -15,7 +15,8 @@
       "frontend/src/**/*.test.ts",
       "frontend/src/**/*.test.tsx",
       "frontend/e2e/**",
-      "scripts/test/**"
+      "scripts/test/**",
+      "infra/**/*.tftest.hcl"
     ]
   }
 }

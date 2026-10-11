@@ -7,7 +7,7 @@ export
 help: ## 타깃 목록
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
 
-test: ## 백엔드·프론트·리포 테스트 일괄 실행
+test: ## 리포·Terraform·백엔드·프론트 테스트 일괄 실행
 	./scripts/test.sh
 
 dev-db: ## 로컬 PostgreSQL 기동 (docker compose)

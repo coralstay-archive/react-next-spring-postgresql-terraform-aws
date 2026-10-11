@@ -63,5 +63,16 @@ for w in "make test" "make dev-db" "make backend-run" "make frontend-dev" "examp
   check "TASK-1#5 README 에 '$w' 안내" grep -qF "$w" README.md
 done
 
+# TASK-6#1 Terraform: fmt 검사 + 테스트가 있는 모듈마다 init(-backend=false)·test 를 scripts/test.sh 가 돌린다
+check "TASK-6#1 scripts/test.sh 는 terraform fmt -check 를 실행" grep -q "terraform fmt -check -recursive" scripts/test.sh
+check "TASK-6#1 scripts/test.sh 는 terraform test 를 실행" grep -Eq "terraform( -chdir=[^ ]+)? test" scripts/test.sh
+check "TASK-6#1 scripts/test.sh 는 init 을 -backend=false 로 실행" grep -Eq "terraform( -chdir=[^ ]+)? init -backend=false" scripts/test.sh
+check "TASK-6#1 hooks testGlobs 에 infra/**/*.tftest.hcl" python3 -c 'import json,sys;sys.exit(0 if "infra/**/*.tftest.hcl" in json.load(open(".claude-code-agile-hooks.json"))["testFirst"]["testGlobs"] else 1)'
+check "TASK-6#1 cognito 모듈 테스트 존재" sh -c 'ls infra/main/modules/cognito/tests/*.tftest.hcl'
+for p in infra/main/modules/cognito/.terraform/x infra/main/modules/cognito/.terraform.lock.hcl; do
+  check "TASK-6#1 gitignore가 $p 를 무시(모듈은 lock 파일을 커밋하지 않는다)" git check-ignore -q --no-index "$p"
+done
+check "TASK-6#1 gitignore가 루트 스택 lock 파일은 추적" sh -c '! git check-ignore -q --no-index infra/main/envs/prod/.terraform.lock.hcl'
+
 echo "repo tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

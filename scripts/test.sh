@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 백엔드·프론트·리포 테스트를 한 번에 실행한다. 로컬 `make test`와 CI가 같이 쓴다.
+# 리포·Terraform·백엔드·프론트 테스트를 한 번에 실행한다. 로컬 `make test`와 CI가 같이 쓴다.
+# Terraform 은 fmt 검사 + tests/*.tftest.hcl 이 있는 모듈마다 init(-backend=false)·validate·test(mock_provider, 오프라인). terraform 이 없으면 경고 후 건너뛴다.
 # 백엔드 테스트는 Testcontainers를 쓰므로 Docker가 떠 있어야 한다.
 set -euo pipefail
 
@@ -7,6 +8,23 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "==> repo"
 "$ROOT/scripts/test/repo_test.sh"
+
+echo "==> terraform"
+if command -v terraform >/dev/null 2>&1; then
+  # provider 는 모듈마다 받지 않고 캐시를 같이 쓴다. 테스트는 mock_provider 라 AWS 자격 증명이 필요 없다.
+  export TF_PLUGIN_CACHE_DIR="${TF_PLUGIN_CACHE_DIR:-$HOME/.terraform.d/plugin-cache}"
+  mkdir -p "$TF_PLUGIN_CACHE_DIR"
+  terraform fmt -check -recursive "$ROOT/infra"
+  while IFS= read -r module; do
+    echo "--> $module"
+    terraform -chdir="$module" init -backend=false -input=false -no-color >/dev/null
+    terraform -chdir="$module" validate -no-color
+    terraform -chdir="$module" test -no-color
+  done < <(find "$ROOT/infra" -path '*/.terraform' -prune -o -type d -name tests -print \
+    | while IFS= read -r dir; do ls "$dir"/*.tftest.hcl >/dev/null 2>&1 && dirname "$dir"; done | sort -u)
+else
+  echo "WARNING: terraform 이 없어 infra 테스트(fmt·validate·test)를 건너뛴다" >&2
+fi
 
 echo "==> backend"
 (cd "$ROOT/backend" && ./gradlew test --console=plain)
