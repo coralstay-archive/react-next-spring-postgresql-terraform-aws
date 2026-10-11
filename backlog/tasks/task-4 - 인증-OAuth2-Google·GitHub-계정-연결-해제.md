@@ -1,10 +1,10 @@
 ---
 id: TASK-4
 title: '인증: OAuth2 Google·GitHub + 계정 연결/해제'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 13:19'
+updated_date: '2026-10-11 14:10'
 labels:
   - backend
   - auth
