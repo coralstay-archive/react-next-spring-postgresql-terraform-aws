@@ -1,6 +1,7 @@
 package com.example.board.auth.oauth;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -8,16 +9,22 @@ import java.util.stream.Collectors;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 
+import com.example.board.auth.AuthUser;
 import com.example.board.auth.SessionLogin;
+import com.example.board.auth.identity.IdentityInUseException;
 import com.example.board.auth.identity.IdentityResolver;
 import com.example.board.user.User;
+import com.example.board.user.UserRepository;
 import com.example.board.user.UserStatus;
 
 /**
@@ -29,12 +36,18 @@ import com.example.board.user.UserStatus;
  * 이후 요청의 principal 은 수단과 상관없이 항상 {@code AuthUser} 다.
  *
  * <p>SUSPENDED 계정은 세션을 만들지 않고 {@code ?error=suspended} 로 돌려보낸다.
+ *
+ * <p><b>연결 모드</b>(세션에 {@link LinkIntent}): 로그인하지 않고, 세션의 현재 사용자(로그인 필터가 세션의 SecurityContext 를
+ * 건드리지 않으므로 그대로 남아 있다)에게 identity 를 붙인 뒤 계정 화면으로 보낸다. 플래그가 그 사용자·제공자의 것이 아니거나
+ * 만료됐으면 {@code link_expired}, 이미 다른 계정의 identity 면 {@code identity_in_use}(B2), 정지 계정이면 {@code suspended}.
  */
 public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
 
 	public static final String SUSPENDED = "suspended";
 
 	public static final String INVALID_USER_INFO = "invalid_user_info";
+
+	public static final String LINK_EXPIRED = "link_expired";
 
 	private final Map<String, OAuth2UserInfoMapper> mappers;
 
@@ -44,13 +57,16 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 
 	private final OAuth2Redirects redirects;
 
+	private final UserRepository users;
+
 	public OAuth2LoginSuccessHandler(List<OAuth2UserInfoMapper> mappers, IdentityResolver resolver,
-			SessionLogin sessionLogin, OAuth2Redirects redirects) {
+			SessionLogin sessionLogin, OAuth2Redirects redirects, UserRepository users) {
 		this.mappers = mappers.stream()
 			.collect(Collectors.toUnmodifiableMap(OAuth2UserInfoMapper::registrationId, Function.identity()));
 		this.resolver = resolver;
 		this.sessionLogin = sessionLogin;
 		this.redirects = redirects;
+		this.users = users;
 	}
 
 	@Override
@@ -60,6 +76,11 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 		SecurityContextHolder.clearContext();
 		OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
 		OAuth2UserInfo info = userInfo(token);
+		LinkIntent intent = LinkIntent.take(request);
+		if (intent != null) {
+			response.sendRedirect(link(intent, token.getAuthorizedClientRegistrationId(), info, request));
+			return;
+		}
 		if (info == null) {
 			response.sendRedirect(redirects.loginFailed(INVALID_USER_INFO));
 			return;
@@ -71,6 +92,46 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 		}
 		sessionLogin.login(user, request, response);
 		response.sendRedirect(redirects.loginSucceeded());
+	}
+
+	/** 연결 모드 처리 후 돌려보낼 URL. */
+	private String link(LinkIntent intent, String registrationId, OAuth2UserInfo info, HttpServletRequest request) {
+		AuthUser current = sessionUser(request);
+		if (!intent.isValidFor(current, registrationId, Instant.now())) {
+			return redirects.linkFailed(LINK_EXPIRED);
+		}
+		UserStatus status = users.findStatusById(current.id()).orElse(null);
+		if (status == null) {
+			return redirects.linkFailed(LINK_EXPIRED);
+		}
+		if (status != UserStatus.ACTIVE) {
+			return redirects.linkFailed(SUSPENDED);
+		}
+		if (info == null) {
+			return redirects.linkFailed(INVALID_USER_INFO);
+		}
+		try {
+			resolver.link(current.id(), info);
+		}
+		catch (IdentityInUseException | DataIntegrityViolationException ex) {
+			// 동시에 다른 계정이 같은 identity 를 가져간 경우(UNIQUE 위반)도 B2 와 같다
+			return redirects.linkFailed(IdentityInUseException.CODE);
+		}
+		return redirects.linked(registrationId);
+	}
+
+	/** 세션에 저장된 현재 사용자 (이 요청의 SecurityContextHolder 는 스프링의 OAuth2 인증으로 바뀌었으므로 세션을 직접 본다). */
+	private static AuthUser sessionUser(HttpServletRequest request) {
+		HttpSession session = request.getSession(false);
+		if (session == null) {
+			return null;
+		}
+		Object value = session.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
+		if (value instanceof SecurityContext context && context.getAuthentication() != null
+				&& context.getAuthentication().getPrincipal() instanceof AuthUser user) {
+			return user;
+		}
+		return null;
 	}
 
 	private OAuth2UserInfo userInfo(OAuth2AuthenticationToken token) {

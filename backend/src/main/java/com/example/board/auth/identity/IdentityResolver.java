@@ -1,5 +1,7 @@
 package com.example.board.auth.identity;
 
+import java.util.Optional;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,26 @@ public class IdentityResolver {
 		return identities.findWithUserByProviderAndSubject(info.provider(), info.subject())
 			.map(UserIdentity::getUser)
 			.orElseGet(() -> createAccount(info));
+	}
+
+	/**
+	 * 연결 모드 (decision-8): 로그인한 사용자 {@code userId} 에 identity 를 붙인다. 이미 그 사용자의 것이면 그대로 둔다(false).
+	 * 다른 계정의 것이면 {@link IdentityInUseException} (B2). 계정 정보(닉네임·이메일)는 바꾸지 않는다.
+	 *
+	 * @return 새로 붙였으면 true
+	 */
+	@Transactional
+	public boolean link(Long userId, OAuth2UserInfo info) {
+		Optional<UserIdentity> existing = identities.findWithUserByProviderAndSubject(info.provider(), info.subject());
+		if (existing.isPresent()) {
+			if (existing.get().getUser().getId().equals(userId)) {
+				return false;
+			}
+			throw new IdentityInUseException();
+		}
+		User user = users.getReferenceById(userId);
+		identities.saveAndFlush(UserIdentity.link(user, info.provider(), info.subject(), info.email()));
+		return true;
 	}
 
 	/**

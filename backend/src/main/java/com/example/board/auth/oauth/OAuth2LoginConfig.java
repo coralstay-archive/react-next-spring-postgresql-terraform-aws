@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Configuration;
 
 import com.example.board.auth.SessionLogin;
 import com.example.board.auth.identity.IdentityResolver;
+import com.example.board.user.UserRepository;
 
 /** 소셜 로그인 빈 (TASK-4). 제공자는 {@link OAuth2UserInfoMapper} 빈 + {@code app.oauth2.registrations.<id>.*} 설정으로 붙는다. */
 @Configuration(proxyBeanMethods = false)
@@ -33,8 +34,8 @@ public class OAuth2LoginConfig {
 
 	@Bean
 	OAuth2LoginSuccessHandler oauth2LoginSuccessHandler(List<OAuth2UserInfoMapper> mappers, IdentityResolver resolver,
-			SessionLogin sessionLogin, OAuth2Redirects redirects) {
-		return new OAuth2LoginSuccessHandler(mappers, resolver, sessionLogin, redirects);
+			SessionLogin sessionLogin, OAuth2Redirects redirects, UserRepository users) {
+		return new OAuth2LoginSuccessHandler(mappers, resolver, sessionLogin, redirects, users);
 	}
 
 	@Bean

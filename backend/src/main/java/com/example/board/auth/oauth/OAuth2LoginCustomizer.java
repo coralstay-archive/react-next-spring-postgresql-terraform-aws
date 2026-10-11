@@ -48,7 +48,7 @@ public final class OAuth2LoginCustomizer implements Customizer<OAuth2LoginConfig
 		oauth2.clientRegistrationRepository(registrations)
 			.authorizedClientRepository(new DiscardingAuthorizedClientRepository())
 			.authorizationEndpoint(endpoint -> endpoint
-				.authorizationRequestResolver(new UnknownProviderAwareResolver(registrations)))
+				.authorizationRequestResolver(new LinkAwareAuthorizationRequestResolver(registrations)))
 			.successHandler(successHandler)
 			.failureHandler(failureHandler)
 			.withObjectPostProcessor(new LoginFilterPostProcessor())
