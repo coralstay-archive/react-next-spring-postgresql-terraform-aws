@@ -1,0 +1,294 @@
+#!/usr/bin/env bash
+# 배포 스크립트·compose·워크플로 테스트 (TASK-17). scripts/test.sh 가 호출한다.
+# 실제 AWS 는 부르지 않는다: DRY_RUN=1 출력 검사 + PATH 앞에 둔 가짜 aws·docker·terraform·curl·npm 으로만 검증한다.
+# 린터(shellcheck, actionlint)가 없으면 경고 후 건너뛴다(REQUIRE_LINTERS=1 이면 실패 — CI).
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT" || exit 1
+
+failures=0
+passes=0
+OUT=""
+
+# check <이름> <명령...> — 명령 출력은 실패할 때만 보인다
+check() {
+  local name="$1"; shift
+  local out
+  if out="$("$@" 2>&1)"; then
+    passes=$((passes + 1)); echo "  ok   - $name"
+  else
+    failures=$((failures + 1)); echo "  FAIL - $name"
+    printf '%s\n' "$out" | sed 's/^/         | /' | tail -40
+  fi
+}
+
+# 직전 run_capture 출력에 줄이 그대로 있는지
+has_line() { grep -qxF -- "$1" <<<"$OUT" || { echo "missing line: $1"; echo "--- output:"; echo "$OUT"; return 1; }; }
+has_text() { grep -qF -- "$1" <<<"$OUT" || { echo "missing text: $1"; echo "--- output:"; echo "$OUT"; return 1; }; }
+lacks_text() { ! grep -qF -- "$1" <<<"$OUT" || { echo "unexpected text: $1"; echo "--- output:"; echo "$OUT"; return 1; }; }
+# 명령을 돌려 OUT 에 stdout+stderr 를 담고 종료 코드를 RC 에 둔다
+run_capture() { OUT="$("$@" 2>&1)"; RC=$?; }
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+FAKE="$TMP/fake"
+mkdir -p "$FAKE/bin" "$FAKE/state"
+export FAKE_STATE="$FAKE/state"
+
+need_linter() {
+  if command -v "$1" >/dev/null 2>&1; then return 0; fi
+  if [ "${REQUIRE_LINTERS:-0}" = 1 ]; then echo "  FAIL - $1 이 없다(REQUIRE_LINTERS=1)"; failures=$((failures + 1)); else echo "  WARNING: $1 이 없어 건너뛴다" >&2; fi
+  return 1
+}
+
+# ---------------------------------------------------------------- 가짜 명령 (PATH 앞에 둔다)
+cat >"$FAKE/bin/aws" <<'SH'
+#!/usr/bin/env bash
+# 가짜 aws: 인자를 로그에 남기고 서브커맨드별로 정해진 응답을 낸다
+set -u
+S="$FAKE_STATE"
+printf 'aws %s\n' "$*" >>"$S/calls.log"
+file_arg() { local a; for a in "$@"; do case "$a" in file://*) cat "${a#file://}";; esac; done; }
+case "$1 $2" in
+  "ecr get-login-password") echo FAKE_ECR_TOKEN ;;
+  "ecr describe-images") echo '{"imageDetails":[{}]}' ;;
+  "ssm send-command") file_arg "$@" >"$S/send-params.json"; echo cmd-123 ;;
+  "ssm get-command-invocation")
+    n=$(cat "$S/inv_count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" >"$S/inv_count"
+    read -r -a st <<<"${FAKE_STATUSES:-Success}"
+    i=$((n - 1)); [ "$i" -ge "${#st[@]}" ] && i=$((${#st[@]} - 1))
+    jq -n --arg s "${st[$i]}" '{Status:$s, StandardOutputContent:"remote stdout line", StandardErrorContent:"remote stderr line", ResponseCode:(if $s=="Success" then 0 else 1 end)}'
+    ;;
+  "ssm get-parameters-by-path") cat "$FAKE_PARAMS_JSON" ;;
+  "ssm get-parameter")
+    name=""; prev=""; for a in "$@"; do [ "$prev" = "--name" ] && name="$a"; prev="$a"; done
+    if grep -qxF -- "$name" <<<"${FAKE_EXISTING:-}"; then echo "$name"; else echo "An error occurred (ParameterNotFound)" >&2; exit 254; fi
+    ;;
+  "ssm put-parameter") { file_arg "$@"; echo; } >>"$S/put.jsonl" ;;
+  *) : ;;
+esac
+SH
+
+cat >"$FAKE/bin/docker" <<'SH'
+#!/usr/bin/env bash
+# 가짜 docker: compose up 때의 IMAGE_TAG 를 "실행 중 태그"로 기록한다
+set -u
+S="$FAKE_STATE"
+printf 'docker %s [IMAGE_TAG=%s]\n' "$*" "${IMAGE_TAG:-}" >>"$S/calls.log"
+case " $* " in
+  *" login "*) cat >/dev/null ;;
+  *" compose "*" up "*) printf '%s\n' "${IMAGE_TAG:-}" >"$S/running_tag" ;;
+  *" compose "*" logs "*) echo "fake api logs" ;;
+esac
+exit 0
+SH
+
+cat >"$FAKE/bin/curl" <<'SH'
+#!/usr/bin/env bash
+# 가짜 curl: 실행 중 태그가 FAKE_BAD_TAG 면 헬스체크 실패
+S="$FAKE_STATE"
+printf 'curl %s\n' "$*" >>"$S/calls.log"
+running="$(cat "$S/running_tag" 2>/dev/null || true)"
+if [ -n "${FAKE_BAD_TAG:-}" ] && [ "$running" = "$FAKE_BAD_TAG" ]; then exit 22; fi
+echo '{"status":"UP"}'
+SH
+
+cat >"$FAKE/bin/terraform" <<'SH'
+#!/usr/bin/env bash
+# 가짜 terraform: output 만 흉내 낸다(FAKE_TF_JSON = terraform output -json 형식)
+S="$FAKE_STATE"
+printf 'terraform %s\n' "$*" >>"$S/calls.log"
+args=(); for a in "$@"; do case "$a" in -chdir=*) ;; *) args+=("$a");; esac; done
+case "${args[*]}" in
+  "output -json") cat "$FAKE_TF_JSON" ;;
+  "output -json "*) jq ".\"${args[2]}\".value" "$FAKE_TF_JSON" ;;
+  "output -raw "*) jq -j ".\"${args[2]}\".value // empty" "$FAKE_TF_JSON" ;;
+  *) exit 1 ;;
+esac
+SH
+
+cat >"$FAKE/bin/npm" <<'SH'
+#!/usr/bin/env bash
+printf 'npm %s\n' "$*" >>"$FAKE_STATE/calls.log"
+SH
+chmod +x "$FAKE/bin/"*
+
+reset_fake() { rm -rf "${FAKE_STATE:?}"/*; }
+# 가짜 PATH 로 명령 실행
+with_fakes() { PATH="$FAKE/bin:$PATH" "$@"; }
+
+echo "deploy tests"
+
+# ================================================================ TASK-17#1 백엔드 이미지·배포
+# Dockerfile: 멀티스테이지, eclipse-temurin:25-jre 런타임, non-root, MaxRAMPercentage=60
+check "TASK-17#1 backend/Dockerfile 존재" test -f backend/Dockerfile
+check "TASK-17#1 Dockerfile 런타임은 eclipse-temurin:25-jre" grep -Eq '^FROM eclipse-temurin:25-jre( |$)' backend/Dockerfile
+check "TASK-17#1 Dockerfile 은 JDK 25 빌드 스테이지(멀티스테이지)" grep -Eq '^FROM eclipse-temurin:25-jdk AS build' backend/Dockerfile
+check "TASK-17#1 Dockerfile 은 non-root USER" sh -c 'grep -E "^USER " backend/Dockerfile | tail -1 | grep -Evq "USER (root|0)( |$)"'
+check "TASK-17#1 Dockerfile JAVA_TOOL_OPTIONS MaxRAMPercentage=60" grep -q 'MaxRAMPercentage=60' backend/Dockerfile
+check "TASK-17#1 backend/.dockerignore 가 build·.gradle 을 뺀다" sh -c 'grep -qx "build" backend/.dockerignore && grep -qx ".gradle" backend/.dockerignore'
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  check "TASK-17#1 docker buildx build --check (Dockerfile lint)" docker buildx build --check --platform linux/arm64 backend
+else
+  echo "  WARNING: docker 데몬이 없어 Dockerfile 검사를 건너뛴다" >&2
+fi
+
+for f in scripts/build-backend.sh scripts/deploy-backend.sh deploy/remote-deploy.sh; do
+  check "TASK-17#1 $f 실행 가능" test -x "$f"
+done
+
+# build-backend: ECR 로그인 + buildx linux/arm64 → <repo>:<tag>, latest, push
+t_build_backend_dry() {
+  run_capture env DRY_RUN=1 AWS_REGION=us-east-1 ECR_REPOSITORY_URL=123456789012.dkr.ecr.us-east-1.amazonaws.com/board-api IMAGE_TAG=abc123 ./scripts/build-backend.sh
+  [ "$RC" = 0 ] || { echo "rc=$RC"; echo "$OUT"; return 1; }
+  has_line "[dry-run] aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com" &&
+    has_line "[dry-run] docker buildx build --platform linux/arm64 --provenance=false --tag 123456789012.dkr.ecr.us-east-1.amazonaws.com/board-api:abc123 --tag 123456789012.dkr.ecr.us-east-1.amazonaws.com/board-api:latest --push $ROOT/backend"
+}
+check "TASK-17#1 build-backend DRY_RUN: ECR 로그인 + arm64 buildx push(태그 sha·latest)" t_build_backend_dry
+t_build_backend_requires() {
+  run_capture env -u ECR_REPOSITORY_URL DRY_RUN=1 AWS_REGION=us-east-1 IMAGE_TAG=abc ./scripts/build-backend.sh
+  [ "$RC" != 0 ] && has_text "ECR_REPOSITORY_URL"
+}
+check "TASK-17#1 build-backend 는 ECR_REPOSITORY_URL 없으면 실패" t_build_backend_requires
+t_build_backend_default_tag() {
+  local sha; sha="$(git rev-parse --short=12 HEAD)"
+  run_capture env -u IMAGE_TAG DRY_RUN=1 ALLOW_DIRTY=1 AWS_REGION=us-east-1 ECR_REPOSITORY_URL=r.example/board-api ./scripts/build-backend.sh
+  [ "$RC" = 0 ] && has_text "--tag r.example/board-api:$sha "
+}
+check "TASK-17#1 build-backend 기본 태그는 git short sha(12)" t_build_backend_default_tag
+
+# deploy-backend: DRY_RUN 은 send-command(AWS-RunShellScript, 인스턴스)와 원격 명령을 보이고 실행하지 않는다
+DEPLOY_ENV=(AWS_REGION=us-east-1 ECR_REPOSITORY_URL=123456789012.dkr.ecr.us-east-1.amazonaws.com/board-api INSTANCE_ID=i-0abc IMAGE_TAG=abc123)
+t_deploy_backend_dry() {
+  reset_fake
+  run_capture with_fakes env DRY_RUN=1 "${DEPLOY_ENV[@]}" ./scripts/deploy-backend.sh
+  [ "$RC" = 0 ] || { echo "rc=$RC"; echo "$OUT"; return 1; }
+  has_text "[dry-run] aws ssm send-command --region us-east-1 --instance-ids i-0abc --document-name AWS-RunShellScript" &&
+    has_text "ECR_REPOSITORY_URL=123456789012.dkr.ecr.us-east-1.amazonaws.com/board-api IMAGE_TAG=abc123" &&
+    has_text "bash /opt/board/remote-deploy.sh" &&
+    ! test -s "$FAKE_STATE/calls.log"
+}
+check "TASK-17#1 deploy-backend DRY_RUN: send-command(AWS-RunShellScript·인스턴스·태그), aws 미호출" t_deploy_backend_dry
+
+# 실제 경로(가짜 aws): 원격 명령은 compose·render-env·remote-deploy 를 base64 로 실어 /opt/board 에 쓰고 실행한다
+t_deploy_backend_success() {
+  reset_fake
+  run_capture with_fakes env FAKE_STATUSES="Pending InProgress Success" POLL_INTERVAL=0 "${DEPLOY_ENV[@]}" ./scripts/deploy-backend.sh
+  [ "$RC" = 0 ] || { echo "rc=$RC"; echo "$OUT"; return 1; }
+  has_text "remote stdout line" &&
+    grep -q "aws ssm send-command --region us-east-1 --instance-ids i-0abc --document-name AWS-RunShellScript" "$FAKE_STATE/calls.log" &&
+    grep -q "aws ecr describe-images" "$FAKE_STATE/calls.log" &&
+    [ "$(grep -c 'get-command-invocation' "$FAKE_STATE/calls.log")" = 3 ] || return 1
+  # 실린 파일을 풀어 원본과 같은지 확인
+  local d="$TMP/remote"; rm -rf "$d"; mkdir -p "$d"
+  jq -r '.commands[]' "$FAKE_STATE/send-params.json" >"$d/cmds.sh"
+  local f
+  for f in docker-compose.prod.yml render-env.sh remote-deploy.sh; do
+    grep -q "base64 -d > /opt/board/$f.tmp" "$d/cmds.sh" || { echo "no $f in commands"; cat "$d/cmds.sh"; return 1; }
+    sed -n "s#^echo \([A-Za-z0-9+/=]*\) | base64 -d > /opt/board/$f.tmp\$#\1#p" "$d/cmds.sh" | base64 -d >"$d/$f"
+    cmp -s "$d/$f" "deploy/$f" || { echo "$f differs"; return 1; }
+  done
+  jq -e '.executionTimeout[0] | tonumber > 0' "$FAKE_STATE/send-params.json" >/dev/null
+}
+check "TASK-17#1 deploy-backend: send-command 에 파일 3개(base64) 실어 보내고 Success 까지 폴링" t_deploy_backend_success
+t_deploy_backend_failure() {
+  reset_fake
+  run_capture with_fakes env FAKE_STATUSES="InProgress Failed" POLL_INTERVAL=0 "${DEPLOY_ENV[@]}" ./scripts/deploy-backend.sh
+  [ "$RC" != 0 ] && has_text "remote stderr line" && has_text "Failed"
+}
+check "TASK-17#1 deploy-backend: 원격 실패면 0 이 아닌 종료 + stderr 출력" t_deploy_backend_failure
+t_deploy_backend_bad_tag() {
+  run_capture with_fakes env DRY_RUN=1 AWS_REGION=us-east-1 ECR_REPOSITORY_URL=r/x INSTANCE_ID=i-1 IMAGE_TAG='a;rm -rf /' ./scripts/deploy-backend.sh
+  [ "$RC" != 0 ]
+}
+check "TASK-17#1 deploy-backend 는 이상한 태그 문자를 거부" t_deploy_backend_bad_tag
+
+# remote-deploy.sh (EC2 에서 실행): env 렌더 → ECR 로그인 → pull/up → 헬스 대기 → 실패 시 이전 태그로 롤백
+REMOTE_PARAMS="$TMP/params.json"
+cat >"$REMOTE_PARAMS" <<'JSON'
+{"Parameters":[
+  {"Name":"/board/prod/DB_PASSWORD","Value":"pw"},
+  {"Name":"/board/prod/JWT_SECRET","Value":"jwt"},
+  {"Name":"/board/prod/OTP_HASH_KEY","Value":"otp"}
+]}
+JSON
+remote_deploy() {
+  local dir="$1" tag="$2"; shift 2
+  with_fakes env DEPLOY_DIR="$dir" ECR_REPOSITORY_URL=123456789012.dkr.ecr.us-east-1.amazonaws.com/board-api IMAGE_TAG="$tag" \
+    AWS_REGION=us-east-1 SSM_PARAMETER_PATH=/board/prod LOG_GROUP=/board/prod FAKE_PARAMS_JSON="$REMOTE_PARAMS" \
+    HEALTH_TIMEOUT=1 HEALTH_INTERVAL=0.2 "$@" bash "$dir/remote-deploy.sh"
+}
+remote_dir() { local d="$TMP/host-$1"; rm -rf "$d"; mkdir -p "$d"; cp deploy/remote-deploy.sh deploy/render-env.sh deploy/docker-compose.prod.yml "$d/" 2>/dev/null; echo "$d"; }
+t_remote_success() {
+  reset_fake
+  local d; d="$(remote_dir ok)"
+  run_capture remote_deploy "$d" tag-good
+  [ "$RC" = 0 ] || { echo "rc=$RC"; echo "$OUT"; return 1; }
+  [ "$(cat "$d/current_tag")" = tag-good ] &&
+    grep -q "aws ecr get-login-password --region us-east-1" "$FAKE_STATE/calls.log" &&
+    grep -q "docker login --username AWS --password-stdin 123456789012.dkr.ecr.us-east-1.amazonaws.com" "$FAKE_STATE/calls.log" &&
+    grep -q "compose .* pull .*IMAGE_TAG=tag-good" "$FAKE_STATE/calls.log" &&
+    grep -q "compose .* up -d .*IMAGE_TAG=tag-good" "$FAKE_STATE/calls.log" &&
+    grep -q "curl .*http://127.0.0.1:8080/api/actuator/health" "$FAKE_STATE/calls.log"
+}
+check "TASK-17#1 remote-deploy: pull·up·헬스 OK 면 current_tag 기록" t_remote_success
+t_remote_rollback() {
+  reset_fake
+  local d; d="$(remote_dir rb)"
+  echo tag-old >"$d/current_tag"
+  run_capture remote_deploy "$d" tag-bad FAKE_BAD_TAG=tag-bad
+  [ "$RC" != 0 ] || { echo "expected failure"; echo "$OUT"; return 1; }
+  [ "$(cat "$FAKE_STATE/running_tag")" = tag-old ] && [ "$(cat "$d/current_tag")" = tag-old ] &&
+    has_text "rolled back to tag-old" && has_text "fake api logs"
+}
+check "TASK-17#1 remote-deploy: 헬스 실패면 이전 태그로 롤백하고 실패 종료" t_remote_rollback
+t_remote_first_fail() {
+  reset_fake
+  local d; d="$(remote_dir first)"
+  run_capture remote_deploy "$d" tag-bad FAKE_BAD_TAG=tag-bad
+  [ "$RC" != 0 ] && [ ! -e "$d/current_tag" ] && has_text "no previous tag"
+}
+check "TASK-17#1 remote-deploy: 이전 태그가 없으면 롤백 없이 실패" t_remote_first_fail
+
+# deploy/docker-compose.prod.yml: dummy env 로 compose config 검증
+t_compose_config() {
+  local d="$TMP/compose"; mkdir -p "$d"
+  echo 'MARKER_APP="1"' >"$d/app.env"; echo 'MARKER_DB="1"' >"$d/db.env"
+  local json
+  json="$(DEPLOY_DIR="$d" ECR_REPOSITORY_URL=r.example/board-api IMAGE_TAG=abc AWS_REGION=us-east-1 LOG_GROUP=/board/prod \
+    docker compose -f deploy/docker-compose.prod.yml config --format json)" || return 1
+  jq -e '
+    .services.api.image == "r.example/board-api:abc"
+    and .services.db.image == "postgres:18-alpine"
+    and (.services.db.volumes | any(.type == "bind" and .source == "/srv/pgdata" and .target == "/var/lib/postgresql"))
+    and .services.api.depends_on.db.condition == "service_healthy"
+    and (.services.db.healthcheck.test | tostring | test("pg_isready"))
+    and .services.api.restart == "unless-stopped" and .services.db.restart == "unless-stopped"
+    and (.services.api.ports | any(.target == 8080 and .published == "8080"))
+    and ((.services.db.ports // []) | length == 0)
+    and .services.api.logging.driver == "awslogs" and .services.db.logging.driver == "awslogs"
+    and .services.api.logging.options["awslogs-group"] == "/board/prod"
+    and .services.api.logging.options["awslogs-region"] == "us-east-1"
+    and (.services.api.logging.options.tag | test("api"))
+    and (.services.db.logging.options.tag | test("db"))
+    and .services.api.environment.MARKER_APP == "1" and (.services.api.environment.MARKER_DB == null)
+    and .services.db.environment.MARKER_DB == "1" and (.services.db.environment.MARKER_APP == null)
+  ' <<<"$json" >/dev/null || { echo "$json"; return 1; }
+}
+if command -v docker >/dev/null 2>&1; then
+  check "TASK-17#1 docker-compose.prod.yml: api+postgres18(/srv/pgdata 바인드)·awslogs·healthcheck·restart" t_compose_config
+else
+  echo "  WARNING: docker 가 없어 compose config 검사를 건너뛴다" >&2
+fi
+
+# ---------------------------------------------------------------- shellcheck (모든 배포 스크립트)
+if need_linter shellcheck; then
+  for f in scripts/*.sh deploy/*.sh scripts/test/*.sh; do
+    [ -f "$f" ] || continue
+    check "TASK-17#1 shellcheck $f" shellcheck -x "$f"
+  done
+fi
+
+echo "deploy: $passes passed, $failures failed"
+[ "$failures" -eq 0 ]

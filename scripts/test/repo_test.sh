@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016 # sh -c '...' 안의 $ 는 하위 셸에서 풀린다
 # 리포 골격 검증 테스트 (TASK-1). scripts/test.sh 가 호출한다.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT"
+cd "$ROOT" || exit 1
 
 failures=0
 passes=0

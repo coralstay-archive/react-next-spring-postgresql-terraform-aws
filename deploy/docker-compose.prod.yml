@@ -1,0 +1,60 @@
+# 운영 EC2 compose (TASK-17#1). deploy-backend.sh 가 send-command 로 /opt/board 에 써 두고 remote-deploy.sh 가 쓴다.
+# 보간 값(셸 환경, remote-deploy.sh 가 export): ECR_REPOSITORY_URL, IMAGE_TAG, AWS_REGION, LOG_GROUP, DEPLOY_DIR, DATA_DIR
+# 시크릿은 보간하지 않는다: render-env.sh 가 SSM 에서 만든 env 파일(권한 600)을 env_file 로만 넘긴다.
+#   app.env → api (앱 env 전체)   db.env → db (POSTGRES_* 만)
+name: board
+
+x-logging: &logging
+  driver: awslogs
+  options: &logging-options
+    awslogs-region: ${AWS_REGION:?AWS_REGION}
+    awslogs-group: ${LOG_GROUP:-/board/prod}
+    # CloudWatch 가 느려도 앱이 멈추지 않게 버퍼에 쌓고 넘치면 버린다
+    mode: non-blocking
+    max-buffer-size: 4m
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    env_file:
+      - path: ${DEPLOY_DIR:-/opt/board}/db.env
+        required: true
+    # postgres 18 이미지: PGDATA=/var/lib/postgresql/18/docker. 부모 /var/lib/postgresql 에 데이터 EBS 를 바인드한다
+    # (메이저 업그레이드 때 18/ 옆에 19/ 를 둘 수 있는 레이아웃)
+    volumes:
+      - type: bind
+        source: ${DATA_DIR:-/srv/pgdata}
+        target: /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    mem_limit: 512m
+    logging:
+      <<: *logging
+      options:
+        <<: *logging-options
+        tag: "db/{{.Name}}"
+
+  api:
+    image: ${ECR_REPOSITORY_URL:?ECR_REPOSITORY_URL}:${IMAGE_TAG:?IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - path: ${DEPLOY_DIR:-/opt/board}/app.env
+        required: true
+    # CloudFront(/api/*) → EIP:8080. SG 가 CloudFront prefix list 만 연다
+    ports:
+      - "8080:8080"
+    # JVM 힙은 이 한도의 60%(Dockerfile JAVA_TOOL_OPTIONS). t4g.small 2GB = api 1.2G + db 512M + OS
+    mem_limit: 1200m
+    logging:
+      <<: *logging
+      options:
+        <<: *logging-options
+        tag: "api/{{.Name}}"
