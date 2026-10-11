@@ -13,3 +13,15 @@ CREATE TABLE comments (
 -- 글별 목록(오래된 순). 정렬 키 (created_at, id).
 CREATE INDEX comments_post_created_ix ON comments (post_id, created_at, id);
 CREATE INDEX comments_author_id_ix ON comments (author_id);
+
+-- 좋아요 (TASK-9#2). 사용자당 글 하나에 1회(B1, PK). like_count 는 post_likes 에 실제로 넣거나 지운 행 수로만 바뀐다.
+ALTER TABLE posts ADD COLUMN like_count INT NOT NULL DEFAULT 0;
+ALTER TABLE posts ADD CONSTRAINT posts_like_count_ck CHECK (like_count >= 0);
+
+CREATE TABLE post_likes (
+	post_id     BIGINT      NOT NULL REFERENCES posts (id) ON DELETE CASCADE,
+	user_id     BIGINT      NOT NULL REFERENCES users (id),
+	created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (post_id, user_id)
+);
+CREATE INDEX post_likes_user_id_ix ON post_likes (user_id);

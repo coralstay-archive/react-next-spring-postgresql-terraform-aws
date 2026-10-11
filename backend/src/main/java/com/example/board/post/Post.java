@@ -69,6 +69,13 @@ public class Post implements OwnedResource {
 	@Column(name = "hidden_at")
 	private Instant hiddenAt;
 
+	/**
+	 * 좋아요 수 (TASK-9#2). {@code post_likes} 행을 실제로 넣거나 지운 경우에만 SQL 로 ±1 한다({@link PostLikeService}). 엔티티 저장이
+	 * 덮어쓰지 않도록 읽기 전용으로 매핑한다.
+	 */
+	@Column(name = "like_count", nullable = false, insertable = false, updatable = false)
+	private int likeCount;
+
 	protected Post() {
 	}
 
@@ -161,6 +168,10 @@ public class Post implements OwnedResource {
 
 	public Instant getHiddenAt() {
 		return hiddenAt;
+	}
+
+	public int getLikeCount() {
+		return likeCount;
 	}
 
 	public boolean isDeleted() {

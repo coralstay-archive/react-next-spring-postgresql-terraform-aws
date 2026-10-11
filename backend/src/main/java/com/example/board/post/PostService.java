@@ -53,11 +53,15 @@ public class PostService {
 
 	private final TagService tags;
 
-	public PostService(PostRepository posts, CategoryRepository categories, UserRepository users, TagService tags) {
+	private final PostLikeService likes;
+
+	public PostService(PostRepository posts, CategoryRepository categories, UserRepository users, TagService tags,
+			PostLikeService likes) {
 		this.posts = posts;
 		this.categories = categories;
 		this.users = users;
 		this.tags = tags;
+		this.likes = likes;
 	}
 
 	/** 목록. 페이지 조회(+count) 다음에 그 페이지 글들의 작성자·카테고리·태그를 한 쿼리로 붙인다. */
@@ -78,7 +82,7 @@ public class PostService {
 	@Transactional(readOnly = true)
 	public PostDetail get(Long id, AuthUser viewer) {
 		Post post = posts.findDetailById(id).filter(p -> canSee(p, viewer)).orElseThrow(PostService::notFound);
-		return PostDetail.of(post, canModify(post, viewer));
+		return PostDetail.of(post, canModify(post, viewer), likes.isLiked(id, viewer));
 	}
 
 	/** 작성 (TASK-8#3). */
@@ -92,7 +96,7 @@ public class PostService {
 			post.replaceTags(tags.resolve(request.tags()));
 		}
 		posts.saveAndFlush(post);
-		return PostDetail.of(post, true);
+		return PostDetail.of(post, true, false);
 	}
 
 	/** 부분 수정 (TASK-8#3). 인가는 호출 전에 끝났다(@PreAuthorize). */
@@ -113,7 +117,7 @@ public class PostService {
 		}
 		post.touch(Instant.now());
 		posts.flush();
-		return PostDetail.of(post, true);
+		return PostDetail.of(post, true, likes.isLiked(id, editor));
 	}
 
 	/** soft delete (TASK-8#3). */
