@@ -33,7 +33,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/** 관리자 화면. 익명은 로그인으로, USER 는 권한 없음 안내. (서버도 /api/admin/** 를 ADMIN 만 허용한다.) */
+/**
+ * 관리자 화면(TASK-15#2). 익명은 로그인으로, USER 는 403 권한 없음 안내(관리 API 는 부르지 않는다).
+ * 화면 차단은 안내일 뿐이고 실제 차단은 서버가 한다(/api/admin/** 는 ADMIN 만).
+ */
 export function RequireAdmin({ children }: { children: ReactNode }) {
   return (
     <RequireAuth>
@@ -46,8 +49,8 @@ function AdminOnly({ children }: { children: ReactNode }) {
   const { data: me } = useMe();
   if (me?.role !== "ADMIN") {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>권한이 없습니다</AlertTitle>
+      <Alert variant="destructive" data-testid="admin-forbidden">
+        <AlertTitle>권한이 없습니다 (403)</AlertTitle>
         <AlertDescription>관리자만 볼 수 있는 화면입니다.</AlertDescription>
       </Alert>
     );

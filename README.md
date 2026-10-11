@@ -380,6 +380,21 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 - **E2E용 `data-testid`**: 목록 `post-list`·`post-item`·`post-item-link`·`category-tab`·`tag-chip`·`search-input`·`search-submit`·`sort-select`·`pagination-prev`/`next`·`new-post-link`. 상세 `post-title`·`post-content`·`post-attachments`·`view-count`·`like-button`·`like-count`·`post-edit-link`·`post-delete-button`·`comment-list`·`comment-item`·`comment-input`·`comment-submit`·`comment-delete`·`post-not-found`. 편집기 `post-editor`·`editor-title`·`editor-content`·`editor-category`·`editor-tag-input`·`editor-tag-preview`·`editor-tags`·`editor-file-input`·`editor-attachments`·`editor-upload-progress`·`editor-submit`.
 - **로컬 업로드 확인**: `make dev-db && make dev-storage`를 실행하고, `example.env`의 `UPLOADS_*` 값으로 백엔드를 띄운다. 그다음 `make frontend-dev`를 실행한다. MinIO(:9000)가 `http://localhost:3000` 오리진의 PUT preflight를 허용한다.
 
+### 관리자 화면 (TASK-15)
+
+| 경로 | 내용 |
+|---|---|
+| `/admin/?tab=users` | 사용자 목록(최근 가입순, 20개씩). 검색(닉네임·이메일·전화), 상태 필터(활성·정지), 로그인 수단·상태 배지. 정지·정지 해제는 확인 다이얼로그에서 선택 사유(500자 이하)와 함께 보낸다. 409 `cannot_suspend_self`·`cannot_suspend_admin`은 다이얼로그에 한국어로 안내한다 |
+| `/admin/?tab=posts` | `GET /api/posts?includeHidden=true`(게시판 목록 훅 재사용). 숨김·삭제 배지, 상세 링크, 숨김·숨김 해제·삭제 복구(사유 포함) |
+| `/admin/?tab=categories` | 공개 `/api/categories` 목록 + 생성·수정·삭제. 폼은 서버 규칙과 같다(slug `^[a-z0-9-]{2,30}$`, 이름은 앞뒤 공백을 자르고 1~50자, 순서는 정수이며 생성 시 비우면 맨 뒤). 수정은 바뀐 필드만 `PATCH`. 409 `slug_taken` 안내 |
+| `/admin/?tab=actions` | 감사 로그(`GET /api/admin/actions`) 최근순 표, 이전·다음 페이지 |
+
+- **가드**: `page.tsx`가 `<Suspense>` + `RequireAdmin`으로 감싼다. 익명은 `/login/?next=/admin/?tab=…`로, `USER`는 403 안내(`admin-forbidden`)만 보고 관리 API는 부르지 않는다. 실제 차단은 서버가 한다.
+- **탭**: `?tab=`(기본 `users`, 모르는 값도 `users`). 탭을 누르면 `router.replace`로 URL을 바꾼다. 선택된 탭만 그리므로 그 탭의 API만 호출한다. 탭 안의 검색·필터·페이지는 화면 상태다(URL에 넣지 않는다).
+- **확인 다이얼로그**: `window.confirm` 대신 shadcn `alert-dialog`(Base UI, `role="alertdialog"`)를 쓴다. 실패하면 다이얼로그를 연 채로 오류를 보이고, 성공하면 닫는다. 빈 사유는 `{}` 본문으로 보낸다.
+- **캐시**: 쿼리 키 `["admin", "users", query]`, `["admin", "actions", page]`. 관리 쓰기 뒤에는 `["admin", "actions"]`를 무효화한다. 정지·해제 뒤에는 `["admin", "users"]`, 글 처리 뒤에는 `["posts"]`, 카테고리 변경 뒤에는 `["categories"]`와 `["posts"]`(글의 카테고리 이름·slug가 바뀐다)도 무효화한다.
+- **E2E용 `data-testid`**: `admin-view`·`admin-tab-{users|posts|categories|actions}`·`admin-forbidden`. 사용자 `admin-user-search-input`·`admin-user-search-submit`·`admin-user-status-filter`·`admin-user-row`·`admin-user-status`·`admin-user-provider`·`admin-user-role`·`admin-user-suspend`·`admin-user-unsuspend`·`admin-users-prev`/`next`. 글 `admin-post-row`·`admin-post-link`·`admin-post-hide`·`admin-post-unhide`·`admin-post-restore`. 카테고리 `admin-category-row`·`admin-category-admin-only-badge`·`admin-category-edit`·`admin-category-delete`·`admin-category-form`·`admin-category-slug`·`admin-category-name`·`admin-category-sort-order`·`admin-category-admin-only`·`admin-category-submit`·`admin-category-cancel`·`admin-category-{slug|name|sort-order}-error`·`admin-category-error`. 감사 로그 `admin-action-row`·`admin-actions-prev`/`next`. 다이얼로그 `admin-confirm-dialog`·`admin-reason-input`·`admin-confirm-submit`·`admin-confirm-cancel`·`admin-confirm-error`.
+
 ## 개발 워크플로
 
 이 리포는 [backlog.md](https://github.com/MrLesk/Backlog.md) 태스크 단위로 작업한다.
