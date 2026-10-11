@@ -336,6 +336,32 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 - **정지는 즉시 효과**: 한 트랜잭션에서 `status=SUSPENDED`, 그 사용자의 refresh 토큰 전부(모든 family) 폐기, 감사 로그를 커밋하고, 커밋 뒤 Spring Session JDBC에서 그 사용자의 세션을 모두 지운다. 세션은 `SPRING_SESSION.PRINCIPAL_NAME` 인덱스로 찾는데, Spring Session이 세션의 SecurityContext에서 `Authentication#getName()`(= 사용자 id)을 뽑아 채우므로 세션·소셜·OTP 로그인 세션이 모두 사용자 id로 색인된다. 결과: 기존 세션은 다음 요청부터 익명(보호된 API는 401), refresh는 401, 이미 받은 access JWT는 만료(15분)까지 읽기만 되고 쓰기는 403, 로그인은 403 `suspended`.
 - **감사 로그**: V10 `admin_actions(id, admin_id, action, target_type, target_id, reason, created_at)`. 모든 관리 쓰기(`USER_SUSPEND`·`USER_UNSUSPEND`·`POST_HIDE`·`POST_UNHIDE`·`POST_RESTORE`·`CATEGORY_CREATE`·`CATEGORY_UPDATE`·`CATEGORY_DELETE`)를 그 작업과 같은 트랜잭션에서 한 행씩 남긴다. 상태가 이미 같아 바뀐 게 없어도 호출마다 기록한다. 빈 사유는 null, 카테고리 삭제는 사유에 `slug=...`를 남긴다. `target_id`는 대상이 지워져도 남도록 FK가 없다.
 
+## 프론트엔드 (TASK-13)
+
+정적 export라 서버 컴포넌트에서 세션을 읽을 수 없다. 로그인 상태·가드는 모두 클라이언트(`useMe()` = `GET /api/auth/me`)에서 판단하고,
+검색 파라미터(`?next`, `?error`, `?status`, `?linked`)는 `<Suspense>` 안의 클라이언트 컴포넌트가 `useSearchParams`로 읽는다. 동적 라우트는 쓰지 않는다.
+
+```bash
+make dev-db && make backend-run      # 터미널 1: DB + 백엔드(:8080)
+make frontend-dev                    # 터미널 2: http://localhost:3000 (/api → :8080 프록시)
+```
+
+| 경로 | 내용 |
+|---|---|
+| `/login/` | 이메일·비밀번호, 휴대폰 OTP(인증번호 3분 카운트다운, 429면 `Retry-After` 초 동안 다시 받기 대기), 소셜 5종(`/api/oauth2/authorization/{p}`로 페이지 이동). `?next=`로 돌아갈 경로(같은 사이트 경로만) |
+| `/signup/` | 서버와 같은 검증(이메일 모양, 비밀번호 8자·72바이트·문자+숫자, 닉네임 2~20자), 409 `email_taken`, 가입 뒤 `/api/auth/login`으로 자동 로그인 |
+| `/auth/callback/` | 소셜 로그인 착지. `?status=ok`면 me를 다시 받아 로그인 전에 기억한 경로(sessionStorage `auth.next`)로, `?error=`면 한국어 안내 |
+| `/account/` | 로그인 수단 목록·해제(409 `last_identity`), 소셜 연결(`/api/me/identities/link/{p}` → `?linked=`/`?error=`), 휴대폰 연결(OTP `?link=true`), 제한 세션 다시 인증(LOCAL 비밀번호 또는 소셜 재로그인) |
+
+- **API 클라이언트** `src/lib/api.ts`: `api(path, {method, body, query})`. 같은 오리진 `/api`, `credentials:'include'`. 쓰기 메서드는 `XSRF-TOKEN` 쿠키를
+  `X-XSRF-TOKEN` 헤더로 보내고(쿠키가 없으면 `GET /api/auth/csrf` 먼저), 요청마다 쿠키를 다시 읽어 로그인·OTP·step-up·OAuth 뒤 회전을 따라간다.
+  403 `csrf`면 토큰을 다시 받아 한 번 재시도한다. 오류는 `ApiError{status, code, message, fields?, retryAfter?}`.
+- **TanStack Query** `src/lib/query.ts`: 쿼리 키는 `[도메인, ...세부]`(`queryKeys`). 4xx는 재시도하지 않는다. 401 `unauthorized`면 me 캐시를 `null`로 바꿔
+  헤더·가드가 로그아웃 상태를 따라간다(401 `invalid_credentials`·`invalid_otp`는 제외). 로그인 계열 성공 뒤에는 `useSessionChanged()`로 me를 바꾸고 다른 쿼리를 초기화한다.
+- **가드** `src/components/guards.tsx`: `RequireAuth`(익명 → `/login/?next=<경로>`), `RequireAdmin`(USER는 권한 없음 안내). 제한 세션이면 레이아웃의 배너가 `/account/#step-up`으로 안내한다.
+- **오류 문장** `src/lib/errors.ts`: 백엔드·OAuth 오류 코드 → 한국어. 표에 없으면 서버 `message`.
+- **테스트**: Vitest + Testing Library + MSW(`src/test/server.ts`, 모르는 요청은 실패). 쿠키는 jsdom `document.cookie`로 흉내 낸다.
+
 ## 개발 워크플로
 
 이 리포는 [backlog.md](https://github.com/MrLesk/Backlog.md) 태스크 단위로 작업한다.
