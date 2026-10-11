@@ -86,5 +86,8 @@ for k in UPLOADS_BUCKET UPLOADS_REGION UPLOADS_ENDPOINT UPLOADS_PATH_STYLE UPLOA
 done
 check "TASK-11#4 uploads 모듈 테스트 존재" sh -c 'ls infra/main/modules/uploads/tests/*.tftest.hcl'
 
+# TASK-16#3 CloudFront Function(index 리라이트): /x/ → /x/index.html, 확장자 없는 경로도 index, 정적 파일은 그대로
+check "TASK-16#3 CloudFront Function index 리라이트(node)" node scripts/test/cf_function_test.mjs
+
 echo "repo tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]
