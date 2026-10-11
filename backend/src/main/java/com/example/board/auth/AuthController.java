@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -22,6 +23,7 @@ import com.example.board.common.ApiException;
 import com.example.board.security.BearerRequests;
 import com.example.board.user.User;
 import com.example.board.user.UserIdentityRepository;
+import com.example.board.user.UserRepository;
 import com.example.board.user.UserStatus;
 
 /**
@@ -37,15 +39,18 @@ public class AuthController {
 
 	private final LocalAccountService localAccounts;
 
+	private final UserRepository users;
+
 	private final UserIdentityRepository identities;
 
 	private final SessionLogin sessionLogin;
 
 	private final TokenService tokens;
 
-	public AuthController(LocalAccountService localAccounts, UserIdentityRepository identities,
+	public AuthController(LocalAccountService localAccounts, UserRepository users, UserIdentityRepository identities,
 			SessionLogin sessionLogin, TokenService tokens) {
 		this.localAccounts = localAccounts;
+		this.users = users;
 		this.identities = identities;
 		this.sessionLogin = sessionLogin;
 		this.tokens = tokens;
@@ -122,6 +127,17 @@ public class AuthController {
 			return;
 		}
 		sessionLogin.logout(request, response);
+	}
+
+	/**
+	 * 현재 사용자. 세션·Bearer 공통. 세션·토큰에 실린 role/status 는 발급 시점 값이라, 응답은 DB 의 최신 값으로 만든다.
+	 * 계정이 지워졌으면 401. 익명은 보안 체인이 401 로 막는다.
+	 */
+	@GetMapping("/auth/me")
+	public UserSummary me(@AuthenticationPrincipal AuthUser principal) {
+		User user = users.findById(principal.id())
+			.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "인증이 필요합니다"));
+		return summary(user);
 	}
 
 	private UserSummary summary(User user) {
