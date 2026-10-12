@@ -12,15 +12,22 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param loginIp 로그인 실패 — 클라이언트 IP 별. 기본 1시간 30회
  * @param signupIp 가입 시도 — 클라이언트 IP 별. 기본 1시간 10회
  * @param stepUp step-up 비밀번호 실패 — 사용자별. 기본 15분 5회 (B1)
+ * @param postMinute 글 작성 — 사용자별. 기본 1분 3회 (TASK-22#2)
+ * @param postHour 글 작성 — 사용자별. 기본 1시간 30회
+ * @param comment 댓글 작성 — 사용자별. 기본 1분 10회
  */
 @ConfigurationProperties("app.rate-limit")
-public record RateLimitProperties(Policy loginAccount, Policy loginIp, Policy signupIp, Policy stepUp) {
+public record RateLimitProperties(Policy loginAccount, Policy loginIp, Policy signupIp, Policy stepUp,
+		Policy postMinute, Policy postHour, Policy comment) {
 
 	public RateLimitProperties {
 		loginAccount = Policy.orDefault(loginAccount, 5, Duration.ofMinutes(15));
 		loginIp = Policy.orDefault(loginIp, 30, Duration.ofHours(1));
 		signupIp = Policy.orDefault(signupIp, 10, Duration.ofHours(1));
 		stepUp = Policy.orDefault(stepUp, 5, Duration.ofMinutes(15));
+		postMinute = Policy.orDefault(postMinute, 3, Duration.ofMinutes(1));
+		postHour = Policy.orDefault(postHour, 30, Duration.ofHours(1));
+		comment = Policy.orDefault(comment, 10, Duration.ofMinutes(1));
 	}
 
 	/**

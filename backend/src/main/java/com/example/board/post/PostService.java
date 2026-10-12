@@ -18,6 +18,8 @@ import com.example.board.auth.AuthUser;
 import com.example.board.category.Category;
 import com.example.board.category.CategoryRepository;
 import com.example.board.common.ApiException;
+import com.example.board.common.RateLimitProperties;
+import com.example.board.common.RateLimiter;
 import com.example.board.common.PageResponse;
 import com.example.board.post.PostResponses.PostDetail;
 import com.example.board.post.PostResponses.PostSummary;
@@ -44,6 +46,11 @@ public class PostService {
 
 	public static final String UNKNOWN_CATEGORY = "unknown_category";
 
+	/** 레이트리밋 bucket (TASK-22#2). */
+	static final String POST_MINUTE = "post-minute";
+
+	static final String POST_HOUR = "post-hour";
+
 	public static final String CATEGORY_ADMIN_ONLY = "category_admin_only";
 
 	private final PostRepository posts;
@@ -58,8 +65,15 @@ public class PostService {
 
 	private final AttachmentService attachments;
 
+	private final RateLimiter rateLimiter;
+
+	private final RateLimitProperties rateLimits;
+
 	public PostService(PostRepository posts, CategoryRepository categories, UserRepository users, TagService tags,
-			PostLikeService likes, AttachmentService attachments) {
+			PostLikeService likes, AttachmentService attachments, RateLimiter rateLimiter,
+			RateLimitProperties rateLimits) {
+		this.rateLimiter = rateLimiter;
+		this.rateLimits = rateLimits;
 		this.posts = posts;
 		this.categories = categories;
 		this.users = users;
@@ -89,9 +103,15 @@ public class PostService {
 		return PostDetail.of(post, canModify(post, viewer), likes.isLiked(id, viewer), attachments.forPost(id));
 	}
 
-	/** 작성 (TASK-8#3). */
+	/**
+	 * 작성 (TASK-8#3). 사용자별 1분·1시간 한도를 넘으면 429 (TASK-22#2, ADMIN 도 예외 없음). 한도 기록은 이 트랜잭션에 참여하므로
+	 * 실패한(롤백된) 작성은 한도를 소모하지 않는다.
+	 */
 	@Transactional
 	public PostDetail create(AuthUser writer, PostRequests.Create request) {
+		String key = String.valueOf(writer.id());
+		rateLimiter.hit(new RateLimiter.Rule(POST_MINUTE, key, rateLimits.postMinute()),
+				new RateLimiter.Rule(POST_HOUR, key, rateLimits.postHour()));
 		User author = users.findById(writer.id()).orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED,
 				"unauthorized", "계정을 찾을 수 없습니다"));
 		Category category = categoryFor(request.categorySlug(), writer);
