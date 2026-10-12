@@ -23,6 +23,8 @@ import com.example.board.attachment.AttachmentResponses.Presigned;
 import com.example.board.attachment.UploadStorage.PresignedUpload;
 import com.example.board.attachment.UploadStorage.StoredObject;
 import com.example.board.common.ApiException;
+import com.example.board.common.RateLimitProperties;
+import com.example.board.common.RateLimiter;
 
 /**
  * 이미지 첨부 (TASK-11). 업로드 본문은 앱을 거치지 않는다: presign(서명된 PUT URL) → 클라이언트가 S3 에 직접 PUT → confirm.
@@ -48,6 +50,12 @@ public class AttachmentService {
 
 	public static final String IN_USE = "attachment_in_use";
 
+	/** 미확정(PENDING) 첨부가 한도에 이름 (TASK-22#3). 409. */
+	public static final String TOO_MANY_PENDING = "too_many_pending_attachments";
+
+	/** 레이트리밋 bucket (TASK-22#3). */
+	static final String PRESIGN = "presign";
+
 	/** 글 하나에 붙일 수 있는 첨부 수. */
 	public static final int MAX_PER_POST = 10;
 
@@ -61,8 +69,14 @@ public class AttachmentService {
 
 	private final Clock clock;
 
+	private final RateLimiter rateLimiter;
+
+	private final RateLimitProperties rateLimits;
+
 	public AttachmentService(AttachmentRepository attachments, UploadStorage storage, UploadProperties properties,
-			Clock clock) {
+			Clock clock, RateLimiter rateLimiter, RateLimitProperties rateLimits) {
+		this.rateLimiter = rateLimiter;
+		this.rateLimits = rateLimits;
 		this.attachments = attachments;
 		this.storage = storage;
 		this.properties = properties;
@@ -72,6 +86,10 @@ public class AttachmentService {
 	/**
 	 * PUT URL 발급 (TASK-11#1). B1: 허용 타입(png·jpeg·webp·gif)·5MB 이하만. 키는 {@code uploads/{userId}/{uuid}.{ext}} — 확장자는
 	 * 타입에서 정하고 파일명은 쓰지 않는다. 행은 PENDING 으로 남고 confirm 하지 않으면 정리 대상이 된다.
+	 *
+	 * <p>할당량 (TASK-22#3): 사용자별 시간당 presign 한도를 넘으면 429, 미확정(PENDING) 첨부가 한도에 이르렀으면 409
+	 * {@value #TOO_MANY_PENDING}. 한도 기록과 개수 확인은 같은 사용자 잠금(이 트랜잭션) 안이라 동시 presign 으로 넘길 수 없고,
+	 * 거절(롤백)된 presign 은 시간당 한도를 소모하지 않는다.
 	 */
 	@Transactional
 	public Presigned presign(AuthUser user, AttachmentRequests.Presign request) {
@@ -85,6 +103,11 @@ public class AttachmentService {
 		}
 		if (!storage.available()) {
 			throw DisabledUploadStorage.unavailable();
+		}
+		rateLimiter.hit(new RateLimiter.Rule(PRESIGN, String.valueOf(user.id()), rateLimits.presign()));
+		if (attachments.countByOwnerIdAndStatus(user.id(), AttachmentStatus.PENDING) >= rateLimits.maxPendingAttachments()) {
+			throw new ApiException(HttpStatus.CONFLICT, TOO_MANY_PENDING, "업로드를 마치지 않은 이미지가 너무 많습니다. 올리던 이미지를"
+					+ " 마무리하거나 잠시 후 다시 시도하세요");
 		}
 		String key = UploadProperties.KEY_PREFIX + user.id() + "/" + UUID.randomUUID() + "." + extension;
 		Attachment attachment = attachments.saveAndFlush(Attachment.pending(user.id(), key, contentType, size, clock.instant()));
