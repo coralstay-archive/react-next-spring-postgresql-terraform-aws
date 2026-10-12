@@ -18,11 +18,10 @@ import com.example.board.user.UserRepository;
  * 첫 ADMIN 지정 (AC#6). {@code app.admin.email}(env {@code ADMIN_EMAIL})과 같은 이메일(대소문자 무시)의 <b>LOCAL</b> 계정이
  * ADMIN 이다.
  *
- * <ul>
- * <li>가입 시: {@link LocalAccountService#signup} 이 {@link #isAdminEmail} 로 확인해 ADMIN 으로 만든다.</li>
- * <li>기동 시: 이미 그 LOCAL 계정이 있으면 ADMIN 으로 올린다(멱등). 설정을 바꿔도 이전 ADMIN 을 내리지는 않는다 — 강등은
- * 관리자 API(TASK-12)로 한다.</li>
- * </ul>
+ * <p><b>기동 시에만</b> 올린다: 이미 그 LOCAL 계정이 있으면 ADMIN 으로 올린다(멱등). 가입 시 자동 승격은 하지 않는다(TASK-21#3,
+ * doc-2 BE-14) — 이메일 소유 확인이 없으므로 실제 관리자보다 먼저 그 이메일로 가입한 사람이 ADMIN 이 될 수 있었다. 운영 절차:
+ * (a) 관리자가 직접 가입 → (b) 운영자가 그 계정이 관리자 본인 것인지 확인 → (c) 재시작(재배포). 설정을 바꿔도 이전 ADMIN 을
+ * 내리지는 않는다 — 강등은 관리자 API(TASK-12)로 한다.
  * 소셜·휴대폰 identity 의 이메일은 제공자가 검증을 보장하지 않으므로 보지 않는다. 비어 있으면 아무것도 하지 않는다.
  */
 @Component
@@ -43,11 +42,6 @@ public class AdminBootstrap implements ApplicationRunner {
 		this.users = users;
 		String normalized = Emails.normalize(adminEmail);
 		this.adminEmail = normalized == null || normalized.isEmpty() ? null : normalized;
-	}
-
-	/** 정규화된 이메일이 설정된 ADMIN 이메일인지. */
-	public boolean isAdminEmail(String normalizedEmail) {
-		return adminEmail != null && adminEmail.equals(normalizedEmail);
 	}
 
 	@Override

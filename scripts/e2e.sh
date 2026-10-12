@@ -3,6 +3,7 @@
 #   1) PostgreSQL + MinIO: docker compose 별도 프로젝트(board-e2e, 포트 55432·59000) — 개발용 컨테이너와 안 겹치고, 매번 빈 DB
 #   2) 백엔드: bootJar → java -jar (:18080, SMS_PROVIDER=console, ADMIN_EMAIL). 로그는 frontend/e2e/artifacts/backend.log
 #      (휴대폰 OTP 시나리오가 이 로그의 "[SMS console] ... 인증번호 NNNNNN" 줄에서 코드를 읽는다)
+#      관리자: ADMIN_EMAIL 로 API 가입 → 백엔드 재시작(기동 시 승격, TASK-21#3). 시나리오는 그 계정으로 로그인한다
 #   3) 프론트: next dev (:3100, /api → :18080 프록시). 같은 frontend 디렉터리의 next dev 는 하나만 뜬다 — make frontend-dev 는 먼저 끈다
 #   4) npx playwright test (chromium) → 결과·스크린샷 frontend/e2e/artifacts/ (gitignore)
 #   끝나면(성공·실패 모두) 프로세스를 끄고 compose down -v.
@@ -24,6 +25,8 @@ export MINIO_ROOT_USER=minioadmin MINIO_ROOT_PASSWORD=minioadmin
 export UPLOADS_BUCKET=board-uploads
 export E2E_BASE_URL="http://localhost:$E2E_WEB_PORT"
 export E2E_ADMIN_EMAIL="${E2E_ADMIN_EMAIL:-admin-e2e@example.com}"
+export E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-e2e-admin-1234}"
+export E2E_ADMIN_NICKNAME="${E2E_ADMIN_NICKNAME:-관리자e2e}"
 export E2E_BACKEND_LOG="$ART/backend.log"
 # MinIO CORS(MINIO_API_CORS_ALLOW_ORIGIN)와 OAuth redirect 기준 주소
 export PUBLIC_BASE_URL="$E2E_BASE_URL"
@@ -86,30 +89,50 @@ log "백엔드 빌드 (bootJar)"
 jar="$(find "$ROOT/backend/build/libs" -name '*.jar' ! -name '*-plain.jar' | head -n 1)"
 [ -n "$jar" ] || die "bootJar 결과가 없다"
 
-log "백엔드 :$E2E_API_PORT (SMS_PROVIDER=console, ADMIN_EMAIL=$E2E_ADMIN_EMAIL) → $E2E_BACKEND_LOG"
-# 로컬 env 파일(Makefile 이 export)의 값이 섞이지 않게 앱 설정은 여기서 모두 정한다. 시크릿은 E2E 전용 더미 값이다.
-env -i PATH="$PATH" HOME="$HOME" ${JAVA_HOME:+JAVA_HOME="$JAVA_HOME"} \
-  SERVER_PORT="$E2E_API_PORT" \
-  DB_URL="jdbc:postgresql://localhost:$POSTGRES_PORT/board" DB_USERNAME=board DB_PASSWORD=board \
-  JWT_SECRET="e2e-only-jwt-signing-key-0123456789abcdef" \
-  OTP_HASH_KEY="e2e-only-otp-hash-key-0123456789abcdef0123" \
-  COOKIE_SECURE=false \
-  ADMIN_EMAIL="$E2E_ADMIN_EMAIL" \
-  PUBLIC_BASE_URL="$PUBLIC_BASE_URL" \
-  SMS_PROVIDER=console SMS_DEFAULT_REGION=KR \
-  UPLOADS_BUCKET="$UPLOADS_BUCKET" UPLOADS_REGION=us-east-1 \
-  UPLOADS_ENDPOINT="http://localhost:$MINIO_PORT" UPLOADS_PATH_STYLE=true \
-  UPLOADS_ACCESS_KEY=minioadmin UPLOADS_SECRET_KEY=minioadmin \
-  UPLOADS_PUBLIC_BASE_PATH="http://localhost:$MINIO_PORT/$UPLOADS_BUCKET/uploads/" \
-  java -jar "$jar" >"$E2E_BACKEND_LOG" 2>&1 &
-pids+=($!)
+# 백엔드를 띄운다. 로그는 이어 쓴다(관리자 시드 뒤 재시작해도 OTP 시나리오가 같은 파일을 읽는다).
+start_backend() {
+  log "백엔드 :$E2E_API_PORT (SMS_PROVIDER=console, ADMIN_EMAIL=$E2E_ADMIN_EMAIL) → $E2E_BACKEND_LOG"
+  # 로컬 env 파일(Makefile 이 export)의 값이 섞이지 않게 앱 설정은 여기서 모두 정한다. 시크릿은 E2E 전용 더미 값이다.
+  # PUBLIC_BASE_URL 이 http 라 운영 모드가 아니다(운영 안전 검사·OTP 로그 숨김이 꺼진다, TASK-21).
+  env -i PATH="$PATH" HOME="$HOME" ${JAVA_HOME:+JAVA_HOME="$JAVA_HOME"} \
+    SERVER_PORT="$E2E_API_PORT" \
+    DB_URL="jdbc:postgresql://localhost:$POSTGRES_PORT/board" DB_USERNAME=board DB_PASSWORD=board \
+    JWT_SECRET="e2e-only-jwt-signing-key-0123456789abcdef" \
+    OTP_HASH_KEY="e2e-only-otp-hash-key-0123456789abcdef0123" \
+    COOKIE_SECURE=false \
+    ADMIN_EMAIL="$E2E_ADMIN_EMAIL" \
+    PUBLIC_BASE_URL="$PUBLIC_BASE_URL" \
+    SMS_PROVIDER=console SMS_DEFAULT_REGION=KR \
+    UPLOADS_BUCKET="$UPLOADS_BUCKET" UPLOADS_REGION=us-east-1 \
+    UPLOADS_ENDPOINT="http://localhost:$MINIO_PORT" UPLOADS_PATH_STYLE=true \
+    UPLOADS_ACCESS_KEY=minioadmin UPLOADS_SECRET_KEY=minioadmin \
+    UPLOADS_PUBLIC_BASE_PATH="http://localhost:$MINIO_PORT/$UPLOADS_BUCKET/uploads/" \
+    java -jar "$jar" >>"$E2E_BACKEND_LOG" 2>&1 &
+  backend_pid=$!
+  pids+=("$backend_pid")
+}
+
+start_backend
+wait_http "백엔드" "http://localhost:$E2E_API_PORT/api/actuator/health" 180
+
+# 첫 ADMIN (TASK-21#3): 가입만으로는 ADMIN 이 되지 않고 기동 시 이미 있는 계정만 올린다. 운영 절차(관리자 가입 → 확인 → 재시작)
+# 그대로 ADMIN_EMAIL 로 가입한 뒤 백엔드를 다시 띄운다. 시나리오는 이 계정으로 로그인한다.
+log "관리자 시드: $E2E_ADMIN_EMAIL 가입 → 백엔드 재시작"
+code=$(curl -sS -o "$ART/admin-signup.json" -w '%{http_code}' -X POST "http://localhost:$E2E_API_PORT/api/auth/signup" \
+  -H 'Content-Type: application/json' \
+  --data "{\"email\":\"$E2E_ADMIN_EMAIL\",\"password\":\"$E2E_ADMIN_PASSWORD\",\"nickname\":\"$E2E_ADMIN_NICKNAME\"}")
+[ "$code" = 201 ] || [ "$code" = 409 ] || die "관리자 가입 실패: HTTP $code ($(cat "$ART/admin-signup.json"))"
+kill -TERM "$backend_pid"
+wait "$backend_pid" 2>/dev/null || true
+start_backend
 
 log "프론트 next dev :$E2E_WEB_PORT → $ART/next.log"
 (cd "$FRONTEND" && BACKEND_URL="http://localhost:$E2E_API_PORT" NEXT_TELEMETRY_DISABLED=1 \
   exec node node_modules/next/dist/bin/next dev -p "$E2E_WEB_PORT") >"$ART/next.log" 2>&1 &
 pids+=($!)
 
-wait_http "백엔드" "http://localhost:$E2E_API_PORT/api/actuator/health" 180
+wait_http "백엔드(재시작)" "http://localhost:$E2E_API_PORT/api/actuator/health" 180
+grep -q "ADMIN 으로 올렸다" "$E2E_BACKEND_LOG" || die "재시작 뒤 관리자 승격 로그가 없다 ($E2E_BACKEND_LOG)"
 wait_http "프론트" "$E2E_BASE_URL/" 180
 # 첫 방문 컴파일(next dev)을 미리 해 둬서 테스트 타임아웃에 걸리지 않게 한다
 for path in /login/ /signup/ /posts/new/ "/posts/view/?id=1" "/posts/edit/?id=1" /admin/ /account/ /auth/callback/; do

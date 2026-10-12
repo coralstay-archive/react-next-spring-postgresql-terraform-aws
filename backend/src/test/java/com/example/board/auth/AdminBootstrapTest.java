@@ -7,9 +7,12 @@ import java.net.http.HttpResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.DefaultApplicationArguments;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -26,8 +29,12 @@ import com.example.board.user.UserRepository;
 
 import tools.jackson.databind.JsonNode;
 
-/** TASK-3#6 첫 ADMIN 은 app.admin.email(env ADMIN_EMAIL)로 지정한 LOCAL 계정이다. */
+/**
+ * TASK-3#6 첫 ADMIN 은 app.admin.email(env ADMIN_EMAIL)로 지정한 LOCAL 계정이다. TASK-21#3(doc-2 BE-14): 가입 시 자동 승격은 없고 기동 시
+ * 이미 있는 계정만 올린다.
+ */
 @IntegrationTest
+@ExtendWith(OutputCaptureExtension.class)
 class AdminBootstrapTest {
 
 	@LocalServerPort
@@ -69,14 +76,28 @@ class AdminBootstrapTest {
 	}
 
 	@Test
-	@DisplayName("TASK-3#6 설정된 이메일(대소문자 무시)로 LOCAL 가입하면 ADMIN 이 되고 ADMIN 전용 API 를 쓸 수 있다")
-	void signupWithAdminEmailBecomesAdmin() {
+	@DisplayName("TASK-21#3 TASK-21#B2 설정된 이메일(대소문자 무시)로 가입해도 USER 다 — 가입만으로 ADMIN 이 되지 않고, 기동 시 승격돼야 ADMIN 이다")
+	void signupWithAdminEmailIsNotAdminUntilStartup(CapturedOutput output) throws Exception {
 		String email = IntegrationTest.ADMIN_EMAIL.toUpperCase();
 
 		HttpResponse<String> response = auth.signup(email, AuthClient.PASSWORD, "admin");
 
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
-		assertThat(AuthClient.json(response).get("role").asString()).isEqualTo("ADMIN");
+		assertThat(AuthClient.json(response).get("role").asString()).isEqualTo("USER");
+		assertThat(api.get("/test/admin-only")
+			.bearer(auth.tokens(IntegrationTest.ADMIN_EMAIL).get("accessToken").asString())
+			.send()
+			.statusCode()).as("가입 직후 ADMIN API 403").isEqualTo(403);
+
+		// 운영 절차: 운영자가 계정 소유를 확인한 뒤 재시작(재배포) → 기동 시 승격
+		bootstrap.run(new DefaultApplicationArguments());
+
+		Long userId = identities.findWithUserByProviderAndSubject(AuthProvider.LOCAL, IntegrationTest.ADMIN_EMAIL.toLowerCase())
+			.orElseThrow()
+			.getUser()
+			.getId();
+		assertThat(role(IntegrationTest.ADMIN_EMAIL.toLowerCase())).isEqualTo("ADMIN");
+		assertThat(output).contains("user=" + userId + ")을 ADMIN 으로 올렸다");
 		JsonNode tokens = auth.tokens(IntegrationTest.ADMIN_EMAIL);
 		assertThat(api.get("/test/admin-only").bearer(tokens.get("accessToken").asString()).send().statusCode())
 			.isEqualTo(200);

@@ -17,8 +17,13 @@ export function newUser(tag: string): User {
   return { email: `${tag}-${RUN}@example.com`, password: "e2e-pass-1234", nickname: `${tag}${RUN}` };
 }
 
+/** scripts/e2e.sh 가 가입시키고 백엔드를 재시작해 ADMIN 으로 올려 둔 계정(TASK-21#3: 가입만으로는 ADMIN 이 아니다). */
 export function adminUser(): User {
-  return { email: process.env.E2E_ADMIN_EMAIL ?? "admin-e2e@example.com", password: "e2e-admin-1234", nickname: `관리자${RUN}` };
+  return {
+    email: process.env.E2E_ADMIN_EMAIL ?? "admin-e2e@example.com",
+    password: process.env.E2E_ADMIN_PASSWORD ?? "e2e-admin-1234",
+    nickname: process.env.E2E_ADMIN_NICKNAME ?? "관리자e2e",
+  };
 }
 
 export async function signup(page: Page, user: User) {

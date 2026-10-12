@@ -23,7 +23,8 @@ make backend-run                      # 터미널 1: http://localhost:8080/api
 make frontend-dev                     # 터미널 2: http://localhost:3000
 ```
 
-<http://localhost:3000/signup/>에서 가입한다. `.env`의 `ADMIN_EMAIL`을 채우고 그 이메일로 가입하면 관리자가 된다.
+<http://localhost:3000/signup/>에서 가입한다. 관리자가 필요하면 `.env`의 `ADMIN_EMAIL`을 채우고 그 이메일로 가입한 뒤 백엔드를 다시 시작한다
+(가입만으로는 관리자가 되지 않고, 기동할 때 이미 있는 그 LOCAL 계정을 ADMIN으로 올린다).
 휴대폰 로그인의 인증번호는 백엔드 로그(`[SMS console] ...`)에 찍힌다. 테스트는 `make test`, 브라우저 E2E는 `make e2e`로 돌린다.
 
 | 문서 | 내용 |
@@ -124,7 +125,8 @@ make smoke  # 배포 스모크: SMOKE_BASE_URL=https://<cloudfront> make smoke (
 
 1. PostgreSQL + MinIO: compose 별도 프로젝트 `board-e2e`(포트 55432·59000, `frontend/e2e/docker-compose.e2e.yml`)로 띄워 개발용 컨테이너와 겹치지 않고, 매번 빈 DB로 시작한다.
 2. 백엔드: `bootJar` → `java -jar`(:18080, `SMS_PROVIDER=console`, `ADMIN_EMAIL=admin-e2e@example.com`). 로그는 `frontend/e2e/artifacts/backend.log`이고,
-   휴대폰 OTP 시나리오가 이 로그에서 인증번호를 읽는다(테스트 전용 API 없음).
+   휴대폰 OTP 시나리오가 이 로그에서 인증번호를 읽는다(테스트 전용 API 없음). 관리자는 운영 절차와 같이 `ADMIN_EMAIL`로 API 가입 → 백엔드 재시작으로
+   올려 두고, 시나리오는 그 계정으로 로그인한다.
 3. 프론트: `next dev`(:3100, `/api` → :18080). **같은 `frontend/`의 `next dev`는 하나만 뜬다** — `make frontend-dev`를 먼저 끈다.
 4. `npx playwright test`(chromium) → 결과·스크린샷·trace는 `frontend/e2e/artifacts/`(gitignore). 끝나면 프로세스를 끄고 `compose down -v`.
 
@@ -362,7 +364,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `COOKIE_SECURE` | | ● | terraform(`true`) | `false`. `SESSION`·`XSRF-TOKEN`·`VID` 쿠키 Secure 플래그 |
 | `PUBLIC_BASE_URL` | | ● | terraform | `http://localhost:3000`. 브라우저가 보는 공개 주소(끝 `/` 없이). OAuth redirect-uri와 로그인 후 리다이렉트를 이 값으로 만든다 |
 | `CLIENT_IP_HEADER` | | ● | terraform(`CloudFront-Viewer-Address`) | 비어 있음 = remote address. OTP 발송 한도의 클라이언트 IP |
-| `ADMIN_EMAIL` | | ○ | 입력 | 비어 있음. 이 이메일(대소문자 무시)의 **LOCAL** 계정은 가입 시 ADMIN이 되고, 이미 있으면 기동 시 ADMIN으로 올린다 |
+| `ADMIN_EMAIL` | | ○ | 입력 | 비어 있음. 기동할 때 이 이메일(대소문자 무시)의 **LOCAL** 계정이 이미 있으면 ADMIN으로 올린다. 가입만으로는 ADMIN이 되지 않는다 — 가입 → 소유 확인 → 재시작([first-deploy 7](docs/first-deploy.md#7-스모크-ac1)) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | 비우면 Google 로그인 꺼짐. [oauth-setup](docs/oauth-setup.md#google) |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | 비우면 꺼짐. 운영·로컬 OAuth App을 따로 만든다 |
 | `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | Client ID / Client Secret. 비우면 꺼짐 |
