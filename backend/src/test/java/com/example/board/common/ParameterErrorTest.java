@@ -101,4 +101,20 @@ class ParameterErrorTest {
 		hasField(assertContract(verify, 400, "validation"), "token");
 	}
 
+	@Test
+	@DisplayName("TASK-20#4 범위·값 오류(page·size·limit·sort·q)도 400 validation + fields{파라미터 이름}")
+	void rangeErrorsHaveFields() {
+		String[][] cases = { { "/posts?page=-1", "page" }, { "/posts?size=0", "size" }, { "/posts?size=51", "size" },
+				{ "/posts?sort=bogus", "sort" }, { "/posts?q=a", "q" }, { "/posts/1/comments?page=-1", "page" },
+				{ "/posts/1/comments?size=101", "size" }, { "/tags?limit=0", "limit" } };
+		for (String[] c : cases) {
+			hasField(assertContract(api.get(c[0]).send(), 400, "validation"), c[1]);
+		}
+		String[][] adminCases = { { "/admin/users?page=-1", "page" }, { "/admin/users?size=0", "size" },
+				{ "/admin/actions?size=1000", "size" } };
+		for (String[] c : adminCases) {
+			hasField(assertContract(api.get(c[0]).bearer(adminBearer).send(), 400, "validation"), c[1]);
+		}
+	}
+
 }

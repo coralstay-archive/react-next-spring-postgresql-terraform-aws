@@ -56,6 +56,11 @@ public final class ApiErrors {
 		};
 	}
 
+	/** 쿼리·경로 파라미터 하나의 오류: 400 {@code validation} + {@code fields{name: message}} (TASK-20#4). */
+	public static ApiException invalidParam(String name, String message) {
+		return new ApiException(HttpStatus.BAD_REQUEST, VALIDATION, message, Map.of(name, message));
+	}
+
 	public static Map<String, Object> body(HttpStatusCode status, String error, String message,
 			Map<String, String> fields) {
 		Map<String, Object> body = new LinkedHashMap<>();

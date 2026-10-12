@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import com.example.board.auth.AuthUser;
-import com.example.board.common.ApiException;
+import com.example.board.common.ApiErrors;
 import com.example.board.common.PageResponse;
 
 /**
@@ -41,10 +41,10 @@ public class CommentController {
 	public PageResponse<CommentResponse> list(@PathVariable Long postId, @RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "20") int size, @AuthenticationPrincipal AuthUser viewer) {
 		if (page < 0) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "validation", "page 는 0 이상이어야 합니다");
+			throw ApiErrors.invalidParam("page", "page 는 0 이상이어야 합니다");
 		}
 		if (size < 1 || size > MAX_PAGE_SIZE) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "validation", "size 는 1~" + MAX_PAGE_SIZE + " 이어야 합니다");
+			throw ApiErrors.invalidParam("size", "size 는 1~" + MAX_PAGE_SIZE + " 이어야 합니다");
 		}
 		return comments.list(postId, viewer, page, size);
 	}

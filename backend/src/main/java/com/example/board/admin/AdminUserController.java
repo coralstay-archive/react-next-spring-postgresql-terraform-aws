@@ -2,7 +2,6 @@ package com.example.board.admin;
 
 import jakarta.validation.Valid;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.board.admin.AdminRequests.ReasonRequest;
 import com.example.board.admin.AdminUserService.AdminUserResponse;
 import com.example.board.auth.AuthUser;
-import com.example.board.common.ApiException;
+import com.example.board.common.ApiErrors;
 import com.example.board.common.PageResponse;
 import com.example.board.user.UserStatus;
 
@@ -55,10 +54,10 @@ public class AdminUserController {
 
 	static void checkPage(int page, int size) {
 		if (page < 0) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "validation", "page 는 0 이상이어야 합니다");
+			throw ApiErrors.invalidParam("page", "page 는 0 이상이어야 합니다");
 		}
 		if (size < 1 || size > MAX_PAGE_SIZE) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "validation", "size 는 1~" + MAX_PAGE_SIZE + " 이어야 합니다");
+			throw ApiErrors.invalidParam("size", "size 는 1~" + MAX_PAGE_SIZE + " 이어야 합니다");
 		}
 	}
 

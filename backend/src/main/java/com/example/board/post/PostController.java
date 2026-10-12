@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import com.example.board.auth.AuthUser;
-import com.example.board.common.ApiException;
+import com.example.board.common.ApiErrors;
 import com.example.board.common.PageResponse;
 import com.example.board.post.PostResponses.PostDetail;
 import com.example.board.post.PostResponses.PostSummary;
@@ -60,10 +60,10 @@ public class PostController {
 			@RequestParam(defaultValue = "false") boolean includeHidden, @RequestParam(required = false) String q,
 			@AuthenticationPrincipal AuthUser viewer) {
 		if (page < 0) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "validation", "page 는 0 이상이어야 합니다");
+			throw ApiErrors.invalidParam("page", "page 는 0 이상이어야 합니다");
 		}
 		if (size < 1 || size > MAX_PAGE_SIZE) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "validation", "size 는 1~" + MAX_PAGE_SIZE + " 이어야 합니다");
+			throw ApiErrors.invalidParam("size", "size 는 1~" + MAX_PAGE_SIZE + " 이어야 합니다");
 		}
 		PostQuery query = new PostQuery(blankToNull(category), tag == null || tag.isBlank() ? null : TagNames.normalize(tag),
 				includeHidden && PostService.isAdmin(viewer), PostSort.parse(sort), searchTerm(q));
@@ -120,7 +120,7 @@ public class PostController {
 		}
 		int length = term.codePointCount(0, term.length());
 		if (length < PostQuery.MIN_Q || length > PostQuery.MAX_Q) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "validation",
+			throw ApiErrors.invalidParam("q",
 					"검색어는 " + PostQuery.MIN_Q + "~" + PostQuery.MAX_Q + "자여야 합니다");
 		}
 		return term;

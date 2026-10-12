@@ -2,13 +2,12 @@ package com.example.board.tag;
 
 import java.util.List;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.example.board.common.ApiException;
+import com.example.board.common.ApiErrors;
 
 /**
  * 태그 목록 (TASK-8#4). 공개. 보이는 글(삭제·숨김 제외)에 쓰인 태그만, 글 수가 많은 순(같으면 이름 순).
@@ -33,7 +32,7 @@ public class TagController {
 	@GetMapping("/tags")
 	public List<TagCount> list(@RequestParam(required = false) String q, @RequestParam(defaultValue = "20") int limit) {
 		if (limit < 1 || limit > MAX_LIMIT) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "validation", "limit 은 1~" + MAX_LIMIT + " 이어야 합니다");
+			throw ApiErrors.invalidParam("limit", "limit 은 1~" + MAX_LIMIT + " 이어야 합니다");
 		}
 		String prefix = TagNames.normalizePrefix(q);
 		return jdbc.query("""
