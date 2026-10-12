@@ -8,6 +8,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,6 +23,26 @@ public class ErrorContractTestController {
 
 	/** 응답에 새면 안 되는 내부 메시지. */
 	public static final String SECRET = "SECRET-internal-detail-do-not-leak";
+
+	private final JdbcTemplate jdbc;
+
+	public ErrorContractTestController(JdbcTemplate jdbc) {
+		this.jdbc = jdbc;
+	}
+
+	/**
+	 * 처리되지 않은 DataIntegrityViolation (TASK-20#2). 실제 PostgreSQL 오류를 낸다: {@code unique} 는 23505(유니크 위반),
+	 * {@code data} 는 22P02(잘못된 숫자 표현), {@code plain} 은 SQLState 없는 위반.
+	 */
+	@GetMapping("/test/errors/db")
+	public Map<String, Object> db(@RequestParam String kind) {
+		switch (kind) {
+			case "unique" -> jdbc.update("INSERT INTO categories (slug, name) VALUES ('notice', ?)", SECRET);
+			case "data" -> jdbc.queryForObject("SELECT CAST(? AS INT)", Integer.class, SECRET);
+			default -> throw new DataIntegrityViolationException(SECRET);
+		}
+		return Map.of("ok", true);
+	}
 
 	/** 처리되지 않은 예외 → 500 internal_error (TASK-20#1). */
 	@GetMapping("/test/errors/boom")

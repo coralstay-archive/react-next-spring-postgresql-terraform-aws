@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -25,6 +26,8 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import tools.jackson.core.JacksonException;
+
 /**
  * 컨트롤러 오류를 JSON 으로 바꾼다. 모양은 보안 체인의 401/403 과 같다({@code status, error, message}, {@link ApiErrors}).
  * 입력 검증 실패는 {@code fields}(필드명 → 메시지)를 더한다.
@@ -40,7 +43,21 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
 	@ExceptionHandler(ApiException.class)
 	ResponseEntity<Object> handle(ApiException ex) {
-		return ApiErrors.response(ex.getStatus(), ex.getError(), ex.getMessage(), null);
+		return ApiErrors.response(ex.getStatus(), ex.getError(), ex.getMessage(), ex.getFields());
+	}
+
+	/**
+	 * 앞단 검증을 지나 DB 에서 난 무결성 위반 (TASK-20#2, B2): SQLState 22xxx(데이터 예외)는 400 {@code validation}, 그 밖(23xxx
+	 * 제약 위반 등)은 409 {@code conflict}. 제약·값 같은 내부 메시지는 응답에 넣지 않는다.
+	 */
+	@ExceptionHandler(DataIntegrityViolationException.class)
+	ResponseEntity<Object> handle(DataIntegrityViolationException ex, WebRequest request) {
+		String sqlState = SqlErrors.sqlState(ex);
+		log.warn("처리되지 않은 무결성 위반 (SQLState {}): {}", sqlState, describe(request), ex);
+		if (sqlState != null && sqlState.startsWith("22")) {
+			return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "입력값이 올바르지 않습니다", null);
+		}
+		return ApiErrors.response(HttpStatus.CONFLICT, "conflict", "다른 데이터와 충돌해 처리하지 못했습니다", null);
 	}
 
 	/** 429: 같은 본문 + {@code Retry-After}. */
@@ -83,6 +100,10 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	@Override
 	protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		if (ex.getCause() instanceof InputIntegrityConfiguration.ForbiddenCharacterException forbidden) {
+			return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "입력값이 올바르지 않습니다",
+					Map.of(jsonPath(forbidden), ControlCharacters.MESSAGE));
+		}
 		return ApiErrors.response(HttpStatus.BAD_REQUEST, "bad_request", "요청 본문을 읽을 수 없습니다", null);
 	}
 
@@ -122,6 +143,23 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		merged.putAll(headers);
 		merged.putAll(response.getHeaders());
 		return new ResponseEntity<>(response.getBody(), merged, statusCode);
+	}
+
+	/** Jackson 예외의 본문 경로. Bean Validation 의 필드 이름과 같은 꼴({@code title}, {@code tags[2]}). */
+	private static String jsonPath(JacksonException ex) {
+		StringBuilder path = new StringBuilder();
+		for (JacksonException.Reference reference : ex.getPath()) {
+			if (reference.getPropertyName() != null) {
+				if (!path.isEmpty()) {
+					path.append('.');
+				}
+				path.append(reference.getPropertyName());
+			}
+			else if (reference.getIndex() >= 0) {
+				path.append('[').append(reference.getIndex()).append(']');
+			}
+		}
+		return path.isEmpty() ? "body" : path.toString();
 	}
 
 	private static boolean isCommitted(WebRequest request) {
