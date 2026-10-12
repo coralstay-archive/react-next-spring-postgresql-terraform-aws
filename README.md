@@ -220,7 +220,8 @@ bootstrap(state 버킷, 계정당 1회) → `envs/prod.backend.hcl` → `envs/pr
 Terraform 은 SSM 파라미터(시크릿)를 만들지 않는다 — 값이 state 에 남지 않게 한다. 인스턴스 role 은 `/board/prod/*`만 읽는다.
 GitHub Actions 는 `ci_role_arn`을 assume 하고, 배포 대상 값(ECR URL·web 버킷·배포 ID·인스턴스 ID)은 리포 variables 로 넣는다(CI 는 state 를 읽지 않는다).
 EC2 의 PostgreSQL 데이터는 `/srv/pgdata`(데이터 EBS)이고 deploy compose 가 컨테이너의 `/var/lib/postgresql`에 바인드한다. 배포 디렉터리는 `/opt/board`.
-컨테이너 로그는 docker 기본 로그 드라이버 `awslogs`(그룹 `/board/prod`)로 CloudWatch 에 간다.
+컨테이너 로그는 docker 기본 로그 드라이버 `awslogs`(그룹 `/board/prod`)로 CloudWatch 에 간다. postgres 는 `log_error_verbosity=terse`·`log_min_error_statement=panic`으로
+오류 DETAIL(키 값 등 개인정보)과 실패한 문장을 서버 로그에 남기지 않는다(TASK-21).
 
 비용은 [비용](#비용-us-east-1-월-대략), 삭제 순서는 [정리](#정리-terraform-destroy)를 본다.
 
@@ -344,7 +345,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `ECR 에 이미지가 없다` | `build-backend.sh`와 태그가 다르다(커밋 안 된 변경, 다른 HEAD). `IMAGE_TAG`를 맞춘다 |
 | CI 의 `Not authorized to perform sts:AssumeRoleWithWebIdentity` | `github_repository`·브랜치·environment 미사용, `AWS_DEPLOY_ROLE_ARN` 확인 |
 | `build-backend`가 커밋 안 된 변경을 거부 | 커밋하거나 `ALLOW_DIRTY=1`(태그가 내용과 달라진다) |
-| `운영 모드(...)에서 안전하지 않은 설정이라 기동하지 않는다` | `PUBLIC_BASE_URL`이 https면 운영 모드다. 메시지 아래 목록의 키(`JWT_SECRET`·`OTP_HASH_KEY` 공개 값, `COOKIE_SECURE`, `DB_PASSWORD`, `CLIENT_IP_HEADER`, `SMS_PROVIDER`)를 `put-secrets`로 고치고 재배포. 판정은 `PRODUCTION_MODE=auto\|true\|false`로 강제할 수 있다 |
+| `운영 모드(...)에서 안전하지 않은 설정이라 기동하지 않는다` | 운영 배포(render-env)는 `PRODUCTION_MODE=true`, 그 밖에는 `PUBLIC_BASE_URL`이 https면 운영 모드다. 메시지 아래 목록의 키(`JWT_SECRET`·`OTP_HASH_KEY` 공개 값, `COOKIE_SECURE`, `DB_PASSWORD`, `CLIENT_IP_HEADER`, `SMS_PROVIDER`)를 `put-secrets`로 고치고 재배포. 판정은 `PRODUCTION_MODE=auto\|true\|false`로 강제할 수 있다 |
 | `CREATE EXTENSION pg_trgm 이 실패해 기동하지 못했다` | V8 마이그레이션에 DB CREATE 권한이 필요하다. [first-deploy: pg_trgm 권한](docs/first-deploy.md#postgresql-확장pg_trgm-권한) |
 
 ## 시크릿·환경변수 목록
@@ -366,7 +367,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `JWT_REFRESH_TTL` | | | 입력(선택) | `P14D`. refresh 토큰 수명(ISO-8601). access 토큰은 15분 고정 |
 | `COOKIE_SECURE` | | ● | terraform(`true`) | `false`. `SESSION`·`XSRF-TOKEN`·`VID` 쿠키 Secure 플래그 |
 | `PUBLIC_BASE_URL` | | ● | terraform | `http://localhost:3000`. 브라우저가 보는 공개 주소(끝 `/` 없이). OAuth redirect-uri와 로그인 후 리다이렉트를 이 값으로 만든다 |
-| `PRODUCTION_MODE` | | | (없음) | `auto`. `auto`면 `PUBLIC_BASE_URL`이 https일 때 운영 모드: 기동 시 안전 설정 검사(공개 비밀값·`COOKIE_SECURE`·`DB_PASSWORD`·`CLIENT_IP_HEADER`·`SMS_PROVIDER`), 실패하면 기동 안 함. `true`\|`false`로 강제 |
+| `PRODUCTION_MODE` | | | render-env(`true`) | 앱 기본 `auto`, 운영 배포(render-env)는 SSM 에 없으면 `true`. `auto`면 `PUBLIC_BASE_URL`이 https일 때 운영 모드: 기동 시 안전 설정 검사(공개 비밀값·`COOKIE_SECURE`·`DB_PASSWORD`·`CLIENT_IP_HEADER`·`SMS_PROVIDER`), 실패하면 기동 안 함. `true`\|`false`로 강제 |
 | `CLIENT_IP_HEADER` | | ● | terraform(`CloudFront-Viewer-Address`) | 비어 있음 = remote address. OTP 발송 한도의 클라이언트 IP |
 | `ADMIN_EMAIL` | | | 입력(일시) | 비어 있음. 기동할 때 ADMIN이 하나도 없고 이 이메일(대소문자 무시)의 **LOCAL** 계정이 이미 있으면 한 번 ADMIN으로 올린다. 가입만으로는 ADMIN이 되지 않는다 — 가입 → 소유 확인 → 그때 설정·재배포 → 승격 뒤 반드시 삭제([first-deploy 7](docs/first-deploy.md#7-스모크-ac1)) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | 비우면 Google 로그인 꺼짐. [oauth-setup](docs/oauth-setup.md#google) |
@@ -376,7 +377,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `COGNITO_CLIENT_ID` | | ○ | terraform | Cognito 로그인. 있으면 `COGNITO_ISSUER_URI`·`COGNITO_DOMAIN`도 필요(없으면 기동 실패) |
 | `COGNITO_CLIENT_SECRET` | ● | ○ | terraform(`cognito_client_secret`) | App Client secret(state에는 남는다) |
 | `COGNITO_ISSUER_URI` / `COGNITO_DOMAIN` | | ○ | terraform | `https://cognito-idp.<region>.amazonaws.com/<pool id>` / `https://<prefix>.auth.<region>.amazoncognito.com` |
-| `SMS_PROVIDER` | | ● | 입력(`aws`) | `console`(로그로만, 번호 마스킹, 로컬 전용) · `memory`(테스트) · `aws`. 그 밖의 값이면 기동 실패. 운영 모드(https)는 `aws`만 허용 [sms-setup](docs/sms-setup.md) |
+| `SMS_PROVIDER` | | ● | terraform(`aws`) | `console`(로그로만, 번호 마스킹, 로컬 전용) · `memory`(테스트) · `aws`. 그 밖의 값이면 기동 실패. 운영 모드(https)는 `aws`만 허용 [sms-setup](docs/sms-setup.md) |
 | `SMS_AWS_REGION` | | | terraform(`us-east-1`) | `us-east-1` |
 | `SMS_ORIGINATION_IDENTITY` | | | 입력 | 발신 번호·sender ID·pool. 비우면 계정 기본 |
 | `SMS_CONFIGURATION_SET` | | | 입력(선택) | 전송 이벤트 기록 |

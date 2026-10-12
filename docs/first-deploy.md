@@ -98,7 +98,8 @@ aws ssm get-parameters-by-path --path /board/prod --query 'Parameters[].Name' --
 - SMS가 아직 샌드박스여도 `SMS_PROVIDER=aws`로 둔다. 검증된 대상 번호로만 발송된다([sms-setup.md](sms-setup.md)). 운영 모드(`PUBLIC_BASE_URL`이 https)에서
   `console`·`memory`·빈 값이면 백엔드가 기동하지 않는다.
 
-**확인**: `DB_PASSWORD`, `JWT_SECRET`, `OTP_HASH_KEY`, `PUBLIC_BASE_URL`, `COOKIE_SECURE`, `CLIENT_IP_HEADER`, `UPLOADS_BUCKET`, `COGNITO_*`가 목록에 있다.
+**확인**: `DB_PASSWORD`, `JWT_SECRET`, `OTP_HASH_KEY`, `PUBLIC_BASE_URL`, `COOKIE_SECURE`, `CLIENT_IP_HEADER`, `SMS_PROVIDER`, `UPLOADS_BUCKET`, `COGNITO_*`가 목록에 있다
+(`SMS_PROVIDER=aws`는 terraform `app_env`가 넣는다. `PRODUCTION_MODE`는 없어도 된다 — render-env 가 `true`로 채운다).
 
 ## 6. 첫 배포 (`make deploy`) [ECR·S3 사용량]
 
@@ -111,7 +112,7 @@ make deploy                        # build-backend(arm64 → ECR) → deploy-bac
 `deploy-backend`는 원격 출력에서 `==> healthy: <sha>`를 보여 주면 성공이다. 실패하면 api 로그 100줄이 출력되고, 처음 배포라 되돌릴 태그가 없어 그대로 실패한다.
 CloudWatch `aws logs tail /board/prod --follow --log-stream-name-prefix api/`와 [README 문제 해결](../README.md#문제-해결)을 본다.
 
-- **운영 안전 검사**: `PUBLIC_BASE_URL`이 https면 백엔드는 운영 모드로 기동하고, 안전하지 않은 설정이면 DB에 붙기 전에 멈춘다. 로그의
+- **운영 안전 검사**: 운영 배포는 `PRODUCTION_MODE=true`(render-env 기본값)라 백엔드가 운영 모드로 기동하고, 안전하지 않은 설정이면 DB에 붙기 전에 멈춘다. 로그의
   `운영 모드(...)에서 안전하지 않은 설정이라 기동하지 않는다. 다음을 고친다:` 아래에 고칠 키가 모두 나온다 — 저장소에 공개된 `JWT_SECRET`·
   `OTP_HASH_KEY`(개발 기본값·example.env·E2E 값), `COOKIE_SECURE`≠true, `DB_PASSWORD`가 비었거나 `board`, `CLIENT_IP_HEADER` 비어 있음,
   `SMS_PROVIDER`≠aws. `put-secrets`로 고치고 다시 `make deploy-backend`한다.

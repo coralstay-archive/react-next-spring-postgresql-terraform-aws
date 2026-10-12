@@ -2,7 +2,8 @@
 # EC2 에서 실행: SSM Parameter Store <path>/* → compose env 파일 (TASK-17#3). remote-deploy.sh 가 배포마다 부른다.
 #   render-env.sh <ssm-path> <out-dir>     (AWS_REGION 필요, 인스턴스 role 은 <ssm-path>/* 읽기·복호화만 가진다)
 # 만드는 파일(권한 600, 원자적 교체):
-#   <out-dir>/app.env  api 컨테이너 env: 파라미터 이름의 마지막 부분 = 키. DB_URL·DB_USERNAME 이 없으면 compose 의 db 서비스 기본값
+#   <out-dir>/app.env  api 컨테이너 env: 파라미터 이름의 마지막 부분 = 키. DB_URL·DB_USERNAME 이 없으면 compose 의 db 서비스 기본값,
+#                      PRODUCTION_MODE 가 없으면 true(운영 안전 검사, TASK-21)
 #   <out-dir>/db.env   db 컨테이너 env: POSTGRES_USER·POSTGRES_PASSWORD(= DB_PASSWORD)·POSTGRES_DB
 # 값 표기: compose env_file 의 큰따옴표 형식. \ " $ 와 줄바꿈을 이스케이프해 값이 그대로 들어간다(보간 없음).
 # 필수 키(DB_PASSWORD, JWT_SECRET, OTP_HASH_KEY)가 없으면 실패한다 — 개발용 기본값으로 운영이 뜨지 않게.
@@ -43,6 +44,8 @@ if missing:
 
 db_name = env.pop("DB_NAME", "board")
 env.setdefault("DB_USERNAME", "board")
+# 이 경로(EC2 운영 배포)는 정의상 운영이다: PUBLIC_BASE_URL 판정에 기대지 않고 운영 안전 검사를 켠다(TASK-21). SSM 에 있으면 그 값
+env.setdefault("PRODUCTION_MODE", "true")
 env.setdefault("DB_URL", f"jdbc:postgresql://db:5432/{db_name}")
 
 def quote(v: str) -> str:
