@@ -2,12 +2,16 @@ package com.example.board.support;
 
 import java.net.http.HttpResponse;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * TASK-3 인증 API 를 실제 HTTP 로 부르는 테스트 헬퍼. 쿠키 jar 가 없으므로 세션·CSRF 쿠키는 호출자가 명시적으로 넘긴다.
+ *
+ * <p>가입·로그인은 인스턴스마다 다른 클라이언트 IP 를 신뢰 헤더({@code CloudFront-Viewer-Address})로 보낸다(TASK-22#1). 모든 요청이
+ * 127.0.0.1 에서 오므로, 그러지 않으면 IP 별 가입·로그인 실패 한도를 테스트끼리 나눠 쓰게 된다.
  */
 public final class AuthClient {
 
@@ -17,8 +21,25 @@ public final class AuthClient {
 
 	private final Api api;
 
+	private String ip = PhoneClient.uniqueIp();
+
 	public AuthClient(Api api) {
 		this.api = api;
+	}
+
+	/** 이후 가입·로그인 요청의 클라이언트 IP. */
+	public AuthClient ip(String ip) {
+		this.ip = ip;
+		return this;
+	}
+
+	public String ip() {
+		return ip;
+	}
+
+	/** 요청에 이 클라이언트의 IP 를 신뢰 헤더로 붙인다. */
+	public Api.Request withIp(Api.Request request) {
+		return request.header(PhoneClient.IP_HEADER, ip + ":" + ThreadLocalRandom.current().nextInt(1024, 65535));
 	}
 
 	public static JsonNode json(HttpResponse<String> response) {
@@ -49,7 +70,7 @@ public final class AuthClient {
 	}
 
 	public HttpResponse<String> signup(String email, String password, String nickname) {
-		return api.post("/auth/signup").csrf(csrfToken()).json(signupBody(email, password, nickname)).send();
+		return withIp(api.post("/auth/signup")).csrf(csrfToken()).json(signupBody(email, password, nickname)).send();
 	}
 
 	/** 가입하고 이메일을 돌려준다. 실패하면 예외. */
@@ -66,7 +87,7 @@ public final class AuthClient {
 	}
 
 	public HttpResponse<String> sessionLogin(String email, String password) {
-		return api.post("/auth/login").csrf(csrfToken()).json(loginBody(email, password)).send();
+		return withIp(api.post("/auth/login")).csrf(csrfToken()).json(loginBody(email, password)).send();
 	}
 
 	/** 세션 로그인 후 {@code SESSION=...} 쿠키 문자열. */
@@ -79,7 +100,7 @@ public final class AuthClient {
 	}
 
 	public HttpResponse<String> jwtLogin(String email, String password) {
-		return api.post("/auth/login?token=jwt").json(loginBody(email, password)).send();
+		return withIp(api.post("/auth/login?token=jwt")).json(loginBody(email, password)).send();
 	}
 
 	/** JWT 로그인 응답 본문(accessToken, refreshToken, ...). */

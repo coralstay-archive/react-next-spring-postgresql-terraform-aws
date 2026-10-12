@@ -25,6 +25,7 @@ import com.example.board.auth.token.TokenService;
 import com.example.board.common.ApiErrors;
 import com.example.board.common.ApiException;
 import com.example.board.security.BearerRequests;
+import com.example.board.security.ClientIpResolver;
 import com.example.board.user.User;
 import com.example.board.user.UserIdentityRepository;
 import com.example.board.user.UserRepository;
@@ -51,21 +52,29 @@ public class AuthController {
 
 	private final TokenService tokens;
 
+	private final AuthRateLimits rateLimits;
+
+	private final ClientIpResolver clientIps;
+
 	public AuthController(LocalAccountService localAccounts, UserRepository users, UserIdentityRepository identities,
-			SessionLogin sessionLogin, TokenService tokens) {
+			SessionLogin sessionLogin, TokenService tokens, AuthRateLimits rateLimits, ClientIpResolver clientIps) {
 		this.localAccounts = localAccounts;
 		this.users = users;
 		this.identities = identities;
 		this.sessionLogin = sessionLogin;
 		this.tokens = tokens;
+		this.rateLimits = rateLimits;
+		this.clientIps = clientIps;
 	}
 
 	/**
-	 * LOCAL 가입. 자동 로그인하지 않는다(세션·토큰을 만들지 않음). 공개 엔드포인트지만 세션 경로라 CSRF 는 검사한다.
+	 * LOCAL 가입. 자동 로그인하지 않는다(세션·토큰을 만들지 않음). 공개 엔드포인트지만 세션 경로라 CSRF 는 검사한다. 클라이언트 IP 별
+	 * 시도 한도를 넘으면 429 (TASK-22#1).
 	 */
 	@PostMapping("/auth/signup")
 	@ResponseStatus(HttpStatus.CREATED)
-	public UserSummary signup(@Valid @RequestBody SignupRequest request) {
+	public UserSummary signup(@Valid @RequestBody SignupRequest request, HttpServletRequest http) {
+		rateLimits.signup(clientIps.resolve(http));
 		try {
 			User user = localAccounts.signup(request);
 			return summary(user);
@@ -87,7 +96,8 @@ public class AuthController {
 	 * <li>{@code ?token=jwt}: 세션 없이 access+refresh 를 본문으로 돌려준다. 비브라우저 흐름이라 CSRF 면제
 	 * (이유는 {@code SecurityConfig#csrfExempt} 참고).</li>
 	 * </ul>
-	 * 실패는 모두 같은 401 (B2). 비밀번호가 맞은 정지 계정은 403.
+	 * 실패는 모두 같은 401 (B2). 비밀번호가 맞은 정지 계정은 403. 실패가 계정별·IP 별 한도에 이르면 비밀번호를 검사하지 않고 429
+	 * (TASK-22#1, 계정이 없어도 같은 응답).
 	 */
 	@PostMapping("/auth/login")
 	public Object login(@Valid @RequestBody LoginRequest body, @RequestParam(name = "token", required = false) String token,
@@ -95,7 +105,8 @@ public class AuthController {
 		if (token != null && !TOKEN_MODE_JWT.equals(token)) {
 			throw unsupportedTokenMode();
 		}
-		User user = localAccounts.authenticate(body.email(), body.password());
+		User user = rateLimits.login(body.email(), clientIps.resolve(request),
+				() -> localAccounts.authenticate(body.email(), body.password()));
 		if (user.getStatus() != UserStatus.ACTIVE) {
 			throw suspended();
 		}
