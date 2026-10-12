@@ -155,7 +155,7 @@ class ProductionSafetyCheckTest {
 				"spring.datasource.password=R4nd0m-db-p4ssw0rd-from-ssm")
 			.run(ctx -> assertThat(ctx).hasFailed()
 				.getFailure()
-				.rootCause()
+				.isInstanceOf(IllegalStateException.class)
 				.hasMessageContaining("JWT_SECRET")
 				.hasMessageContaining("OTP_HASH_KEY"));
 		runner.withPropertyValues("app.public-base-url=http://localhost:3000", "app.jwt.secret=" + DEV_JWT)
@@ -172,8 +172,7 @@ class ProductionSafetyCheckTest {
 		assertThatThrownBy(() -> app.run("--app.public-base-url=https://board.example.com",
 				"--app.jwt.secret=" + DEV_JWT, "--app.otp.hash-key=" + DEV_OTP, "--app.security.cookie-secure=false",
 				"--spring.datasource.password=board", "--spring.datasource.url=jdbc:postgresql://127.0.0.1:1/none"))
-			.hasRootCauseInstanceOf(IllegalStateException.class)
-			.rootCause()
+			.isInstanceOf(IllegalStateException.class)
 			.hasMessageContaining("JWT_SECRET")
 			.hasMessageContaining("OTP_HASH_KEY")
 			.hasMessageContaining("COOKIE_SECURE")
