@@ -594,6 +594,76 @@ for w in "## 배포 (TASK-17)" "make put-secrets" "make deploy" "AWS_DEPLOY_ROLE
   check "TASK-17#5 README 배포 절에 '$w'" grep -qF -- "$w" README.md
 done
 
+# ---------------------------------------------------------------- 배포 스모크 (TASK-18#1)
+# scripts/test/smoke_test.sh 를 가짜 HTTP 서버(CloudFront+S3+API 흉내)에 돌려 검사 로직을 확인한다. 실제 배포 대상은 make smoke.
+SMOKE="scripts/test/smoke_test.sh"
+check "TASK-18#1 smoke_test.sh 실행 가능" test -x "$SMOKE"
+check "TASK-18#1 make smoke 타깃은 smoke_test.sh 를 호출" sh -c 'make -n smoke | grep -q "scripts/test/smoke_test.sh"'
+check "TASK-18#1 make test(scripts/test.sh)는 실제 배포 스모크를 부르지 않는다" sh -c '! grep -q "smoke_test.sh" scripts/test.sh'
+run_capture env -u SMOKE_BASE_URL "$SMOKE"
+# rc_and_text <기대 종료 코드: 0|nonzero> <문자열> — 직전 run_capture 결과 검사
+rc_and_text() {
+  if [ "$1" = 0 ]; then [ "$RC" = 0 ] || { echo "rc=$RC"; echo "$OUT"; return 1; }
+  else [ "$RC" != 0 ] || { echo "rc=0 (실패를 기대)"; echo "$OUT"; return 1; }; fi
+  has_text "$2"
+}
+check "TASK-18#1 SMOKE_BASE_URL 이 없으면 SKIP·종료 코드 0" rc_and_text 0 "SKIP - SMOKE_BASE_URL"
+
+cat >"$TMP/fake_site.py" <<'PY'
+# 가짜 배포: 정상(기본) 또는 FAKE_SMOKE_BROKEN=<항목> 으로 한 가지를 망가뜨린다
+import http.server, os, sys
+broken = os.environ.get("FAKE_SMOKE_BROKEN", "")
+class H(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def send(self, code, ctype, body, headers=()):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        for k, v in headers: self.send_header(k, v)
+        b = body.encode()
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers(); self.wfile.write(b)
+    def do_GET(self):
+        p = self.path
+        if p == "/api/actuator/health":
+            self.send(503 if broken == "health" else 200, "application/vnd.spring-boot.actuator.v3+json",
+                      '{"status":"DOWN"}' if broken == "health" else '{"status":"UP"}')
+        elif p == "/":
+            cache = "max-age=3600" if broken == "index" else "no-cache"
+            self.send(200, "text/html", '<html><script src="/_next/static/chunks/main-abc123.js" async=""></script></html>',
+                      [("Cache-Control", cache)])
+        elif p == "/_next/static/chunks/main-abc123.js":
+            cache = "no-cache" if broken == "asset" else "public, max-age=31536000, immutable"
+            self.send(200, "application/javascript", "1", [("Cache-Control", cache)])
+        elif p == "/api/auth/csrf":
+            hs = [] if broken == "csrf" else [("Set-Cookie", "XSRF-TOKEN=t0k; Path=/; SameSite=Lax")]
+            self.send(200, "application/json", "{}", hs)
+        elif p == "/api/posts":
+            self.send(200, "text/html" if broken == "posts" else "application/json", '{"items":[],"page":0}')
+        else:
+            self.send(404, "text/plain", "nf")
+s = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+open(sys.argv[1], "w").write(str(s.server_address[1]))
+s.serve_forever()
+PY
+# smoke_against <망가뜨릴 항목|""> — 가짜 서버를 띄워 smoke_test.sh 를 돌리고 OUT·RC 를 남긴다
+smoke_against() {
+  local portf="$TMP/smoke_port" pid port
+  rm -f "$portf"
+  FAKE_SMOKE_BROKEN="$1" python3 "$TMP/fake_site.py" "$portf" &
+  pid=$!
+  for _ in $(seq 50); do [ -s "$portf" ] && break; sleep 0.1; done
+  port="$(cat "$portf" 2>/dev/null)"
+  run_capture env SMOKE_BASE_URL="http://127.0.0.1:$port/" SMOKE_TIMEOUT=5 "$SMOKE"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+}
+smoke_against ""
+check "TASK-18#1 정상 배포면 5개 항목 모두 통과" rc_and_text 0 "smoke: 5 passed, 0 failed"
+check "TASK-18#1 자산 경로는 / 의 HTML 에서 찾는다" has_text "/_next/static/chunks/main-abc123.js → 200 + immutable"
+for b in health index asset csrf posts; do
+  smoke_against "$b"
+  check "TASK-18#1 $b 가 틀리면 실패(1개)" rc_and_text nonzero "smoke: 4 passed, 1 failed"
+done
+
 # ---------------------------------------------------------------- shellcheck (모든 배포 스크립트)
 if need_linter shellcheck; then
   for f in scripts/*.sh deploy/*.sh scripts/test/*.sh; do

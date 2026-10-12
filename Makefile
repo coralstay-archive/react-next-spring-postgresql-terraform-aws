@@ -3,7 +3,7 @@
 export
 
 .PHONY: help test dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
-	deploy deploy-backend deploy-frontend put-secrets tf-outputs
+	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke
 
 help: ## 타깃 목록
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -62,3 +62,6 @@ put-secrets: ## SSM /board/prod 에 앱 env 넣기 (SECRETS_FILE=deploy/secrets.
 
 tf-outputs: ## 배포 대상 값(terraform output) 보기
 	./scripts/tf-outputs.sh
+
+smoke: ## 배포 스모크(읽기 전용): SMOKE_BASE_URL=https://<cloudfront> make smoke (없으면 SKIP)
+	./scripts/test/smoke_test.sh
