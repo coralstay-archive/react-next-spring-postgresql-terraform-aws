@@ -1,10 +1,10 @@
 ---
 id: TASK-17
 title: 배포 스크립트 + GitHub Actions
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-11 23:34'
+updated_date: '2026-10-12 00:06'
 labels:
   - infra
   - ci
@@ -24,11 +24,11 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 scripts/build-backend.sh(arm64 이미지 → ECR), deploy-backend.sh(ssm send-command → compose pull/up → 헬스체크)
-- [ ] #2 deploy-frontend.sh(build → s3 sync → invalidation)
-- [ ] #3 put-secrets.sh: SSM Parameter Store 시크릿 입력, EC2에서 환경 파일 생성
-- [ ] #4 ci.yml(PR: 테스트·빌드·tf validate), deploy.yml(main: OIDC로 배포, ubuntu-24.04-arm)
-- [ ] #5 make deploy로 로컬에서도 동일 동작
+- [x] #1 scripts/build-backend.sh(arm64 이미지 → ECR), deploy-backend.sh(ssm send-command → compose pull/up → 헬스체크)
+- [x] #2 deploy-frontend.sh(build → s3 sync → invalidation)
+- [x] #3 put-secrets.sh: SSM Parameter Store 시크릿 입력, EC2에서 환경 파일 생성
+- [x] #4 ci.yml(PR: 테스트·빌드·tf validate), deploy.yml(main: OIDC로 배포, ubuntu-24.04-arm)
+- [x] #5 make deploy로 로컬에서도 동일 동작
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -53,3 +53,9 @@ documentation:
 - 구현은 서브에이전트가 메인 작업 디렉토리에서 한다(훅이 브랜치를 확인하므로 워크트리는 쓰지 않음). 부모가 `cleanTest` 후 `make test`로 다시 검증하고 Done 처리한다.
 - `.env*` 토큰은 Bash에 쓰지 않는다(보호 훅). 실제 AWS에는 apply나 호출을 하지 않는다(TASK-18 제외, 유저 확인 후).
 <!-- SECTION:PLAN:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+배포 스크립트와 GitHub Actions를 구현했다(실제 AWS 호출 없음, DRY_RUN과 가짜 CLI로 검증). backend/Dockerfile(JDK25 빌드 → 레이어 추출 → temurin 25-jre arm64, uid 10001, MaxRAMPercentage=60; 로컬 arm64 빌드와 health UP 스모크). build-backend(buildx arm64, sha12와 latest 태그, provenance off, dirty tree 거부). deploy-backend: compose·render-env·remote-deploy를 base64로 SSM send-command 한 번에 전달, get-command-invocation 폴링. remote-deploy: render-env → ECR 로그인 → pull/up → health 대기, 실패하면 이전 태그로 롤백. prod compose: api와 postgres:18(/srv/pgdata → /var/lib/postgresql), awslogs, mem_limit, 시크릿은 app.env/db.env로 분리. deploy-frontend: _next/static을 immutable로 먼저, 나머지는 no-cache와 --delete, 이후 invalidation. put-secrets: terraform app_env + cognito secret + 입력 파일 → SSM(/board/prod, SECRET·PASSWORD·KEY·TOKEN은 SecureString), cli-input-json으로 값 노출 없음, --generate-missing. render-env: python으로 compose 안전 따옴표 처리, 600 권한. ci.yml(make test REQUIRE_LINTERS=1, bootJar, frontend build), deploy.yml(main, ci 재사용 후 ubuntu-24.04-arm에서 OIDC로 build·deploy, environment 없음, 레포 변수 6개). tf-outputs.sh와 make deploy/put-secrets/tf-outputs. 검증: cleanTest 후 REQUIRE_LINTERS=1 make test 통과(deploy 120, repo 95, terraform 57, backend 567, frontend 160). 미검증(TASK-18): SSM 파라미터 크기 약 12KB, arm 러너 가용성, awslogs tag, AL2023 curl.
+<!-- SECTION:FINAL_SUMMARY:END -->
