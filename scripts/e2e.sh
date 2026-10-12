@@ -137,7 +137,13 @@ log "프론트 next dev :$E2E_WEB_PORT → $ART/next.log"
 pids+=($!)
 
 wait_http "백엔드(재시작)" "http://localhost:$E2E_API_PORT/api/actuator/health" 180
-grep -q "ADMIN 으로 올렸다" "$E2E_BACKEND_LOG" || die "재시작 뒤 관리자 승격 로그가 없다 ($E2E_BACKEND_LOG)"
+# 승격은 ApplicationRunner 라 헬스가 UP 이 된 뒤에 돌 수 있다 — 30초까지 기다린다
+promoted=0
+for _ in $(seq 1 30); do
+  if grep -q "ADMIN 으로 올렸다" "$E2E_BACKEND_LOG"; then promoted=1; break; fi
+  sleep 1
+done
+[ "$promoted" = 1 ] || die "재시작 뒤 30초 안에 관리자 승격 로그가 없다 ($E2E_BACKEND_LOG)"
 wait_http "프론트" "$E2E_BASE_URL/" 180
 # 첫 방문 컴파일(next dev)을 미리 해 둬서 테스트 타임아웃에 걸리지 않게 한다
 for path in /login/ /signup/ /posts/new/ "/posts/view/?id=1" "/posts/edit/?id=1" /admin/ /account/ /auth/callback/; do
