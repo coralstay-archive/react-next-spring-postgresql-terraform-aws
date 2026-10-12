@@ -360,6 +360,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 |---|:-:|:-:|---|---|
 | `DB_PASSWORD` | ● | ● | 생성 | 로컬 `board`. 운영은 postgres 데이터 디렉터리를 처음 만들 때만 쓰인다(그 뒤에 바꾸면 접속이 깨진다) |
 | `DB_URL` / `DB_USERNAME` | | | (render-env 기본) | 로컬 `jdbc:postgresql://localhost:5432/board` / `board`. 운영은 `jdbc:postgresql://db:5432/board` / `board` |
+| `DB_LOG_SERVER_ERROR_DETAIL` | | | (없음) | `false`. PostgreSQL 오류 Detail(키 값 등 개인정보)을 예외·로그에 싣지 않는다. 로컬 디버깅 때만 `true` |
 | `JWT_SECRET` | ● | ● | 생성 | 자체 서명 JWT HS256 키, 32바이트 이상. 로컬은 개발용 기본값(운영 금지). 빈 값이면 기동 실패 |
 | `OTP_HASH_KEY` | ● | ● | 생성 | OTP 코드 해시(HMAC-SHA256) 키, 32바이트 이상. 로컬은 개발용 기본값(운영 금지) |
 | `JWT_REFRESH_TTL` | | | 입력(선택) | `P14D`. refresh 토큰 수명(ISO-8601). access 토큰은 15분 고정 |
