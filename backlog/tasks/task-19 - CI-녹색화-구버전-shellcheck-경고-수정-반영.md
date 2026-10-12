@@ -1,12 +1,18 @@
 ---
-id: DRAFT-1
+id: TASK-19
 title: 'CI 녹색화: 구버전 shellcheck 경고 수정 반영'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-12 04:45'
 labels:
   - ci
 dependencies: []
+references:
+  - decision-1
+documentation:
+  - backlog/docs/doc-2 - 예외-상황-전수-목록.md
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

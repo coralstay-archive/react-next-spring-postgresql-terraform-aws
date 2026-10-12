@@ -1,13 +1,21 @@
 ---
-id: DRAFT-7
+id: TASK-25
 title: '백엔드: 외부 호출 견고성(OAuth·SMS·OTP)'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-12 04:45'
 labels:
   - backend
   - auth
-dependencies: []
+dependencies:
+  - TASK-20
+references:
+  - decision-6
+  - decision-7
+documentation:
+  - backlog/docs/doc-2 - 예외-상황-전수-목록.md
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

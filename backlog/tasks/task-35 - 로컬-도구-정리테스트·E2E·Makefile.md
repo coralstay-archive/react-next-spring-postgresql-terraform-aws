@@ -1,12 +1,17 @@
 ---
-id: DRAFT-23
+id: TASK-35
 title: 로컬 도구 정리(테스트·E2E·Makefile)
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-12 04:45'
 labels:
   - dx
-dependencies: []
+dependencies:
+  - TASK-19
+documentation:
+  - backlog/docs/doc-2 - 예외-상황-전수-목록.md
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

@@ -1,13 +1,18 @@
 ---
-id: DRAFT-9
+id: TASK-27
 title: '백엔드: 정리 작업과 관리·조회 견고성'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-12 04:45'
 labels:
   - backend
   - ops
-dependencies: []
+dependencies:
+  - TASK-20
+documentation:
+  - backlog/docs/doc-2 - 예외-상황-전수-목록.md
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

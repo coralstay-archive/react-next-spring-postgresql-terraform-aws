@@ -1,13 +1,20 @@
 ---
-id: DRAFT-13
+id: TASK-31
 title: '프론트: 편집기·업로드 견고성 + PRG'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-12 04:45'
 labels:
   - frontend
   - board
-dependencies: []
+dependencies:
+  - TASK-29
+references:
+  - decision-10
+documentation:
+  - backlog/docs/doc-2 - 예외-상황-전수-목록.md
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

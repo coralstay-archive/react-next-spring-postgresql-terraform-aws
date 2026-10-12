@@ -1,13 +1,21 @@
 ---
-id: DRAFT-3
+id: TASK-21
 title: '백엔드: 운영 설정 fail-fast + 보안 기본값'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-12 04:45'
 labels:
   - backend
   - security
-dependencies: []
+dependencies:
+  - TASK-20
+references:
+  - decision-5
+  - decision-7
+documentation:
+  - backlog/docs/doc-2 - 예외-상황-전수-목록.md
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description

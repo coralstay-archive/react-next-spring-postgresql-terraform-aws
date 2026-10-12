@@ -1,13 +1,21 @@
 ---
-id: DRAFT-11
+id: TASK-29
 title: '프론트: 세션 만료·정지 시 입력 보존과 캐시 리셋'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-12 04:45'
 labels:
   - frontend
   - auth
-dependencies: []
+dependencies:
+  - TASK-28
+references:
+  - decision-5
+  - decision-10
+documentation:
+  - backlog/docs/doc-2 - 예외-상황-전수-목록.md
+  - backlog/docs/doc-1-architecture-plan.md
 ---
 
 ## Description
