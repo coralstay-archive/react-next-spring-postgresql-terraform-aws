@@ -118,8 +118,13 @@ wait_http "백엔드" "http://localhost:$E2E_API_PORT/api/actuator/health" 180
 # 첫 ADMIN (TASK-21#3): 가입만으로는 ADMIN 이 되지 않고 기동 시 이미 있는 계정만 올린다. 운영 절차(관리자 가입 → 확인 → 재시작)
 # 그대로 ADMIN_EMAIL 로 가입한 뒤 백엔드를 다시 띄운다. 시나리오는 이 계정으로 로그인한다.
 log "관리자 시드: $E2E_ADMIN_EMAIL 가입 → 백엔드 재시작"
-code=$(curl -sS -o "$ART/admin-signup.json" -w '%{http_code}' -X POST "http://localhost:$E2E_API_PORT/api/auth/signup" \
-  -H 'Content-Type: application/json' \
+# 가입은 CSRF 를 요구한다(SPA 와 같이 XSRF-TOKEN 쿠키 값을 헤더로 보낸다)
+cookies="$ART/admin-cookies.txt"
+curl -fsS -o /dev/null -c "$cookies" "http://localhost:$E2E_API_PORT/api/auth/csrf"
+xsrf="$(awk '$6 == "XSRF-TOKEN" { print $7 }' "$cookies")"
+[ -n "$xsrf" ] || die "XSRF-TOKEN 쿠키를 받지 못했다"
+code=$(curl -sS -o "$ART/admin-signup.json" -w '%{http_code}' -b "$cookies" -X POST "http://localhost:$E2E_API_PORT/api/auth/signup" \
+  -H 'Content-Type: application/json' -H "X-XSRF-TOKEN: $xsrf" \
   --data "{\"email\":\"$E2E_ADMIN_EMAIL\",\"password\":\"$E2E_ADMIN_PASSWORD\",\"nickname\":\"$E2E_ADMIN_NICKNAME\"}")
 [ "$code" = 201 ] || [ "$code" = 409 ] || die "관리자 가입 실패: HTTP $code ($(cat "$ART/admin-signup.json"))"
 kill -TERM "$backend_pid"
