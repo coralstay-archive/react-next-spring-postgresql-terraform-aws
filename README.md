@@ -382,7 +382,11 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `SMS_ORIGINATION_IDENTITY` | | | 입력 | 발신 번호·sender ID·pool. 비우면 계정 기본 |
 | `SMS_CONFIGURATION_SET` | | | 입력(선택) | 전송 이벤트 기록 |
 | `SMS_DEFAULT_REGION` | | | 입력(선택) | `KR`. `+` 없이 들어온 번호의 지역 |
+| `SMS_ALLOWED_REGIONS` | | | 입력(선택) | `KR`(`app.sms.allowed-regions`). SMS를 보낼 수 있는 번호의 지역(쉼표로 여럿, ISO 3166-1). 이 지역의 휴대폰(MOBILE·FIXED_LINE_OR_MOBILE)만, 그 밖은 400 `phone_not_allowed`. 모르는 코드면 기동 실패 (TASK-22#4) |
 | `OTP_PHONE_DAILY_LIMIT` / `OTP_IP_HOURLY_LIMIT` | | | 입력(선택) | `10` / `20`. 같은 번호 24시간 N회, 같은 IP 1시간 M회(같은 번호 60초 1회는 고정) |
+| `RATE_LIMIT_LOGIN_ACCOUNT_MAX` / `RATE_LIMIT_LOGIN_IP_MAX` / `RATE_LIMIT_SIGNUP_IP_MAX` | | | 입력(선택) | `5` / `30` / `10` (`app.rate-limit.login-account`·`login-ip`·`signup-ip`). 로그인 실패 계정별 15분·IP별 1시간, 가입 시도 IP별 1시간. 넘으면 429 `rate_limited` + `Retry-After` (TASK-22#1). step-up 실패 사용자별 15분 5회(`app.rate-limit.step-up`)는 env 없이 고정 |
+| `RATE_LIMIT_POST_MINUTE_MAX` / `RATE_LIMIT_POST_HOUR_MAX` / `RATE_LIMIT_COMMENT_MAX` | | | 입력(선택) | `3` / `30` / `10` (`app.rate-limit.post-minute`·`post-hour`·`comment`). 사용자별 글 1분·1시간, 댓글 1분. ADMIN 포함 (TASK-22#2) |
+| `RATE_LIMIT_PRESIGN_MAX` / `RATE_LIMIT_MAX_PENDING_ATTACHMENTS` | | | 입력(선택) | `60` / `20` (`app.rate-limit.presign`·`max-pending-attachments`). 사용자별 presign 1시간(429), 미확정 첨부 개수(409 `too_many_pending_attachments`) (TASK-22#3). 창 길이는 `app.rate-limit.<이름>.window`(ISO-8601)로만 바꾼다 |
 | `UPLOADS_BUCKET` | | ○ | terraform | 비어 있음 = 첨부 API 503 `uploads_unavailable`(앱은 뜬다) |
 | `UPLOADS_REGION` | | ● | terraform(`us-east-1`) | 앱 기본값이 `ap-northeast-2`라 운영은 반드시 명시. 로컬 MinIO는 `us-east-1` |
 | `UPLOADS_PUBLIC_BASE_PATH` | | | terraform(`/uploads/`) | 첨부 공개 URL 앞부분(url = 이 값 + 키에서 `uploads/` 뒤, 운영은 CloudFront 같은 오리진). 로컬은 `http://localhost:9000/board-uploads/uploads/` |
