@@ -27,6 +27,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.exc.MismatchedInputException;
+import tools.jackson.databind.exc.UnrecognizedPropertyException;
 
 /**
  * 컨트롤러 오류를 JSON 으로 바꾼다. 모양은 보안 체인의 401/403 과 같다({@code status, error, message}, {@link ApiErrors}).
@@ -97,14 +99,31 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "입력값이 올바르지 않습니다", fields);
 	}
 
+	/**
+	 * 본문을 읽지 못함. 특정 필드 탓이면(알 수 없는 필드 — {@code fail-on-unknown-properties}, 타입 오류, 제어 문자) 400
+	 * {@code validation} + {@code fields}(본문 경로 → 메시지, TASK-20#3). 문법 오류·빈 본문처럼 필드가 없으면 400 {@code bad_request}.
+	 */
 	@Override
 	protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-		if (ex.getCause() instanceof InputIntegrityConfiguration.ForbiddenCharacterException forbidden) {
-			return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "입력값이 올바르지 않습니다",
-					Map.of(jsonPath(forbidden), ControlCharacters.MESSAGE));
+		if (ex.getCause() instanceof MismatchedInputException mismatch) {
+			String path = jsonPath(mismatch);
+			if (path != null) {
+				return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "입력값이 올바르지 않습니다",
+						Map.of(path, fieldMessage(mismatch)));
+			}
 		}
 		return ApiErrors.response(HttpStatus.BAD_REQUEST, "bad_request", "요청 본문을 읽을 수 없습니다", null);
+	}
+
+	private static String fieldMessage(MismatchedInputException ex) {
+		if (ex instanceof InputIntegrityConfiguration.ForbiddenCharacterException) {
+			return ControlCharacters.MESSAGE;
+		}
+		if (ex instanceof UnrecognizedPropertyException) {
+			return "알 수 없는 필드입니다";
+		}
+		return "형식이 올바르지 않습니다";
 	}
 
 	/** 필수 쿼리 파라미터 누락: 다른 파라미터 오류와 같은 400 {@code validation} + {@code fields}. */
@@ -145,7 +164,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		return new ResponseEntity<>(response.getBody(), merged, statusCode);
 	}
 
-	/** Jackson 예외의 본문 경로. Bean Validation 의 필드 이름과 같은 꼴({@code title}, {@code tags[2]}). */
+	/** Jackson 예외의 본문 경로. Bean Validation 의 필드 이름과 같은 꼴({@code title}, {@code tags[2]}). 경로가 없으면 null. */
 	private static String jsonPath(JacksonException ex) {
 		StringBuilder path = new StringBuilder();
 		for (JacksonException.Reference reference : ex.getPath()) {
@@ -159,7 +178,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 				path.append('[').append(reference.getIndex()).append(']');
 			}
 		}
-		return path.isEmpty() ? "body" : path.toString();
+		return path.isEmpty() ? null : path.toString();
 	}
 
 	private static boolean isCommitted(WebRequest request) {

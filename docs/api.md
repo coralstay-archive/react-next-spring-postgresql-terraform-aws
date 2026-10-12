@@ -14,6 +14,8 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | 상태 · `error` | 언제 |
 |---|---|
 | 400 `validation` | 본문 필드 검증 실패, 필수 파라미터 누락. 본문 문자열·쿼리 파라미터에 제어 문자(U+0000–U+001F 중 탭·LF·CR 제외, U+007F–U+009F)가 있을 때도 같다. DB가 데이터 오류(SQLState 22xxx)로 거부한 값도 400 `validation` |
+| 400 `validation` (본문) | 요청 본문의 알 수 없는 필드(오타 PATCH가 조용히 무시되지 않는다), 필드 타입 오류. `fields`의 키는 본문 경로다(예: `titel`, `sortOrder`, `attachmentIds[1]`) |
+| 400 `bad_request` | 본문이 JSON 문법에 맞지 않거나 비었다(특정 필드 탓이 아님) |
 | 409 `conflict` | 앞단 검사를 지나 DB 제약(유니크 등)에 걸렸고 엔드포인트 고유 코드(예: `email_taken`, `slug_taken`)가 없을 때 |
 | 401 `unauthorized` · 403 `forbidden`·`csrf`·`suspended`·`step_up_required` | 보안 체인(아래 인증·인가 모델) |
 | 404 `not_found` | 없는 경로(인증된 요청. 익명은 먼저 401) |
