@@ -55,13 +55,24 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	}
 
 	/**
-	 * 앞단 검증을 지나 DB 에서 난 무결성 위반 (TASK-20#2, B2): SQLState 22xxx(데이터 예외)는 400 {@code validation}, 그 밖(23xxx
-	 * 제약 위반 등)은 409 {@code conflict}. 제약·값 같은 내부 메시지는 응답에 넣지 않는다.
+	 * 앞단 검증을 지나 DB 에서 난 무결성 위반 (TASK-20#2, B2). SQLState 로 나눈다.
+	 * <ul>
+	 * <li>22xxx(데이터 예외): 400 {@code validation}</li>
+	 * <li>23505(유니크)·23503(FK) 등 동시성·참조 충돌: 409 {@code conflict}</li>
+	 * <li>23502(NOT NULL)·23514(CHECK): 앞단 검증이 놓친 서버 버그 → 500 {@code internal_error} + ERROR 로그</li>
+	 * </ul>
+	 * 로그에는 SQLState 와 제약 이름만 남긴다. DB 메시지는 {@code Key (email)=(...)} 같은 개인정보를 담으므로 남기지 않는다.
 	 */
 	@ExceptionHandler(DataIntegrityViolationException.class)
 	ResponseEntity<Object> handle(DataIntegrityViolationException ex, WebRequest request) {
 		String sqlState = SqlErrors.sqlState(ex);
-		log.warn("처리되지 않은 무결성 위반 (SQLState {}): {}", sqlState, describe(request), ex);
+		String constraint = SqlErrors.constraintName(ex);
+		if ("23502".equals(sqlState) || "23514".equals(sqlState)) {
+			log.error("무결성 위반(서버 버그) SQLState {} 제약 {}: {}", sqlState, constraint, describe(request));
+			HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
+			return ApiErrors.response(status, ApiErrors.INTERNAL_ERROR, ApiErrors.message(status), null);
+		}
+		log.warn("처리되지 않은 무결성 위반 SQLState {} 제약 {}: {}", sqlState, constraint, describe(request));
 		if (sqlState != null && sqlState.startsWith("22")) {
 			return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "입력값이 올바르지 않습니다", null);
 		}

@@ -8,6 +8,9 @@ import java.net.http.HttpResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 
@@ -23,6 +26,7 @@ import tools.jackson.databind.JsonNode;
  * 남은 DataIntegrityViolation 은 SQLState 로 409 conflict / 400 validation.
  */
 @IntegrationTest
+@ExtendWith(OutputCaptureExtension.class)
 class InputIntegrityTest {
 
 	@LocalServerPort
@@ -101,6 +105,37 @@ class InputIntegrityTest {
 	@DisplayName("TASK-20#2 TASK-20#B2 남은 데이터 오류(22xxx)는 400 validation")
 	void dataException() {
 		assertContract(api.get("/test/errors/db?kind=data").bearer(bearer).send(), 400, "validation");
+	}
+
+	@Test
+	@DisplayName("TASK-20#2 TASK-20#B2 FK 위반(23503)은 409 conflict")
+	void foreignKeyViolation() {
+		assertContract(api.get("/test/errors/db?kind=fk").bearer(bearer).send(), 409, "conflict");
+	}
+
+	@Test
+	@DisplayName("TASK-20#2 NOT NULL(23502)·CHECK(23514) 위반은 앞단 검증이 놓친 서버 버그이므로 500 internal_error")
+	void serverBugViolations() {
+		assertContract(api.get("/test/errors/db?kind=not-null").bearer(bearer).send(), 500, "internal_error");
+		assertContract(api.get("/test/errors/db?kind=check").bearer(bearer).send(), 500, "internal_error");
+	}
+
+	@Test
+	@DisplayName("TASK-20#2 무결성 위반 로그에는 SQLState·제약 이름만 남기고 DB 메시지(키 값 등 개인정보)는 남기지 않는다")
+	void integrityLogHasNoValues(CapturedOutput output) {
+		HttpResponse<String> response = api.get("/test/errors/db?kind=unique-pii").bearer(bearer).send();
+		assertContract(response, 409, "conflict");
+		assertThat(output.getAll()).contains("23505").doesNotContain("Key (slug)=(pii-");
+	}
+
+	@Test
+	@DisplayName("TASK-20#2 TASK-20#B2 리스트 원소 문자열의 제어 문자는 fields 에 tags[i] 경로")
+	void controlCharacterInListElement() {
+		JsonNode body = assertContract(api.post("/posts")
+			.bearer(bearer)
+			.json("{\"title\":\"t\",\"content\":\"c\",\"tags\":[" + AuthClient.quote("a\u0000b") + "]}")
+			.send(), 400, "validation");
+		assertThat(body.get("fields").has("tags[0]")).as(body.toString()).isTrue();
 	}
 
 	@Test

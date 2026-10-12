@@ -16,7 +16,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | 400 `validation` | 본문 필드 검증 실패. 쿼리·경로 파라미터 오류(필수 파라미터 누락, 형식 오류 `?page=abc`·`/posts/abc`, 없는 enum 값, 범위 밖 `page`·`size`, 지원하지 않는 `?token=`)도 모두 이 코드이고 `fields`의 키는 파라미터 이름이다. enum 파라미터(예: `status`)는 앞뒤 공백을 무시하고 대소문자를 가리지 않는다. 본문 문자열·쿼리 파라미터에 제어 문자(U+0000–U+001F 중 탭·LF·CR 제외, U+007F–U+009F)가 있을 때도 같다. DB가 데이터 오류(SQLState 22xxx)로 거부한 값도 400 `validation` |
 | 400 `validation` (본문) | 요청 본문의 알 수 없는 필드(오타 PATCH가 조용히 무시되지 않는다), 필드 타입 오류. `fields`의 키는 본문 경로다(예: `titel`, `sortOrder`, `attachmentIds[1]`) |
 | 400 `bad_request` | 본문이 JSON 문법에 맞지 않거나 비었다(특정 필드 탓이 아님). 요청 조합이 맞지 않는다(예: Bearer 요청의 세션 로그인, `link=true`와 `token` 동시 사용) |
-| 409 `conflict` | 앞단 검사를 지나 DB 제약(유니크 등)에 걸렸고 엔드포인트 고유 코드(예: `email_taken`, `slug_taken`)가 없을 때 |
+| 409 `conflict` | 앞단 검사를 지나 DB 유니크(23505)·FK(23503) 제약에 걸렸고 엔드포인트 고유 코드(예: `email_taken`, `slug_taken`)가 없을 때. NOT NULL(23502)·CHECK(23514) 위반은 앞단 검증이 놓친 서버 버그로 보고 500 `internal_error` |
 | 401 `unauthorized` · 403 `forbidden`·`csrf`·`suspended`·`step_up_required` | 보안 체인(아래 인증·인가 모델) |
 | 404 `not_found` | 없는 경로(인증된 요청. 익명은 먼저 401) |
 | 405 `method_not_allowed` | 경로는 있지만 메서드가 다르다. `Allow` 헤더가 붙는다 |
@@ -271,7 +271,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | 409 `cannot_suspend_self` | 자기 자신을 정지하려 함 (B2) |
 | 409 `cannot_suspend_admin` | 다른 ADMIN을 정지하려 함. 관리자끼리 서로 잠그는 것을 막는다. ADMIN 정지가 꼭 필요하면 DB에서 역할부터 바꾼다 |
 | 404 `user_not_found` · `post_not_found` · `category_not_found` | 없는 대상 |
-| 409 `slug_taken` | 카테고리 slug 중복(동시 생성의 유니크 위반 `categories_slug_uk`도 같은 409). 다른 DB 오류는 slug_taken으로 바꾸지 않고 공통 매핑(409 `conflict` · 400 `validation`)을 따른다 |
+| 409 `slug_taken` | 카테고리 slug 중복(동시 생성의 유니크 위반 `categories_slug_uk`도 같은 409). 다른 DB 오류는 slug_taken으로 바꾸지 않고 공통 매핑(409 `conflict` · 400 `validation` · 500 `internal_error`)을 따른다 |
 | 400 `validation` | slug가 `^[a-z0-9-]{2,30}$`가 아님, name이 비었거나 50자 초과, `reason` 500자 초과, 잘못된 `page`·`size`·`status` |
 
 - **정지는 즉시 효과**: 한 트랜잭션에서 `status=SUSPENDED`, 그 사용자의 refresh 토큰 전부(모든 family) 폐기, 감사 로그를 커밋하고, 커밋 뒤 Spring Session JDBC에서 그 사용자의 세션을 모두 지운다. 세션은 `SPRING_SESSION.PRINCIPAL_NAME` 인덱스로 찾는데, Spring Session이 세션의 SecurityContext에서 `Authentication#getName()`(= 사용자 id)을 뽑아 채우므로 세션·소셜·OTP 로그인 세션이 모두 사용자 id로 색인된다. 결과: 기존 세션은 다음 요청부터 익명(보호된 API는 401), refresh는 401, 이미 받은 access JWT는 만료(15분)까지 읽기만 되고 쓰기는 403, 로그인은 403 `suspended`.

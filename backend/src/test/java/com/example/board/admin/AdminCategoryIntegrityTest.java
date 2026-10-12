@@ -21,10 +21,11 @@ import com.example.board.support.IntegrationTest;
 
 /**
  * TASK-20#5 (BE-41) 카테고리 저장의 DB 무결성 위반은 slug 유니크 제약({@code categories_slug_uk})일 때만 409 {@code slug_taken}이고,
- * 나머지는 공통 매핑(TASK-20#2: 22xxx → 400 validation, 그 밖 → 409 conflict)을 따른다.
+ * 나머지는 공통 매핑(TASK-20#2: 22xxx → 400 validation, 23505·23503 → 409 conflict, 23502·23514 → 500)을 따른다.
  *
  * <p>사전 검사(existsBySlug)를 지난 뒤의 DB 오류를 재현하려고 테스트 동안만 트리거를 건다. 이름이 특정 값일 때만 동작한다:
- * {@code sim-race} 는 같은 slug 행을 먼저 넣어 동시 생성 경쟁을 흉내 내고(23505), {@code sim-check} 는 다른 제약 위반(23514),
+ * {@code sim-race} 는 같은 slug 행을 먼저 넣어 동시 생성 경쟁을 흉내 내고(23505), {@code sim-other-unique} 는 다른 유니크 제약
+ * 위반(23505), {@code sim-check} 는 CHECK 위반(23514),
  * {@code sim-data} 는 데이터 예외(22023)를 낸다.
  */
 @IntegrationTest
@@ -55,6 +56,9 @@ class AdminCategoryIntegrityTest {
 				BEGIN
 					IF NEW.name = 'sim-race' THEN
 						INSERT INTO categories (slug, name) VALUES (NEW.slug, 'sim-other');
+					ELSIF NEW.name = 'sim-other-unique' THEN
+						RAISE EXCEPTION 'duplicate key value violates unique constraint "categories_sim_uk"'
+							USING ERRCODE = '23505', CONSTRAINT = 'categories_sim_uk';
 					ELSIF NEW.name = 'sim-check' THEN
 						RAISE EXCEPTION 'new row for relation "categories" violates check constraint "categories_sim_ck"'
 							USING ERRCODE = '23514', CONSTRAINT = 'categories_sim_ck';
@@ -105,15 +109,19 @@ class AdminCategoryIntegrityTest {
 	}
 
 	@Test
-	@DisplayName("TASK-20#5 다른 제약 위반은 slug_taken 이 아니라 409 conflict (생성·수정)")
+	@DisplayName("TASK-20#5 다른 제약 위반은 slug_taken 이 아니라 공통 매핑 — 다른 유니크(23505)는 409 conflict, CHECK(23514)는 500 (생성·수정)")
 	void otherConstraintViolation() {
-		HttpResponse<String> created = create("sim-check");
+		HttpResponse<String> created = create("sim-other-unique");
 		assertThat(created.statusCode()).as(created.body()).isEqualTo(409);
 		assertThat(error(created)).isEqualTo("conflict");
 
-		HttpResponse<String> renamed = rename("sim-check");
+		HttpResponse<String> renamed = rename("sim-other-unique");
 		assertThat(renamed.statusCode()).as(renamed.body()).isEqualTo(409);
 		assertThat(error(renamed)).isEqualTo("conflict");
+
+		HttpResponse<String> checked = create("sim-check");
+		assertThat(checked.statusCode()).as(checked.body()).isEqualTo(500);
+		assertThat(error(checked)).isEqualTo("internal_error");
 	}
 
 	@Test

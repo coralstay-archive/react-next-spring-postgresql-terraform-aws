@@ -36,13 +36,24 @@ public class ErrorContractTestController {
 	}
 
 	/**
-	 * 처리되지 않은 DataIntegrityViolation (TASK-20#2). 실제 PostgreSQL 오류를 낸다: {@code unique} 는 23505(유니크 위반),
-	 * {@code data} 는 22P02(잘못된 숫자 표현), {@code plain} 은 SQLState 없는 위반.
+	 * 처리되지 않은 DataIntegrityViolation (TASK-20#2). 실제 PostgreSQL 오류를 낸다: {@code unique}·{@code unique-pii} 는
+	 * 23505(유니크 위반), {@code fk} 는 23503, {@code not-null} 은 23502, {@code check} 는 23514, {@code data} 는 22P02(잘못된
+	 * 숫자 표현), {@code plain} 은 SQLState 없는 위반.
 	 */
 	@GetMapping("/test/errors/db")
 	public Map<String, Object> db(@RequestParam String kind) {
 		switch (kind) {
 			case "unique" -> jdbc.update("INSERT INTO categories (slug, name) VALUES ('notice', ?)", SECRET);
+			case "unique-pii" -> {
+				// 유니크 위반 메시지에 키 값(Key (slug)=(...))이 담긴다 — 로그에 남으면 안 된다
+				String slug = "pii-" + System.nanoTime();
+				jdbc.update("INSERT INTO categories (slug, name) VALUES (?, 'x')", slug);
+				jdbc.update("INSERT INTO categories (slug, name) VALUES (?, 'x')", slug);
+			}
+			case "fk" -> jdbc.update(
+					"INSERT INTO posts (author_id, title, content) VALUES (-424242, 't', 'c')");
+			case "not-null" -> jdbc.update("INSERT INTO categories (slug, name) VALUES ('nn-x', NULL)");
+			case "check" -> jdbc.execute("DO $$ BEGIN RAISE EXCEPTION 'check' USING ERRCODE = '23514'; END $$");
 			case "data" -> jdbc.queryForObject("SELECT CAST(? AS INT)", Integer.class, SECRET);
 			default -> throw new DataIntegrityViolationException(SECRET);
 		}
