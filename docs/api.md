@@ -13,9 +13,9 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 
 | 상태 · `error` | 언제 |
 |---|---|
-| 400 `validation` | 본문 필드 검증 실패, 필수 파라미터 누락. 본문 문자열·쿼리 파라미터에 제어 문자(U+0000–U+001F 중 탭·LF·CR 제외, U+007F–U+009F)가 있을 때도 같다. DB가 데이터 오류(SQLState 22xxx)로 거부한 값도 400 `validation` |
+| 400 `validation` | 본문 필드 검증 실패. 쿼리·경로 파라미터 오류(필수 파라미터 누락, 형식 오류 `?page=abc`·`/posts/abc`, 없는 enum 값, 범위 밖 `page`·`size`, 지원하지 않는 `?token=`)도 모두 이 코드이고 `fields`의 키는 파라미터 이름이다. enum 파라미터(예: `status`)는 앞뒤 공백을 무시하고 대소문자를 가리지 않는다. 본문 문자열·쿼리 파라미터에 제어 문자(U+0000–U+001F 중 탭·LF·CR 제외, U+007F–U+009F)가 있을 때도 같다. DB가 데이터 오류(SQLState 22xxx)로 거부한 값도 400 `validation` |
 | 400 `validation` (본문) | 요청 본문의 알 수 없는 필드(오타 PATCH가 조용히 무시되지 않는다), 필드 타입 오류. `fields`의 키는 본문 경로다(예: `titel`, `sortOrder`, `attachmentIds[1]`) |
-| 400 `bad_request` | 본문이 JSON 문법에 맞지 않거나 비었다(특정 필드 탓이 아님) |
+| 400 `bad_request` | 본문이 JSON 문법에 맞지 않거나 비었다(특정 필드 탓이 아님). 요청 조합이 맞지 않는다(예: Bearer 요청의 세션 로그인, `link=true`와 `token` 동시 사용) |
 | 409 `conflict` | 앞단 검사를 지나 DB 제약(유니크 등)에 걸렸고 엔드포인트 고유 코드(예: `email_taken`, `slug_taken`)가 없을 때 |
 | 401 `unauthorized` · 403 `forbidden`·`csrf`·`suspended`·`step_up_required` | 보안 체인(아래 인증·인가 모델) |
 | 404 `not_found` | 없는 경로(인증된 요청. 익명은 먼저 401) |
@@ -257,7 +257,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 
 | 요청 | 응답 |
 |---|---|
-| `GET /api/admin/users?q&status&page&size` | `{items:[{id, nickname, email, phone, role, status, providers[], createdAt}], page, size, totalElements, totalPages}` 최근 가입순. `q`는 닉네임·이메일 부분 일치(대소문자 무시) 또는 전화번호 부분 일치(숫자만 비교, `010-1234-5678`처럼 앞자리 0인 국내 표기도 찾는다). `status`=`ACTIVE`\|`SUSPENDED`, `size` 1~100(기본 20) |
+| `GET /api/admin/users?q&status&page&size` | `{items:[{id, nickname, email, phone, role, status, providers[], createdAt}], page, size, totalElements, totalPages}` 최근 가입순. `q`는 닉네임·이메일 부분 일치(대소문자 무시) 또는 전화번호 부분 일치(숫자만 비교, `010-1234-5678`처럼 앞자리 0인 국내 표기도 찾는다). `status`=`ACTIVE`\|`SUSPENDED`(대소문자 무시), `size` 1~100(기본 20) |
 | `POST /api/admin/users/{id}/suspend` `{reason?}` | 200 사용자 한 줄(`status:"SUSPENDED"`). 멱등 |
 | `POST /api/admin/users/{id}/unsuspend` `{reason?}` | 200 사용자 한 줄(`status:"ACTIVE"`). 멱등. 끊긴 세션·토큰은 되살리지 않는다(다시 로그인) |
 | `POST /api/admin/posts/{id}/hide` · `/unhide` · `/restore` `{reason?}` | 200 `{id, hidden, deleted, hiddenAt, deletedAt}`. 멱등(다시 숨겨도 처음 숨긴 시각 유지). `restore`는 `deleted_at`만 지우고 숨김은 그대로 둔다 |

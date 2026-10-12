@@ -134,13 +134,20 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 				"필수 파라미터가 없습니다: " + ex.getParameterName(), Map.of(ex.getParameterName(), "필수 파라미터입니다"));
 	}
 
-	/** 쿼리·경로 파라미터 형식 오류(예: {@code ?page=abc}). */
+	/**
+	 * 쿼리·경로 파라미터 형식 오류(예: {@code ?page=abc}, 없는 enum 값). 다른 파라미터 오류와 같은 400 {@code validation} +
+	 * {@code fields}(파라미터 이름, TASK-20#4).
+	 */
 	@Override
 	protected ResponseEntity<Object> handleTypeMismatch(TypeMismatchException ex, HttpHeaders headers,
 			HttpStatusCode status, WebRequest request) {
 		String name = ex instanceof MethodArgumentTypeMismatchException mismatch ? mismatch.getName()
 				: ex.getPropertyName();
-		return ApiErrors.response(HttpStatus.BAD_REQUEST, "bad_request", "파라미터 형식이 올바르지 않습니다: " + name, null);
+		if (name == null) {
+			name = "parameter";
+		}
+		return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "파라미터 형식이 올바르지 않습니다: " + name,
+				Map.of(name, "형식이 올바르지 않습니다"));
 	}
 
 	/**
