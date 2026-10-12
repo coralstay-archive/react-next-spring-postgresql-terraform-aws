@@ -3,67 +3,140 @@ package com.example.board.common;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
- * 컨트롤러 오류를 JSON 으로 바꾼다. 모양은 보안 체인의 401/403 과 같다({@code status, error, message}).
+ * 컨트롤러 오류를 JSON 으로 바꾼다. 모양은 보안 체인의 401/403 과 같다({@code status, error, message}, {@link ApiErrors}).
  * 입력 검증 실패는 {@code fields}(필드명 → 메시지)를 더한다.
+ *
+ * <p>TASK-20#1 (BE-1): {@link ResponseEntityExceptionHandler} 를 상속해 Spring MVC 표준 예외(405·415·406·404·
+ * ResponseStatusException 등)도 Boot 기본 모양 대신 같은 모양과 snake_case 코드로 낸다. 처리되지 않은 예외는 500
+ * {@code internal_error} 이고 서버 로그에만 원인을 남긴다(B1). MVC 밖(필터·컨테이너) 오류는 {@link ApiErrorController} 가 맡는다.
  */
 @RestControllerAdvice
-public class ApiExceptionHandler {
+public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
+
+	private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
 	@ExceptionHandler(ApiException.class)
-	ResponseEntity<Map<String, Object>> handle(ApiException ex) {
-		return body(ex.getStatus(), ex.getError(), ex.getMessage(), null);
+	ResponseEntity<Object> handle(ApiException ex) {
+		return ApiErrors.response(ex.getStatus(), ex.getError(), ex.getMessage(), null);
 	}
 
 	/** 429: 같은 본문 + {@code Retry-After}. */
 	@ExceptionHandler(RateLimitedException.class)
-	ResponseEntity<Map<String, Object>> handle(RateLimitedException ex) {
-		ResponseEntity<Map<String, Object>> response = body(ex.getStatus(), ex.getError(), ex.getMessage(), null);
+	ResponseEntity<Object> handle(RateLimitedException ex) {
+		ResponseEntity<Object> response = handle((ApiException) ex);
 		return ResponseEntity.status(response.getStatusCode())
+			.headers(response.getHeaders())
 			.header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
 			.body(response.getBody());
 	}
 
-	@ExceptionHandler(MethodArgumentNotValidException.class)
-	ResponseEntity<Map<String, Object>> handle(MethodArgumentNotValidException ex) {
+	/**
+	 * 그 밖의 예외는 500 {@code internal_error}. 원인은 서버 로그(ERROR)에만 남긴다. 인증·인가 예외(예: {@code @PreAuthorize} 거부)는
+	 * 다시 던져 보안 체인({@code ExceptionTranslationFilter})이 401/403 으로 바꾸게 한다.
+	 */
+	@ExceptionHandler(Exception.class)
+	ResponseEntity<Object> handleUnexpected(Exception ex, WebRequest request) throws Exception {
+		if (ex instanceof AccessDeniedException || ex instanceof AuthenticationException) {
+			throw ex;
+		}
+		log.error("처리되지 않은 예외: {}", describe(request), ex);
+		if (isCommitted(request)) {
+			return null;
+		}
+		HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
+		return ApiErrors.response(status, ApiErrors.INTERNAL_ERROR, ApiErrors.message(status), null);
+	}
+
+	@Override
+	protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
+			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
 		Map<String, String> fields = new LinkedHashMap<>();
 		for (FieldError error : ex.getBindingResult().getFieldErrors()) {
 			fields.putIfAbsent(error.getField(), error.getDefaultMessage());
 		}
-		return body(HttpStatus.BAD_REQUEST, "validation", "입력값이 올바르지 않습니다", fields);
+		return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "입력값이 올바르지 않습니다", fields);
 	}
 
-	@ExceptionHandler(HttpMessageNotReadableException.class)
-	ResponseEntity<Map<String, Object>> handle(HttpMessageNotReadableException ex) {
-		return body(HttpStatus.BAD_REQUEST, "bad_request", "요청 본문을 읽을 수 없습니다", null);
+	@Override
+	protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
+			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		return ApiErrors.response(HttpStatus.BAD_REQUEST, "bad_request", "요청 본문을 읽을 수 없습니다", null);
+	}
+
+	/** 필수 쿼리 파라미터 누락: 다른 파라미터 오류와 같은 400 {@code validation} + {@code fields}. */
+	@Override
+	protected ResponseEntity<Object> handleMissingServletRequestParameter(MissingServletRequestParameterException ex,
+			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION,
+				"필수 파라미터가 없습니다: " + ex.getParameterName(), Map.of(ex.getParameterName(), "필수 파라미터입니다"));
 	}
 
 	/** 쿼리·경로 파라미터 형식 오류(예: {@code ?page=abc}). */
-	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
-	ResponseEntity<Map<String, Object>> handle(MethodArgumentTypeMismatchException ex) {
-		return body(HttpStatus.BAD_REQUEST, "bad_request", "파라미터 형식이 올바르지 않습니다: " + ex.getName(), null);
+	@Override
+	protected ResponseEntity<Object> handleTypeMismatch(TypeMismatchException ex, HttpHeaders headers,
+			HttpStatusCode status, WebRequest request) {
+		String name = ex instanceof MethodArgumentTypeMismatchException mismatch ? mismatch.getName()
+				: ex.getPropertyName();
+		return ApiErrors.response(HttpStatus.BAD_REQUEST, "bad_request", "파라미터 형식이 올바르지 않습니다: " + name, null);
 	}
 
-	private static ResponseEntity<Map<String, Object>> body(HttpStatus status, String error, String message,
-			Map<String, String> fields) {
-		Map<String, Object> body = new LinkedHashMap<>();
-		body.put("status", status.value());
-		body.put("error", error);
-		body.put("message", message);
-		if (fields != null) {
-			body.put("fields", fields);
+	/**
+	 * 나머지 Spring MVC 표준 예외(405·415·406·404·ResponseStatusException 등)의 공통 출구. 상태에 맞는 snake_case 코드와
+	 * 고정 문장을 쓰고, 프레임워크가 넣은 헤더(예: 405 의 {@code Allow})는 유지한다. 5xx 는 서버 로그를 남긴다.
+	 */
+	@Override
+	protected ResponseEntity<Object> handleExceptionInternal(Exception ex, Object body, HttpHeaders headers,
+			HttpStatusCode statusCode, WebRequest request) {
+		if (isCommitted(request)) {
+			return null;
 		}
-		return ResponseEntity.status(status).body(body);
+		if (statusCode.is5xxServerError()) {
+			log.error("서버 오류 {}: {}", statusCode.value(), describe(request), ex);
+		}
+		ResponseEntity<Object> response = ApiErrors.response(statusCode, ApiErrors.code(statusCode),
+				ApiErrors.message(statusCode), null);
+		HttpHeaders merged = new HttpHeaders();
+		merged.putAll(headers);
+		merged.putAll(response.getHeaders());
+		return new ResponseEntity<>(response.getBody(), merged, statusCode);
+	}
+
+	private static boolean isCommitted(WebRequest request) {
+		if (request instanceof ServletWebRequest servlet) {
+			HttpServletResponse response = servlet.getResponse();
+			return response != null && response.isCommitted();
+		}
+		return false;
+	}
+
+	private static String describe(WebRequest request) {
+		if (request instanceof ServletWebRequest servlet) {
+			return servlet.getRequest().getMethod() + " " + servlet.getRequest().getRequestURI();
+		}
+		return request.getDescription(false);
 	}
 
 }

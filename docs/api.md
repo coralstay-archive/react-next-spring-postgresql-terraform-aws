@@ -3,9 +3,26 @@
 Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다(`server.servlet.context-path=/api`). 오류는 JSON `{"status","error","message"}`이다.
 개요와 실행 방법은 [README](../README.md)에 있다. 이 문서는 TASK-18에서 README의 API 절을 옮긴 것이다.
 
-- [인증·인가 모델](#인증인가-모델-백엔드) · [인증 API (LOCAL)](#인증-api-local) · [휴대폰 OTP](#휴대폰-otp-로그인-task-7) · [소셜 로그인·계정 연결](#소셜-로그인-google--github--naver--kakao--cognito-과-계정-연결)
+- [오류 응답](#오류-응답-task-20) · [인증·인가 모델](#인증인가-모델-백엔드) · [인증 API (LOCAL)](#인증-api-local) · [휴대폰 OTP](#휴대폰-otp-로그인-task-7) · [소셜 로그인·계정 연결](#소셜-로그인-google--github--naver--kakao--cognito-과-계정-연결)
 - [게시판](#게시판-api-task-8) · [댓글·좋아요·조회수](#댓글--좋아요--조회수-task-9) · [검색](#검색-task-10) · [이미지 첨부](#이미지-첨부-task-11) · [관리자](#관리자-api-task-12)
 - 콘솔 설정: [oauth-setup.md](oauth-setup.md), [sms-setup.md](sms-setup.md)
+
+## 오류 응답 (TASK-20)
+
+모든 오류 응답은 `Content-Type: application/json`이고 본문은 `{"status", "error", "message"}`이다. 입력 검증 오류는 `fields`(필드·파라미터 이름 → 메시지)가 더 붙는다. `error`는 snake_case 코드이고, `message`는 화면에 그대로 보여도 되는 한국어 문장이다. 스택트레이스나 내부 예외 메시지는 응답에 넣지 않는다(서버 로그에만 남긴다).
+
+| 상태 · `error` | 언제 |
+|---|---|
+| 400 `validation` | 본문 필드 검증 실패, 필수 파라미터 누락 |
+| 401 `unauthorized` · 403 `forbidden`·`csrf`·`suspended`·`step_up_required` | 보안 체인(아래 인증·인가 모델) |
+| 404 `not_found` | 없는 경로(인증된 요청. 익명은 먼저 401) |
+| 405 `method_not_allowed` | 경로는 있지만 메서드가 다르다. `Allow` 헤더가 붙는다 |
+| 406 `not_acceptable` | `Accept`가 JSON을 받지 않는다(본문은 그래도 JSON) |
+| 415 `unsupported_media_type` | 본문이 `application/json`이 아니다 |
+| 500 `internal_error` | 처리되지 않은 서버 오류 |
+| 그 밖의 상태 | 필터·컨테이너에서 난 오류(`/api/error`)는 상태 이름의 snake_case(예: 503 `service_unavailable`) |
+
+엔드포인트별 고유 코드(예: `email_taken`, `post_not_found`)는 각 절에 있다.
 
 ## 인증·인가 모델 (백엔드)
 
