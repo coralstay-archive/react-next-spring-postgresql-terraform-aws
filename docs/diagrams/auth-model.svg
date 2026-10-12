@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg data-generated-by="scripts/build-diagrams.py" role="img" aria-label="인증 모델 — users 1:N user_identities(provider, subject), local_credentials·refresh_tokens, 요청은 Bearer JWT 와 SESSION 쿠키(+CSRF) 중 하나로 인증된 뒤 공통 인가 필터를 지난다" width="1135" height="557"
+ viewBox="0.00 0.00 1135.00 557.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<style>svg { --d-ink: #1f2328; --d-muted: #59636e; --d-line: #8c959f; --d-surface: #ffffff; --d-surface-2: #f6f8fa; --d-accent: #0969da; --d-accent-bg: #ddf4ff; --d-aws: #bc4c00; --d-aws-bg: #fff1e5; --d-ext: #8250df; --d-ext-bg: #fbefff; --d-data: #1a7f37; --d-data-bg: #dafbe1; --d-warn: #cf222e; --d-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { --d-ink: #e6edf3; --d-muted: #9198a1; --d-line: #656c76; --d-surface: #151b23; --d-surface-2: #1c2128; --d-accent: #4493f8; --d-accent-bg: #0c2d6b; --d-aws: #f0883e; --d-aws-bg: #3d1e0b; --d-ext: #ab7df8; --d-ext-bg: #2b1b4a; --d-data: #3fb950; --d-data-bg: #0f2d19; --d-warn: #f85149; --d-bg: #0d1117; } }
+text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", Helvetica, Arial, sans-serif; }</style>
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 535.6)">
+<title>auth_model</title>
+<polygon stroke="none" points="-21.6,21.6 -21.6,-535.6 1113,-535.6 1113,21.6 -21.6,21.6" style="fill:var(--d-bg)"/>
+<g id="clust1" class="cluster">
+<title>cluster_model</title>
+<path d="M734.65,-8C734.65,-8 1071.4,-8 1071.4,-8 1077.4,-8 1083.4,-14 1083.4,-20 1083.4,-20 1083.4,-240 1083.4,-240 1083.4,-246 1077.4,-252 1071.4,-252 1071.4,-252 734.65,-252 734.65,-252 728.65,-252 722.65,-246 722.65,-240 722.65,-240 722.65,-20 722.65,-20 722.65,-14 728.65,-8 734.65,-8" style="fill:var(--d-surface-2);stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="middle" x="903.03" y="-237.55" font-size="11.00" style="fill:var(--d-data)">계정 모델 (decision&#45;4, 8)</text>
+</g>
+<g id="clust2" class="cluster">
+<title>cluster_providers</title>
+<path d="M755.39,-260C755.39,-260 853.92,-260 853.92,-260 859.92,-260 865.92,-266 865.92,-272 865.92,-272 865.92,-494 865.92,-494 865.92,-500 859.92,-506 853.92,-506 853.92,-506 755.39,-506 755.39,-506 749.39,-506 743.39,-500 743.39,-494 743.39,-494 743.39,-272 743.39,-272 743.39,-266 749.39,-260 755.39,-260" style="fill:var(--d-ext-bg);stroke:var(--d-ext)"/>
+<text xml:space="preserve" text-anchor="middle" x="804.65" y="-491.55" font-size="11.00" style="fill:var(--d-ext)">provider</text>
+</g>
+<g id="clust3" class="cluster">
+<title>cluster_chain</title>
+<path d="M20,-36C20,-36 643.4,-36 643.4,-36 649.4,-36 655.4,-42 655.4,-48 655.4,-48 655.4,-184 655.4,-184 655.4,-190 649.4,-196 643.4,-196 643.4,-196 20,-196 20,-196 14,-196 8,-190 8,-184 8,-184 8,-48 8,-48 8,-42 14,-36 20,-36" style="fill:var(--d-surface-2);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="331.7" y="-181.55" font-size="11.00" style="fill:var(--d-accent)">요청 하나 = 보안 체인 하나 (decision&#45;5)</text>
+</g>
+<g id="node1" class="node">
+<title>users</title>
+<path stroke="none" stroke-width="1.2" d="M866.65,-168.12C866.65,-168.12 742.65,-168.12 742.65,-168.12 736.65,-168.12 730.65,-162.12 730.65,-156.12 730.65,-156.12 730.65,-61.88 730.65,-61.88 730.65,-55.88 736.65,-49.88 742.65,-49.88 742.65,-49.88 866.65,-49.88 866.65,-49.88 872.65,-49.88 878.65,-55.88 878.65,-61.88 878.65,-61.88 878.65,-156.12 878.65,-156.12 878.65,-162.12 872.65,-168.12 866.65,-168.12" style="fill:var(--d-surface)"/>
+<polygon stroke="none" points="730.65,-49.88 730.65,-168.12 878.65,-168.12 878.65,-49.88 730.65,-49.88" style="fill:var(--d-data-bg)"/>
+<polygon fill="none" points="730.65,-49.88 730.65,-168.12 878.65,-168.12 878.65,-49.88 730.65,-49.88" style="stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="start" x="791.9" y="-154.62" font-weight="bold" font-size="10.00" style="fill:var(--d-ink)">users</text>
+<text xml:space="preserve" text-anchor="start" x="735.65" y="-135.62" font-size="10.00" style="fill:var(--d-ink)">id · nickname</text>
+<text xml:space="preserve" text-anchor="start" x="735.65" y="-115.62" font-size="10.00" style="fill:var(--d-ink)">email (표시·연락용)</text>
+<text xml:space="preserve" text-anchor="start" x="735.65" y="-96.38" font-size="10.00" style="fill:var(--d-ink)">phone</text>
+<text xml:space="preserve" text-anchor="start" x="735.65" y="-77.12" font-size="10.00" style="fill:var(--d-ink)">role USER | ADMIN</text>
+<text xml:space="preserve" text-anchor="start" x="735.65" y="-57.88" font-size="10.00" style="fill:var(--d-ink)">status ACTIVE | SUSPENDED</text>
+</g>
+<g id="node2" class="node">
+<title>identities</title>
+<path stroke="none" stroke-width="1.2" d="M1063.4,-221.88C1063.4,-221.88 953.65,-221.88 953.65,-221.88 947.65,-221.88 941.65,-215.88 941.65,-209.88 941.65,-209.88 941.65,-174.12 941.65,-174.12 941.65,-168.12 947.65,-162.12 953.65,-162.12 953.65,-162.12 1063.4,-162.12 1063.4,-162.12 1069.4,-162.12 1075.4,-168.12 1075.4,-174.12 1075.4,-174.12 1075.4,-209.88 1075.4,-209.88 1075.4,-215.88 1069.4,-221.88 1063.4,-221.88" style="fill:var(--d-surface)"/>
+<polygon stroke="none" points="941.65,-162.12 941.65,-221.88 1075.4,-221.88 1075.4,-162.12 941.65,-162.12" style="fill:var(--d-data-bg)"/>
+<polygon fill="none" points="941.65,-162.12 941.65,-221.88 1075.4,-221.88 1075.4,-162.12 941.65,-162.12" style="stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="start" x="974.4" y="-208.38" font-weight="bold" font-size="10.00" style="fill:var(--d-ink)">user_identities</text>
+<text xml:space="preserve" text-anchor="start" x="946.65" y="-189.38" font-size="10.00" style="fill:var(--d-ink)">provider · subject (UNIQUE)</text>
+<text xml:space="preserve" text-anchor="start" x="946.65" y="-170.12" font-size="10.00" style="fill:var(--d-ink)">email · linked_at</text>
+</g>
+<g id="edge1" class="edge">
+<title>users&#45;&gt;identities</title>
+<path fill="none" d="M878.53,-138.96C896.94,-146.53 916.7,-154.66 935.08,-162.22" style="stroke:var(--d-line)"/>
+<polygon points="935.01,-162.18 940.28,-167.76 938.55,-163.64 941.17,-164.72 941.17,-164.72 941.17,-164.72 938.55,-163.64 942.68,-161.93 935.01,-162.18" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="910.15" y="-156.67" font-size="9.00" style="fill:var(--d-muted)">1 : N</text>
+</g>
+<g id="node3" class="node">
+<title>creds</title>
+<path stroke="none" stroke-width="1.2" d="M1055.53,-56.25C1055.53,-56.25 961.53,-56.25 961.53,-56.25 955.53,-56.25 949.53,-50.25 949.53,-44.25 949.53,-44.25 949.53,-27.75 949.53,-27.75 949.53,-21.75 955.53,-15.75 961.53,-15.75 961.53,-15.75 1055.53,-15.75 1055.53,-15.75 1061.53,-15.75 1067.53,-21.75 1067.53,-27.75 1067.53,-27.75 1067.53,-44.25 1067.53,-44.25 1067.53,-50.25 1061.53,-56.25 1055.53,-56.25" style="fill:var(--d-surface)"/>
+<polygon stroke="none" points="949.53,-15.75 949.53,-56.25 1067.53,-56.25 1067.53,-15.75 949.53,-15.75" style="fill:var(--d-data-bg)"/>
+<polygon fill="none" points="949.53,-15.75 949.53,-56.25 1067.53,-56.25 1067.53,-15.75 949.53,-15.75" style="stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="start" x="969.15" y="-42.75" font-weight="bold" font-size="10.00" style="fill:var(--d-ink)">local_credentials</text>
+<text xml:space="preserve" text-anchor="start" x="954.53" y="-23.75" font-size="10.00" style="fill:var(--d-ink)">password_hash (BCrypt)</text>
+</g>
+<g id="edge2" class="edge">
+<title>users&#45;&gt;creds</title>
+<path fill="none" d="M878.53,-82.65C899.3,-75.14 921.79,-67 942.08,-59.67" style="stroke:var(--d-line)"/>
+<polygon points="949.69,-53.19 952.07,-59.77 950.76,-60.25 948.38,-53.67 949.69,-53.19" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<polyline fill="none" points="951.54,-56.24 948.25,-57.43" style="stroke:var(--d-line)"/>
+<ellipse fill="none" cx="945.15" cy="-58.56" rx="2.8" ry="2.8" style="stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="910.15" y="-75.89" font-size="9.00" style="fill:var(--d-muted)">1 : 0..1</text>
+</g>
+<g id="node4" class="node">
+<title>refresh</title>
+<path stroke="none" stroke-width="1.2" d="M1059.65,-139.72C1059.65,-139.72 957.4,-139.72 957.4,-139.72 951.4,-139.72 945.4,-133.72 945.4,-127.72 945.4,-127.72 945.4,-90.28 945.4,-90.28 945.4,-84.28 951.4,-78.28 957.4,-78.28 957.4,-78.28 1059.65,-78.28 1059.65,-78.28 1065.65,-78.28 1071.65,-84.28 1071.65,-90.28 1071.65,-90.28 1071.65,-127.72 1071.65,-127.72 1071.65,-133.72 1065.65,-139.72 1059.65,-139.72" style="fill:var(--d-surface)"/>
+<polygon stroke="none" points="945.4,-78.28 945.4,-139.72 1071.65,-139.72 1071.65,-78.28 945.4,-78.28" style="fill:var(--d-data-bg)"/>
+<polygon fill="none" points="945.4,-78.28 945.4,-139.72 1071.65,-139.72 1071.65,-78.28 945.4,-78.28" style="stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="start" x="974.4" y="-126.22" font-weight="bold" font-size="10.00" style="fill:var(--d-ink)">refresh_tokens</text>
+<text xml:space="preserve" text-anchor="start" x="950.4" y="-106.47" font-size="10.00" style="fill:var(--d-ink)">SHA&#45;256 해시 · family</text>
+<text xml:space="preserve" text-anchor="start" x="950.4" y="-86.47" font-size="10.00" style="fill:var(--d-ink)">회전 · 재사용 시 family 폐기</text>
+</g>
+<g id="edge3" class="edge">
+<title>users&#45;&gt;refresh</title>
+<path fill="none" d="M878.53,-109C897.96,-109 918.89,-109 938.13,-109" style="stroke:var(--d-line)"/>
+<polygon points="938.08,-109 945.08,-112.15 941.91,-109 944.74,-109 944.74,-109 944.74,-109 941.91,-109 945.08,-105.85 938.08,-109" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="910.15" y="-110.2" font-size="9.00" style="fill:var(--d-muted)">1 : N</text>
+</g>
+<g id="node5" class="node">
+<title>p_local</title>
+<path stroke-width="1.2" d="M834.29,-478C834.29,-478 775.01,-478 775.01,-478 769.01,-478 763.01,-472 763.01,-466 763.01,-466 763.01,-454 763.01,-454 763.01,-448 769.01,-442 775.01,-442 775.01,-442 834.29,-442 834.29,-442 840.29,-442 846.29,-448 846.29,-454 846.29,-454 846.29,-466 846.29,-466 846.29,-472 840.29,-478 834.29,-478" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="804.65" y="-462.22" font-size="10.00" style="fill:var(--d-ink)">LOCAL</text>
+<text xml:space="preserve" text-anchor="middle" x="804.65" y="-450.97" font-size="10.00" style="fill:var(--d-ink)">이메일·비밀번호</text>
+</g>
+<g id="edge4" class="edge">
+<title>p_local&#45;&gt;identities</title>
+<path fill="none" d="M846.73,-448.78C857.86,-444.44 869.39,-438.63 878.65,-431 943.59,-377.53 980.62,-282.47 997.09,-229.79" style="stroke:var(--d-ext)"/>
+<polygon points="999.41,-230.56 999.12,-223.15 994.73,-229.13 999.41,-230.56" style="fill:var(--d-ext);stroke:var(--d-ext)"/>
+</g>
+<g id="node6" class="node">
+<title>p_phone</title>
+<path stroke-width="1.2" d="M828.67,-420C828.67,-420 780.64,-420 780.64,-420 774.64,-420 768.64,-414 768.64,-408 768.64,-408 768.64,-396 768.64,-396 768.64,-390 774.64,-384 780.64,-384 780.64,-384 828.67,-384 828.67,-384 834.67,-384 840.67,-390 840.67,-396 840.67,-396 840.67,-408 840.67,-408 840.67,-414 834.67,-420 828.67,-420" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="804.65" y="-403.75" font-size="10.00" style="fill:var(--d-ink)">PHONE</text>
+<text xml:space="preserve" text-anchor="middle" x="804.65" y="-392.5" font-size="10.00" style="fill:var(--d-ink)">E.164 · OTP</text>
+</g>
+<g id="edge5" class="edge">
+<title>p_phone&#45;&gt;identities</title>
+<path fill="none" d="M841.24,-392.46C853.89,-387.93 867.7,-381.58 878.65,-373 928.84,-333.64 967.96,-269.62 989.37,-229.21" style="stroke:var(--d-ext)"/>
+<polygon points="991.52,-230.39 992.59,-223.05 987.17,-228.12 991.52,-230.39" style="fill:var(--d-ext);stroke:var(--d-ext)"/>
+</g>
+<g id="node7" class="node">
+<title>p_social</title>
+<path stroke-width="1.2" d="M845.92,-362C845.92,-362 763.39,-362 763.39,-362 757.39,-362 751.39,-356 751.39,-350 751.39,-350 751.39,-338 751.39,-338 751.39,-332 757.39,-326 763.39,-326 763.39,-326 845.92,-326 845.92,-326 851.92,-326 857.92,-332 857.92,-338 857.92,-338 857.92,-350 857.92,-350 857.92,-356 851.92,-362 845.92,-362" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="804.65" y="-345.75" font-size="10.00" style="fill:var(--d-ink)">GOOGLE · GITHUB</text>
+<text xml:space="preserve" text-anchor="middle" x="804.65" y="-334.5" font-size="10.00" style="fill:var(--d-ink)">NAVER · KAKAO</text>
+</g>
+<g id="edge6" class="edge">
+<title>p_social&#45;&gt;identities</title>
+<path fill="none" d="M858.31,-325.93C865.37,-322.7 872.34,-319.05 878.65,-315 916.25,-290.89 952.45,-254.84 976.85,-227.99" style="stroke:var(--d-ext)"/>
+<polygon points="978.62,-229.69 981.48,-222.85 974.97,-226.41 978.62,-229.69" style="fill:var(--d-ext);stroke:var(--d-ext)"/>
+</g>
+<g id="node8" class="node">
+<title>p_cognito</title>
+<path stroke-width="1.2" d="M824.54,-304C824.54,-304 784.76,-304 784.76,-304 778.76,-304 772.76,-298 772.76,-292 772.76,-292 772.76,-280 772.76,-280 772.76,-274 778.76,-268 784.76,-268 784.76,-268 824.54,-268 824.54,-268 830.54,-268 836.54,-274 836.54,-280 836.54,-280 836.54,-292 836.54,-292 836.54,-298 830.54,-304 824.54,-304" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="804.65" y="-287.75" font-size="10.00" style="fill:var(--d-ink)">COGNITO</text>
+<text xml:space="preserve" text-anchor="middle" x="804.65" y="-276.5" font-size="10.00" style="fill:var(--d-ink)">OIDC</text>
+</g>
+<g id="edge7" class="edge">
+<title>p_cognito&#45;&gt;identities</title>
+<path fill="none" d="M836.81,-274.33C849.85,-269.26 865.09,-263.1 878.65,-257 900.12,-247.34 923.2,-236.02 943.8,-225.55" style="stroke:var(--d-ext)"/>
+<polygon points="944.8,-227.79 949.92,-222.43 942.57,-223.43 944.8,-227.79" style="fill:var(--d-ext);stroke:var(--d-ext)"/>
+</g>
+<g id="node9" class="node">
+<title>req</title>
+<path stroke-width="1.2" d="M68.53,-110C68.53,-110 28,-110 28,-110 22,-110 16,-104 16,-98 16,-98 16,-86 16,-86 16,-80 22,-74 28,-74 28,-74 68.53,-74 68.53,-74 74.53,-74 80.53,-80 80.53,-86 80.53,-86 80.53,-98 80.53,-98 80.53,-104 74.53,-110 68.53,-110" style="fill:var(--d-accent-bg);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="48.27" y="-88.6" font-size="10.00" style="fill:var(--d-ink)">요청 /api/**</text>
+</g>
+<g id="node10" class="node">
+<title>has_bearer</title>
+<polygon stroke-width="1.2" points="194.81,-123.14 117.53,-92 194.81,-60.86 272.09,-92 194.81,-123.14" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="194.81" y="-93.75" font-size="10.00" style="fill:var(--d-ink)">Authorization:</text>
+<text xml:space="preserve" text-anchor="middle" x="194.81" y="-82.5" font-size="10.00" style="fill:var(--d-ink)">Bearer ?</text>
+</g>
+<g id="edge8" class="edge">
+<title>req&#45;&gt;has_bearer</title>
+<path fill="none" d="M80.99,-92C89.08,-92 98.19,-92 107.62,-92" style="stroke:var(--d-line)"/>
+<polygon points="107.46,-94.45 114.46,-92 107.46,-89.55 107.46,-94.45" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node11" class="node">
+<title>jwt</title>
+<path stroke-width="1.2" d="M451.75,-100.42C451.75,-100.42 351.97,-100.42 351.97,-100.42 345.97,-100.42 339.97,-94.42 339.97,-88.42 339.97,-88.42 339.97,-55.58 339.97,-55.58 339.97,-49.58 345.97,-43.58 351.97,-43.58 351.97,-43.58 451.75,-43.58 451.75,-43.58 457.75,-43.58 463.75,-49.58 463.75,-55.58 463.75,-55.58 463.75,-88.42 463.75,-88.42 463.75,-94.42 457.75,-100.42 451.75,-100.42" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="401.86" y="-86.6" font-size="10.00" style="fill:var(--d-ink)">JWT 검증 (HS256, 15분)</text>
+<text xml:space="preserve" text-anchor="middle" x="401.86" y="-74.6" font-size="10.00" style="fill:var(--d-ink)">세션 읽지도 쓰지도 않음</text>
+<text xml:space="preserve" text-anchor="middle" x="401.86" y="-62.6" font-size="10.00" style="fill:var(--d-ink)">CSRF 면제</text>
+<text xml:space="preserve" text-anchor="middle" x="401.86" y="-50.6" font-size="10.00" style="fill:var(--d-ink)">틀리면 401</text>
+</g>
+<g id="edge9" class="edge">
+<title>has_bearer&#45;&gt;jwt</title>
+<path fill="none" d="M258.44,-85.89C281.52,-83.64 307.78,-81.08 331.42,-78.77" style="stroke:var(--d-line)"/>
+<polygon points="331.42,-81.23 338.15,-78.12 330.95,-76.36 331.42,-81.23" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="301.34" y="-85.3" font-size="9.00" style="fill:var(--d-muted)">예</text>
+</g>
+<g id="node12" class="node">
+<title>session</title>
+<path stroke-width="1.2" d="M461.12,-166.04C461.12,-166.04 342.59,-166.04 342.59,-166.04 336.59,-166.04 330.59,-160.04 330.59,-154.04 330.59,-154.04 330.59,-133.96 330.59,-133.96 330.59,-127.96 336.59,-121.96 342.59,-121.96 342.59,-121.96 461.12,-121.96 461.12,-121.96 467.12,-121.96 473.12,-127.96 473.12,-133.96 473.12,-133.96 473.12,-154.04 473.12,-154.04 473.12,-160.04 467.12,-166.04 461.12,-166.04" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="401.86" y="-152.22" font-size="10.00" style="fill:var(--d-ink)">SESSION 쿠키</text>
+<text xml:space="preserve" text-anchor="middle" x="401.86" y="-140.22" font-size="10.00" style="fill:var(--d-ink)">Spring Session JDBC</text>
+<text xml:space="preserve" text-anchor="middle" x="401.86" y="-128.97" font-size="10.00" style="fill:var(--d-ink)">쓰기는 X&#45;XSRF&#45;TOKEN 필요</text>
+</g>
+<g id="edge10" class="edge">
+<title>has_bearer&#45;&gt;session</title>
+<path fill="none" d="M243.37,-104.06C266.74,-109.99 295.52,-117.29 322.06,-124.02" style="stroke:var(--d-line)"/>
+<polygon points="321.36,-126.37 328.75,-125.71 322.57,-121.62 321.36,-126.37" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="301.34" y="-123.81" font-size="9.00" style="fill:var(--d-muted)">아니오</text>
+</g>
+<g id="node13" class="node">
+<title>authz</title>
+<path stroke-width="1.2" d="M635.4,-137.69C635.4,-137.69 522.12,-137.69 522.12,-137.69 516.12,-137.69 510.12,-131.69 510.12,-125.69 510.12,-125.69 510.12,-92.31 510.12,-92.31 510.12,-86.31 516.12,-80.31 522.12,-80.31 522.12,-80.31 635.4,-80.31 635.4,-80.31 641.4,-80.31 647.4,-86.31 647.4,-92.31 647.4,-92.31 647.4,-125.69 647.4,-125.69 647.4,-131.69 641.4,-137.69 635.4,-137.69" style="fill:var(--d-accent-bg);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="578.76" y="-123.88" font-size="10.00" style="fill:var(--d-ink)">공통 인가</text>
+<text xml:space="preserve" text-anchor="middle" x="578.76" y="-111.88" font-size="10.00" style="fill:var(--d-ink)">SUSPENDED → 쓰기 403</text>
+<text xml:space="preserve" text-anchor="middle" x="578.76" y="-99.12" font-size="10.00" style="fill:var(--d-ink)">step&#45;up 제한 → 쓰기 403</text>
+<text xml:space="preserve" text-anchor="middle" x="578.76" y="-86.38" font-size="10.00" style="fill:var(--d-ink)">@PreAuthorize · ownership</text>
+</g>
+<g id="edge11" class="edge">
+<title>jwt&#45;&gt;authz</title>
+<path fill="none" d="M464.03,-84.94C476.15,-87.51 489.01,-90.23 501.56,-92.88" style="stroke:var(--d-line)"/>
+<polygon points="500.92,-95.25 508.27,-94.3 501.93,-90.45 500.92,-95.25" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="edge12" class="edge">
+<title>session&#45;&gt;authz</title>
+<path fill="none" d="M473.49,-129.87C482.73,-128.02 492.23,-126.12 501.56,-124.25" style="stroke:var(--d-line)"/>
+<polygon points="501.83,-126.69 508.21,-122.92 500.87,-121.89 501.83,-126.69" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="edge13" class="edge">
+<title>authz&#45;&gt;users</title>
+<path fill="none" stroke-dasharray="5,2" d="M647.85,-109C671.43,-109 698.09,-109 722.61,-109" style="stroke:var(--d-line)"/>
+<polygon points="714.14,-111.47 721.14,-109 714.13,-106.57 714.14,-111.47" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="689.03" y="-111.7" font-size="9.00" style="fill:var(--d-muted)">DB 최신 상태</text>
+</g>
+</g>
+</svg>

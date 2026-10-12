@@ -1,0 +1,57 @@
+// alt: 아키텍처 — 브라우저 → CloudFront(정적 S3·/api EC2·/uploads S3) → EC2 Docker Compose(Spring Boot + PostgreSQL), ECR·SSM·CloudWatch·Cognito·End User Messaging·외부 IdP
+digraph architecture {
+  graph [rankdir=LR, fontname="Helvetica", fontsize=11, fontcolor="#f00001", nodesep=0.35, ranksep=0.6, pad=0.3, newrank=true]
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fontcolor="#f00001", color="#f00003", fillcolor="#f00004", penwidth=1.2, margin="0.14,0.07"]
+  edge  [fontname="Helvetica", fontsize=9, fontcolor="#f00002", color="#f00003", arrowsize=0.7]
+
+  browser [label="브라우저\n(Next.js 정적 SPA)", fillcolor="#f00007", color="#f00006"]
+
+  subgraph cluster_idp {
+    label="외부 OAuth 제공자"; style="rounded,filled"; color="#f0000a"; fillcolor="#f0000b"; fontcolor="#f0000a"
+    idps [label="Google · GitHub\nNaver · Kakao", color="#f0000a"]
+  }
+
+  subgraph cluster_aws {
+    label="AWS us-east-1"; style="rounded,filled"; color="#f00008"; fillcolor="#f00005"; fontcolor="#f00008"
+
+    cf [label="CloudFront\n*.cloudfront.net (또는 domain_name)\nCF Function: /x/ → /x/index.html", color="#f00008", fillcolor="#f00009"]
+    web [label="S3 web\n정적 export (OAC)", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]
+    uploads [label="S3 uploads\n첨부 이미지 (OAC)\npending 태그 1일 정리", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]
+
+    subgraph cluster_vpc {
+      label="VPC · public subnet · SG 8080 ← CloudFront prefix list"; style="rounded,dashed"; color="#f00003"; fillcolor="#f00005"; fontcolor="#f00002"
+      subgraph cluster_ec2 {
+        label="EC2 t4g.small (EIP, SSM, SSH 없음) · Docker Compose /opt/board"; style="rounded,filled"; color="#f00006"; fillcolor="#f00004"; fontcolor="#f00006"
+        api [label="api\nSpring Boot 4 · Java 25\n:8080 /api", color="#f00006", fillcolor="#f00007"]
+        db [label="db\nPostgreSQL 18", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]
+      }
+      ebs [label="데이터 EBS gp3\n/srv/pgdata\nDLM 일일 스냅샷 7개", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]
+    }
+
+    ecr [label="ECR board-api\n(arm64, 최근 20개)", color="#f00008", fillcolor="#f00009"]
+    ssm [label="SSM Parameter Store\n/board/prod/*\n(시크릿 SecureString)", color="#f00008", fillcolor="#f00009"]
+    logs [label="CloudWatch Logs\n/board/prod (14일)", color="#f00008", fillcolor="#f00009"]
+    cognito [label="Cognito User Pool\nHosted UI (OIDC)", color="#f00008", fillcolor="#f00009"]
+    sms [label="End User Messaging SMS\n(휴대폰 OTP)", color="#f00008", fillcolor="#f00009"]
+  }
+
+  browser -> cf [label="HTTPS", color="#f00006", penwidth=1.5]
+  cf -> web [label="기본 /*"]
+  cf -> api [label="/api/*  캐시 없음\n쿠키·헤더·CloudFront-Viewer-Address", color="#f00006", penwidth=1.5]
+  cf -> uploads [label="/uploads/*"]
+  browser -> uploads [label="presigned PUT", style=dashed]
+  browser -> idps [label="로그인 리다이렉트", style=dashed, color="#f0000a"]
+  browser -> cognito [label="Hosted UI", style=dashed, color="#f0000a"]
+
+  api -> db
+  db -> ebs [arrowhead=none, style=dotted, label="bind mount"]
+  api -> uploads [label="presign · HeadObject · 태그"]
+  api -> idps [label="token · userinfo", color="#f0000a"]
+  api -> cognito [label="token · userinfo · JWKS"]
+  api -> sms [label="SendTextMessage"]
+  api -> logs [label="awslogs", style=dotted]
+  api -> ssm [label="배포 때 env 파일", style=dotted, dir=back]
+  api -> ecr [label="이미지 pull", style=dotted, dir=back]
+
+  { rank=same; api; web }
+}

@@ -1,0 +1,67 @@
+// alt: 인증 모델 — users 1:N user_identities(provider, subject), local_credentials·refresh_tokens, 요청은 Bearer JWT 와 SESSION 쿠키(+CSRF) 중 하나로 인증된 뒤 공통 인가 필터를 지난다
+digraph auth_model {
+  graph [rankdir=LR, fontname="Helvetica", fontsize=11, fontcolor="#f00001", nodesep=0.3, ranksep=0.5, pad=0.3, compound=true]
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, fontcolor="#f00001", color="#f00003", fillcolor="#f00004", penwidth=1.2, margin="0.12,0.06"]
+  edge  [fontname="Helvetica", fontsize=9, fontcolor="#f00002", color="#f00003", arrowsize=0.7]
+
+  subgraph cluster_model {
+    label="계정 모델 (decision-4, 8)"; style="rounded,filled"; color="#f0000c"; fillcolor="#f00005"; fontcolor="#f0000c"
+    users [shape=plain, label=<
+      <table border="1" cellborder="0" cellspacing="0" cellpadding="4" color="#f0000c" bgcolor="#f0000d">
+        <tr><td><b>users</b></td></tr>
+        <tr><td align="left">id · nickname</td></tr>
+        <tr><td align="left">email (표시·연락용)</td></tr>
+        <tr><td align="left">phone</td></tr>
+        <tr><td align="left">role USER | ADMIN</td></tr>
+        <tr><td align="left">status ACTIVE | SUSPENDED</td></tr>
+      </table>>]
+    identities [shape=plain, label=<
+      <table border="1" cellborder="0" cellspacing="0" cellpadding="4" color="#f0000c" bgcolor="#f0000d">
+        <tr><td><b>user_identities</b></td></tr>
+        <tr><td align="left">provider · subject (UNIQUE)</td></tr>
+        <tr><td align="left">email · linked_at</td></tr>
+      </table>>]
+    creds [shape=plain, label=<
+      <table border="1" cellborder="0" cellspacing="0" cellpadding="4" color="#f0000c" bgcolor="#f0000d">
+        <tr><td><b>local_credentials</b></td></tr>
+        <tr><td align="left">password_hash (BCrypt)</td></tr>
+      </table>>]
+    refresh [shape=plain, label=<
+      <table border="1" cellborder="0" cellspacing="0" cellpadding="4" color="#f0000c" bgcolor="#f0000d">
+        <tr><td><b>refresh_tokens</b></td></tr>
+        <tr><td align="left">SHA-256 해시 · family</td></tr>
+        <tr><td align="left">회전 · 재사용 시 family 폐기</td></tr>
+      </table>>]
+    users -> identities [label="1 : N", arrowhead=crow]
+    users -> creds [label="1 : 0..1", arrowhead=teeodot]
+    users -> refresh [label="1 : N", arrowhead=crow]
+  }
+
+  subgraph cluster_providers {
+    label="provider"; style="rounded,filled"; color="#f0000a"; fillcolor="#f0000b"; fontcolor="#f0000a"
+    p_local [label="LOCAL\n이메일·비밀번호"]
+    p_phone [label="PHONE\nE.164 · OTP"]
+    p_social [label="GOOGLE · GITHUB\nNAVER · KAKAO"]
+    p_cognito [label="COGNITO\nOIDC"]
+  }
+  p_local -> identities [color="#f0000a"]
+  p_phone -> identities [color="#f0000a"]
+  p_social -> identities [color="#f0000a"]
+  p_cognito -> identities [color="#f0000a"]
+
+  subgraph cluster_chain {
+    label="요청 하나 = 보안 체인 하나 (decision-5)"; style="rounded,filled"; color="#f00006"; fillcolor="#f00005"; fontcolor="#f00006"
+    req [label="요청 /api/**", color="#f00006", fillcolor="#f00007"]
+    has_bearer [label="Authorization:\nBearer ?", shape=diamond, style="filled", fillcolor="#f00004"]
+    jwt [label="JWT 검증 (HS256, 15분)\n세션 읽지도 쓰지도 않음\nCSRF 면제\n틀리면 401"]
+    session [label="SESSION 쿠키\nSpring Session JDBC\n쓰기는 X-XSRF-TOKEN 필요"]
+    authz [label="공통 인가\nSUSPENDED → 쓰기 403\nstep-up 제한 → 쓰기 403\n@PreAuthorize · ownership", color="#f00006", fillcolor="#f00007"]
+    req -> has_bearer
+    has_bearer -> jwt [label="예"]
+    has_bearer -> session [label="아니오"]
+    jwt -> authz
+    session -> authz
+  }
+
+  authz -> users [label="DB 최신 상태", style=dashed, lhead=cluster_model]
+}

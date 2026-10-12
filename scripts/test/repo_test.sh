@@ -127,6 +127,27 @@ for w in "SMS_PROVIDER" "SMS_AWS_REGION" "SMS_ORIGINATION_IDENTITY" "샌드박�
   check "TASK-18#3 sms-setup 에 '$w'" grep -qF -- "$w" docs/sms-setup.md
 done
 
+# TASK-18#4 README(로컬 실행·배포·시크릿 목록·비용·destroy) + diagrams/*.dot → docs/diagrams/*.svg(센티넬 색 → CSS 변수, 라이트/다크)
+for w in "## 빠른 시작" "## 로컬 실행" "## 배포 (TASK-17)" "## 시크릿·환경변수 목록" "## 비용 (us-east-1, 월, 대략)" "## 정리 (terraform destroy)" "docs/first-deploy.md" "docs/api.md"; do
+  check "TASK-18#4 README 에 '$w'" grep -qF -- "$w" README.md
+done
+# 시크릿 목록은 example.env·secrets.example.txt 의 모든 키를 다룬다
+while IFS= read -r k; do
+  check "TASK-18#4 README 시크릿 목록에 $k" grep -qF "\`$k\`" README.md
+done < <(grep -Eho '^#? ?[A-Z][A-Z0-9_]+=' example.env deploy/secrets.example.txt | sed -E 's/^# ?//; s/=$//' | sort -u)
+check "TASK-18#4 make diagrams 타깃" has_make_target diagrams
+for d in architecture auth-model deploy-pipeline; do
+  check "TASK-18#4 diagrams/$d.dot 과 docs/diagrams/$d.svg" sh -c "test -f diagrams/$d.dot && git ls-files --error-unmatch docs/diagrams/$d.svg >/dev/null 2>&1 || test -f docs/diagrams/$d.svg"
+  check "TASK-18#4 README 가 $d 그림을 쓴다" grep -q "<!--dot:$d-->" README.md
+done
+check "TASK-18#4 .dot 은 센티넬 색(#f000xx)만 쓴다" sh -c '! grep -hoE "(color|fillcolor|fontcolor|bgcolor)=\"#[0-9a-fA-F]{6}\"" diagrams/*.dot | grep -viE "\"#f000[0-9a-f]{2}\""'
+check "TASK-18#4 SVG 는 라이트·다크 CSS 변수를 품는다" sh -c 'for f in docs/diagrams/*.svg; do grep -q "prefers-color-scheme: dark" "$f" && grep -q "var(--d-" "$f" || exit 1; done'
+if command -v dot >/dev/null 2>&1; then
+  check "TASK-18#4 커밋된 SVG·문서 블록이 .dot 과 같다(build-diagrams.py --check)" python3 scripts/build-diagrams.py --check
+else
+  echo "  WARNING: graphviz dot 이 없어 다이어그램 최신 여부 검사를 건너뛴다" >&2
+fi
+
 # TASK-18#5 Playwright E2E: frontend/e2e + playwright.config.ts(chromium), scripts/e2e.sh(로컬 스택 기동·정리), make e2e(make test 에는 없음)
 check "TASK-18#5 make e2e 타깃은 scripts/e2e.sh 를 호출" sh -c 'make -n e2e | grep -q "scripts/e2e.sh"'
 check "TASK-18#5 scripts/e2e.sh 실행 가능" test -x scripts/e2e.sh

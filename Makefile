@@ -3,7 +3,7 @@
 export
 
 .PHONY: help test dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
-	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e
+	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams
 
 help: ## 타깃 목록
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -41,6 +41,9 @@ frontend-test: ## 프론트 테스트
 
 frontend-build: ## 프론트 정적 export (frontend/out)
 	cd frontend && npm run build
+
+diagrams: ## diagrams/*.dot → docs/diagrams/*.svg 렌더 + 문서의 <!--dot:이름--> 블록 갱신 (graphviz 필요)
+	python3 scripts/build-diagrams.py
 
 e2e: ## Playwright E2E: 로컬 스택(compose·백엔드·next dev)을 띄워 chromium 시나리오 실행 후 정리 (느림, make test 에 없음). E2E_ARGS 로 인자 전달
 	./scripts/e2e.sh $(E2E_ARGS)

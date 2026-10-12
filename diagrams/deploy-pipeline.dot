@@ -1,0 +1,50 @@
+// alt: 배포 파이프라인 — 로컬 make deploy 와 GitHub Actions deploy.yml 이 같은 스크립트로 백엔드 이미지를 ECR 에 올리고 SSM send-command 로 EC2 에 배포(헬스 실패 시 롤백), 프론트는 S3 sync 후 CloudFront invalidation
+digraph deploy_pipeline {
+  graph [rankdir=LR, fontname="Helvetica", fontsize=11, fontcolor="#f00001", nodesep=0.3, ranksep=0.45, pad=0.3]
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=10, fontcolor="#f00001", color="#f00003", fillcolor="#f00004", penwidth=1.2, margin="0.12,0.06"]
+  edge  [fontname="Helvetica", fontsize=9, fontcolor="#f00002", color="#f00003", arrowsize=0.7]
+
+  subgraph cluster_src {
+    label="실행 주체"; style="rounded,filled"; color="#f00003"; fillcolor="#f00005"; fontcolor="#f00002"
+    local [label="로컬\nmake deploy\n(tf-outputs.sh → 대상 값)", color="#f00006", fillcolor="#f00007"]
+    gha [label="GitHub Actions deploy.yml\nmain push → ci.yml(make test)\n→ OIDC role (repo variables)", color="#f0000a", fillcolor="#f0000b"]
+    secrets [label="로컬 전용\nmake put-secrets", color="#f00006", fillcolor="#f00007"]
+  }
+
+  subgraph cluster_backend {
+    label="백엔드"; style="rounded,filled"; color="#f00006"; fillcolor="#f00005"; fontcolor="#f00006"
+    build [label="build-backend.sh\nbuildx linux/arm64\n태그 git sha12 + latest"]
+    deployb [label="deploy-backend.sh\nSSM send-command\n(compose·render-env·remote-deploy 동봉)\nget-command-invocation 폴링"]
+    remote [label="EC2 remote-deploy.sh\nrender-env → ECR 로그인\ncompose pull · up -d"]
+    health [label="헬스 대기\n/api/actuator/health\n(240초)", shape=diamond, style=filled, fillcolor="#f00004"]
+    ok [label="current_tag 기록\n1주 지난 이미지 정리", color="#f0000c", fillcolor="#f0000d"]
+    rollback [label="api 로그 100줄\n이전 current_tag 로 롤백\n실패 종료", color="#f0000e", fontcolor="#f0000e"]
+    build -> deployb -> remote -> health
+    health -> ok [label="UP"]
+    health -> rollback [label="시간 초과", color="#f0000e", fontcolor="#f0000e"]
+  }
+
+  subgraph cluster_frontend {
+    label="프론트"; style="rounded,filled"; color="#f00006"; fillcolor="#f00005"; fontcolor="#f00006"
+    fbuild [label="deploy-frontend.sh\nnpm ci · build → out/"]
+    sync1 [label="S3 sync _next/static\nimmutable (지우지 않음)"]
+    sync2 [label="S3 sync 나머지\nno-cache · --delete"]
+    inval [label="CloudFront\ninvalidation /*"]
+    fbuild -> sync1 -> sync2 -> inval
+  }
+
+  ecr [label="ECR", shape=cylinder, color="#f00008", fillcolor="#f00009"]
+  ssm [label="SSM\n/board/prod/*", shape=cylinder, color="#f00008", fillcolor="#f00009"]
+  web [label="S3 web", shape=cylinder, color="#f00008", fillcolor="#f00009"]
+
+  local -> build
+  gha -> build
+  local -> fbuild
+  gha -> fbuild
+  secrets -> ssm [label="terraform app_env\n+ 입력 파일"]
+  build -> ecr [label="push", style=dashed]
+  ecr -> remote [label="pull", style=dashed]
+  ssm -> remote [label="app.env · db.env", style=dashed]
+  sync1 -> web [style=dashed]
+  sync2 -> web [style=dashed]
+}

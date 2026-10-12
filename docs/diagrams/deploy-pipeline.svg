@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg data-generated-by="scripts/build-diagrams.py" role="img" aria-label="배포 파이프라인 — 로컬 make deploy 와 GitHub Actions deploy.yml 이 같은 스크립트로 백엔드 이미지를 ECR 에 올리고 SSM send-command 로 EC2 에 배포(헬스 실패 시 롤백), 프론트는 S3 sync 후 CloudFront invalidation" width="1295" height="408"
+ viewBox="0.00 0.00 1295.00 408.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<style>svg { --d-ink: #1f2328; --d-muted: #59636e; --d-line: #8c959f; --d-surface: #ffffff; --d-surface-2: #f6f8fa; --d-accent: #0969da; --d-accent-bg: #ddf4ff; --d-aws: #bc4c00; --d-aws-bg: #fff1e5; --d-ext: #8250df; --d-ext-bg: #fbefff; --d-data: #1a7f37; --d-data-bg: #dafbe1; --d-warn: #cf222e; --d-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { --d-ink: #e6edf3; --d-muted: #9198a1; --d-line: #656c76; --d-surface: #151b23; --d-surface-2: #1c2128; --d-accent: #4493f8; --d-accent-bg: #0c2d6b; --d-aws: #f0883e; --d-aws-bg: #3d1e0b; --d-ext: #ab7df8; --d-ext-bg: #2b1b4a; --d-data: #3fb950; --d-data-bg: #0f2d19; --d-warn: #f85149; --d-bg: #0d1117; } }
+text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", Helvetica, Arial, sans-serif; }</style>
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 386.83)">
+<title>deploy_pipeline</title>
+<polygon stroke="none" points="-21.6,21.6 -21.6,-386.83 1273.81,-386.83 1273.81,21.6 -21.6,21.6" style="fill:var(--d-bg)"/>
+<g id="clust1" class="cluster">
+<title>cluster_src</title>
+<path d="M20,-117C20,-117 165.78,-117 165.78,-117 171.78,-117 177.78,-123 177.78,-129 177.78,-129 177.78,-313 177.78,-313 177.78,-319 171.78,-325 165.78,-325 165.78,-325 20,-325 20,-325 14,-325 8,-319 8,-313 8,-313 8,-129 8,-129 8,-123 14,-117 20,-117" style="fill:var(--d-surface-2);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="92.89" y="-310.55" font-size="11.00" style="fill:var(--d-muted)">실행 주체</text>
+</g>
+<g id="clust2" class="cluster">
+<title>cluster_backend</title>
+<path d="M280.78,-132C280.78,-132 1232.21,-132 1232.21,-132 1238.21,-132 1244.21,-138 1244.21,-144 1244.21,-144 1244.21,-261 1244.21,-261 1244.21,-267 1238.21,-273 1232.21,-273 1232.21,-273 280.78,-273 280.78,-273 274.78,-273 268.78,-267 268.78,-261 268.78,-261 268.78,-144 268.78,-144 268.78,-138 274.78,-132 280.78,-132" style="fill:var(--d-surface-2);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="756.5" y="-258.55" font-size="11.00" style="fill:var(--d-accent)">백엔드</text>
+</g>
+<g id="clust3" class="cluster">
+<title>cluster_frontend</title>
+<path d="M283.78,-50C283.78,-50 985.29,-50 985.29,-50 991.29,-50 997.29,-56 997.29,-62 997.29,-62 997.29,-112 997.29,-112 997.29,-118 991.29,-124 985.29,-124 985.29,-124 283.78,-124 283.78,-124 277.78,-124 271.78,-118 271.78,-112 271.78,-112 271.78,-62 271.78,-62 271.78,-56 277.78,-50 283.78,-50" style="fill:var(--d-surface-2);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="634.54" y="-109.55" font-size="11.00" style="fill:var(--d-accent)">프론트</text>
+</g>
+<g id="node1" class="node">
+<title>local</title>
+<path stroke-width="1.2" d="M142.78,-237.32C142.78,-237.32 43,-237.32 43,-237.32 37,-237.32 31,-231.32 31,-225.32 31,-225.32 31,-204.68 31,-204.68 31,-198.68 37,-192.68 43,-192.68 43,-192.68 142.78,-192.68 142.78,-192.68 148.78,-192.68 154.78,-198.68 154.78,-204.68 154.78,-204.68 154.78,-225.32 154.78,-225.32 154.78,-231.32 148.78,-237.32 142.78,-237.32" style="fill:var(--d-accent-bg);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="92.89" y="-223.5" font-size="10.00" style="fill:var(--d-ink)">로컬</text>
+<text xml:space="preserve" text-anchor="middle" x="92.89" y="-211.5" font-size="10.00" style="fill:var(--d-ink)">make deploy</text>
+<text xml:space="preserve" text-anchor="middle" x="92.89" y="-200.25" font-size="10.00" style="fill:var(--d-ink)">(tf&#45;outputs.sh → 대상 값)</text>
+</g>
+<g id="node4" class="node">
+<title>build</title>
+<path stroke-width="1.2" d="M378.81,-236.67C378.81,-236.67 288.78,-236.67 288.78,-236.67 282.78,-236.67 276.78,-230.67 276.78,-224.67 276.78,-224.67 276.78,-205.33 276.78,-205.33 276.78,-199.33 282.78,-193.33 288.78,-193.33 288.78,-193.33 378.81,-193.33 378.81,-193.33 384.81,-193.33 390.81,-199.33 390.81,-205.33 390.81,-205.33 390.81,-224.67 390.81,-224.67 390.81,-230.67 384.81,-236.67 378.81,-236.67" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="333.8" y="-222.85" font-size="10.00" style="fill:var(--d-ink)">build&#45;backend.sh</text>
+<text xml:space="preserve" text-anchor="middle" x="333.8" y="-211.6" font-size="10.00" style="fill:var(--d-ink)">buildx linux/arm64</text>
+<text xml:space="preserve" text-anchor="middle" x="333.8" y="-200.35" font-size="10.00" style="fill:var(--d-ink)">태그 git sha12 + latest</text>
+</g>
+<g id="edge9" class="edge">
+<title>local&#45;&gt;build</title>
+<path fill="none" d="M155.1,-215C189.66,-215 232.83,-215 267.96,-215" style="stroke:var(--d-line)"/>
+<polygon points="267.73,-217.45 274.73,-215 267.73,-212.55 267.73,-217.45" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node10" class="node">
+<title>fbuild</title>
+<path stroke-width="1.2" d="M375.81,-94C375.81,-94 291.78,-94 291.78,-94 285.78,-94 279.78,-88 279.78,-82 279.78,-82 279.78,-70 279.78,-70 279.78,-64 285.78,-58 291.78,-58 291.78,-58 375.81,-58 375.81,-58 381.81,-58 387.81,-64 387.81,-70 387.81,-70 387.81,-82 387.81,-82 387.81,-88 381.81,-94 375.81,-94" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="333.8" y="-78.5" font-size="10.00" style="fill:var(--d-ink)">deploy&#45;frontend.sh</text>
+<text xml:space="preserve" text-anchor="middle" x="333.8" y="-67.25" font-size="10.00" style="fill:var(--d-ink)">npm ci · build → out/</text>
+</g>
+<g id="edge11" class="edge">
+<title>local&#45;&gt;fbuild</title>
+<path fill="none" d="M155.08,-192.75C162.84,-189.4 170.58,-185.79 177.78,-182 223.79,-157.8 272.62,-122.63 302.91,-99.54" style="stroke:var(--d-line)"/>
+<polygon points="304.19,-101.64 308.25,-95.44 301.21,-97.75 304.19,-101.64" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node2" class="node">
+<title>gha</title>
+<path stroke-width="1.2" d="M157.78,-170.69C157.78,-170.69 28,-170.69 28,-170.69 22,-170.69 16,-164.69 16,-158.69 16,-158.69 16,-137.31 16,-137.31 16,-131.31 22,-125.31 28,-125.31 28,-125.31 157.78,-125.31 157.78,-125.31 163.78,-125.31 169.78,-131.31 169.78,-137.31 169.78,-137.31 169.78,-158.69 169.78,-158.69 169.78,-164.69 163.78,-170.69 157.78,-170.69" style="fill:var(--d-ext-bg);stroke:var(--d-ext)"/>
+<text xml:space="preserve" text-anchor="middle" x="92.89" y="-156.88" font-size="10.00" style="fill:var(--d-ink)">GitHub Actions deploy.yml</text>
+<text xml:space="preserve" text-anchor="middle" x="92.89" y="-145.62" font-size="10.00" style="fill:var(--d-ink)">main push → ci.yml(make test)</text>
+<text xml:space="preserve" text-anchor="middle" x="92.89" y="-132.88" font-size="10.00" style="fill:var(--d-ink)">→ OIDC role (repo variables)</text>
+</g>
+<g id="edge10" class="edge">
+<title>gha&#45;&gt;build</title>
+<path fill="none" d="M170.14,-169.38C201.73,-178.24 237.98,-188.41 268.22,-196.89" style="stroke:var(--d-line)"/>
+<polygon points="267.32,-199.18 274.73,-198.71 268.65,-194.47 267.32,-199.18" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="edge12" class="edge">
+<title>gha&#45;&gt;fbuild</title>
+<path fill="none" d="M170.14,-125.02C202.86,-115.16 240.57,-103.79 271.44,-94.49" style="stroke:var(--d-line)"/>
+<polygon points="272.1,-96.85 278.1,-92.48 270.69,-92.16 272.1,-96.85" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node3" class="node">
+<title>secrets</title>
+<path stroke-width="1.2" d="M127.41,-295C127.41,-295 58.38,-295 58.38,-295 52.38,-295 46.38,-289 46.38,-283 46.38,-283 46.38,-271 46.38,-271 46.38,-265 52.38,-259 58.38,-259 58.38,-259 127.41,-259 127.41,-259 133.41,-259 139.41,-265 139.41,-271 139.41,-271 139.41,-283 139.41,-283 139.41,-289 133.41,-295 127.41,-295" style="fill:var(--d-accent-bg);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="92.89" y="-279.12" font-size="10.00" style="fill:var(--d-ink)">로컬 전용</text>
+<text xml:space="preserve" text-anchor="middle" x="92.89" y="-267.12" font-size="10.00" style="fill:var(--d-ink)">make put&#45;secrets</text>
+</g>
+<g id="node15" class="node">
+<title>ssm</title>
+<path stroke-width="1.2" d="M370.19,-357.52C370.19,-359.66 353.87,-361.41 333.8,-361.41 313.72,-361.41 297.41,-359.66 297.41,-357.52 297.41,-357.52 297.41,-322.48 297.41,-322.48 297.41,-320.34 313.72,-318.59 333.8,-318.59 353.87,-318.59 370.19,-320.34 370.19,-322.48 370.19,-322.48 370.19,-357.52 370.19,-357.52" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
+<path fill="none" stroke-width="1.2" d="M370.19,-357.52C370.19,-355.37 353.87,-353.62 333.8,-353.62 313.72,-353.62 297.41,-355.37 297.41,-357.52" style="stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="333.8" y="-341.75" font-size="10.00" style="fill:var(--d-ink)">SSM</text>
+<text xml:space="preserve" text-anchor="middle" x="333.8" y="-330.5" font-size="10.00" style="fill:var(--d-ink)">/board/prod/*</text>
+</g>
+<g id="edge13" class="edge">
+<title>secrets&#45;&gt;ssm</title>
+<path fill="none" d="M139.95,-289.15C182.92,-300.48 246.57,-317.26 288.84,-328.41" style="stroke:var(--d-line)"/>
+<polygon points="288.14,-330.76 295.53,-330.17 289.39,-326.02 288.14,-330.76" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="223.28" y="-332.07" font-size="9.00" style="fill:var(--d-muted)">terraform app_env</text>
+<text xml:space="preserve" text-anchor="middle" x="223.28" y="-322.32" font-size="9.00" style="fill:var(--d-muted)">+ 입력 파일</text>
+</g>
+<g id="node5" class="node">
+<title>deployb</title>
+<path stroke-width="1.2" d="M628.34,-242.57C628.34,-242.57 455.06,-242.57 455.06,-242.57 449.06,-242.57 443.06,-236.57 443.06,-230.57 443.06,-230.57 443.06,-199.43 443.06,-199.43 443.06,-193.43 449.06,-187.43 455.06,-187.43 455.06,-187.43 628.34,-187.43 628.34,-187.43 634.34,-187.43 640.34,-193.43 640.34,-199.43 640.34,-199.43 640.34,-230.57 640.34,-230.57 640.34,-236.57 634.34,-242.57 628.34,-242.57" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="541.7" y="-228.75" font-size="10.00" style="fill:var(--d-ink)">deploy&#45;backend.sh</text>
+<text xml:space="preserve" text-anchor="middle" x="541.7" y="-217.5" font-size="10.00" style="fill:var(--d-ink)">SSM send&#45;command</text>
+<text xml:space="preserve" text-anchor="middle" x="541.7" y="-206.25" font-size="10.00" style="fill:var(--d-ink)">(compose·render&#45;env·remote&#45;deploy 동봉)</text>
+<text xml:space="preserve" text-anchor="middle" x="541.7" y="-194.25" font-size="10.00" style="fill:var(--d-ink)">get&#45;command&#45;invocation 폴링</text>
+</g>
+<g id="edge1" class="edge">
+<title>build&#45;&gt;deployb</title>
+<path fill="none" d="M391.33,-215C404.79,-215 419.59,-215 434.48,-215" style="stroke:var(--d-line)"/>
+<polygon points="434.24,-217.45 441.24,-215 434.24,-212.55 434.24,-217.45" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node14" class="node">
+<title>ecr</title>
+<path stroke-width="1.2" d="M568.7,-313.73C568.7,-315.53 556.6,-317 541.7,-317 526.8,-317 514.7,-315.53 514.7,-313.73 514.7,-313.73 514.7,-284.27 514.7,-284.27 514.7,-282.47 526.8,-281 541.7,-281 556.6,-281 568.7,-282.47 568.7,-284.27 568.7,-284.27 568.7,-313.73 568.7,-313.73" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
+<path fill="none" stroke-width="1.2" d="M568.7,-313.73C568.7,-311.92 556.6,-310.45 541.7,-310.45 526.8,-310.45 514.7,-311.92 514.7,-313.73" style="stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="541.7" y="-295.12" font-size="10.00" style="fill:var(--d-ink)">ECR</text>
+</g>
+<g id="edge14" class="edge">
+<title>build&#45;&gt;ecr</title>
+<path fill="none" stroke-dasharray="5,2" d="M367.63,-237.25C388.46,-250.48 416.41,-266.64 443.06,-277 463.28,-284.86 487.01,-290.29 506.01,-293.79" style="stroke:var(--d-line)"/>
+<polygon points="505.57,-296.2 512.89,-295 506.42,-291.37 505.57,-296.2" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="416.94" y="-270.13" font-size="9.00" style="fill:var(--d-muted)">push</text>
+</g>
+<g id="node6" class="node">
+<title>remote</title>
+<path stroke-width="1.2" d="M805.87,-240.94C805.87,-240.94 699.34,-240.94 699.34,-240.94 693.34,-240.94 687.34,-234.94 687.34,-228.94 687.34,-228.94 687.34,-209.06 687.34,-209.06 687.34,-203.06 693.34,-197.06 699.34,-197.06 699.34,-197.06 805.87,-197.06 805.87,-197.06 811.87,-197.06 817.87,-203.06 817.87,-209.06 817.87,-209.06 817.87,-228.94 817.87,-228.94 817.87,-234.94 811.87,-240.94 805.87,-240.94" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="752.61" y="-227.12" font-size="10.00" style="fill:var(--d-ink)">EC2 remote&#45;deploy.sh</text>
+<text xml:space="preserve" text-anchor="middle" x="752.61" y="-215.88" font-size="10.00" style="fill:var(--d-ink)">render&#45;env → ECR 로그인</text>
+<text xml:space="preserve" text-anchor="middle" x="752.61" y="-203.12" font-size="10.00" style="fill:var(--d-ink)">compose pull · up &#45;d</text>
+</g>
+<g id="edge2" class="edge">
+<title>deployb&#45;&gt;remote</title>
+<path fill="none" d="M640.73,-216.88C653.48,-217.12 666.35,-217.37 678.59,-217.6" style="stroke:var(--d-line)"/>
+<polygon points="678.4,-220.05 685.44,-217.73 678.49,-215.15 678.4,-220.05" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node7" class="node">
+<title>health</title>
+<polygon stroke-width="1.2" points="951.4,-243.09 850.87,-199 951.4,-154.91 1051.93,-199 951.4,-243.09" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="951.4" y="-207.22" font-size="10.00" style="fill:var(--d-ink)">헬스 대기</text>
+<text xml:space="preserve" text-anchor="middle" x="951.4" y="-195.22" font-size="10.00" style="fill:var(--d-ink)">/api/actuator/health</text>
+<text xml:space="preserve" text-anchor="middle" x="951.4" y="-183.97" font-size="10.00" style="fill:var(--d-ink)">(240초)</text>
+</g>
+<g id="edge3" class="edge">
+<title>remote&#45;&gt;health</title>
+<path fill="none" d="M818.32,-212.42C831.71,-211.06 846.05,-209.61 860.16,-208.17" style="stroke:var(--d-line)"/>
+<polygon points="860.21,-210.63 866.93,-207.48 859.72,-205.75 860.21,-210.63" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node8" class="node">
+<title>ok</title>
+<path stroke-width="1.2" d="M1215.96,-176C1215.96,-176 1136.43,-176 1136.43,-176 1130.43,-176 1124.43,-170 1124.43,-164 1124.43,-164 1124.43,-152 1124.43,-152 1124.43,-146 1130.43,-140 1136.43,-140 1136.43,-140 1215.96,-140 1215.96,-140 1221.96,-140 1227.96,-146 1227.96,-152 1227.96,-152 1227.96,-164 1227.96,-164 1227.96,-170 1221.96,-176 1215.96,-176" style="fill:var(--d-data-bg);stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="middle" x="1176.19" y="-160.6" font-size="10.00" style="fill:var(--d-ink)">current_tag 기록</text>
+<text xml:space="preserve" text-anchor="middle" x="1176.19" y="-148.6" font-size="10.00" style="fill:var(--d-ink)">1주 지난 이미지 정리</text>
+</g>
+<g id="edge4" class="edge">
+<title>health&#45;&gt;ok</title>
+<path fill="none" d="M1023.51,-185.91C1053.29,-180.43 1087.52,-174.13 1115.92,-168.91" style="stroke:var(--d-line)"/>
+<polygon points="1116.22,-171.34 1122.66,-167.67 1115.33,-166.52 1116.22,-171.34" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="1084.06" y="-178.47" font-size="9.00" style="fill:var(--d-muted)">UP</text>
+</g>
+<g id="node9" class="node">
+<title>rollback</title>
+<path stroke-width="1.2" d="M1224.21,-242.42C1224.21,-242.42 1128.18,-242.42 1128.18,-242.42 1122.18,-242.42 1116.18,-236.42 1116.18,-230.42 1116.18,-230.42 1116.18,-209.58 1116.18,-209.58 1116.18,-203.58 1122.18,-197.58 1128.18,-197.58 1128.18,-197.58 1224.21,-197.58 1224.21,-197.58 1230.21,-197.58 1236.21,-203.58 1236.21,-209.58 1236.21,-209.58 1236.21,-230.42 1236.21,-230.42 1236.21,-236.42 1230.21,-242.42 1224.21,-242.42" style="fill:var(--d-surface);stroke:var(--d-warn)"/>
+<text xml:space="preserve" text-anchor="middle" x="1176.19" y="-228.6" font-size="10.00" style="fill:var(--d-warn)">api 로그 100줄</text>
+<text xml:space="preserve" text-anchor="middle" x="1176.19" y="-216.6" font-size="10.00" style="fill:var(--d-warn)">이전 current_tag 로 롤백</text>
+<text xml:space="preserve" text-anchor="middle" x="1176.19" y="-204.4" font-size="10.00" style="fill:var(--d-warn)">실패 종료</text>
+</g>
+<g id="edge5" class="edge">
+<title>health&#45;&gt;rollback</title>
+<path fill="none" d="M1035.36,-206.82C1059.16,-209.06 1084.82,-211.48 1107.57,-213.63" style="stroke:var(--d-warn)"/>
+<polygon points="1107.11,-216.04 1114.31,-214.26 1107.57,-211.17 1107.11,-216.04" style="fill:var(--d-warn);stroke:var(--d-warn)"/>
+<text xml:space="preserve" text-anchor="middle" x="1084.06" y="-215.31" font-size="9.00" style="fill:var(--d-warn)">시간 초과</text>
+</g>
+<g id="node11" class="node">
+<title>sync1</title>
+<path stroke-width="1.2" d="M589.34,-94C589.34,-94 494.06,-94 494.06,-94 488.06,-94 482.06,-88 482.06,-82 482.06,-82 482.06,-70 482.06,-70 482.06,-64 488.06,-58 494.06,-58 494.06,-58 589.34,-58 589.34,-58 595.34,-58 601.34,-64 601.34,-70 601.34,-70 601.34,-82 601.34,-82 601.34,-88 595.34,-94 589.34,-94" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="541.7" y="-78.12" font-size="10.00" style="fill:var(--d-ink)">S3 sync _next/static</text>
+<text xml:space="preserve" text-anchor="middle" x="541.7" y="-66.88" font-size="10.00" style="fill:var(--d-ink)">immutable (지우지 않음)</text>
+</g>
+<g id="edge6" class="edge">
+<title>fbuild&#45;&gt;sync1</title>
+<path fill="none" d="M388.36,-76C414.27,-76 445.66,-76 473.2,-76" style="stroke:var(--d-line)"/>
+<polygon points="473.1,-78.45 480.1,-76 473.1,-73.55 473.1,-78.45" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node12" class="node">
+<title>sync2</title>
+<path stroke-width="1.2" d="M789.75,-94C789.75,-94 715.47,-94 715.47,-94 709.47,-94 703.47,-88 703.47,-82 703.47,-82 703.47,-70 703.47,-70 703.47,-64 709.47,-58 715.47,-58 715.47,-58 789.75,-58 789.75,-58 795.75,-58 801.75,-64 801.75,-70 801.75,-70 801.75,-82 801.75,-82 801.75,-88 795.75,-94 789.75,-94" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="752.61" y="-78.12" font-size="10.00" style="fill:var(--d-ink)">S3 sync 나머지</text>
+<text xml:space="preserve" text-anchor="middle" x="752.61" y="-66.12" font-size="10.00" style="fill:var(--d-ink)">no&#45;cache · &#45;&#45;delete</text>
+</g>
+<g id="edge7" class="edge">
+<title>sync1&#45;&gt;sync2</title>
+<path fill="none" d="M601.73,-76C630.83,-76 665.77,-76 694.59,-76" style="stroke:var(--d-line)"/>
+<polygon points="694.43,-78.45 701.43,-76 694.43,-73.55 694.43,-78.45" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node16" class="node">
+<title>web</title>
+<path stroke-width="1.2" d="M978.4,-32.73C978.4,-34.53 966.3,-36 951.4,-36 936.5,-36 924.4,-34.53 924.4,-32.73 924.4,-32.73 924.4,-3.27 924.4,-3.27 924.4,-1.47 936.5,0 951.4,0 966.3,0 978.4,-1.47 978.4,-3.27 978.4,-3.27 978.4,-32.73 978.4,-32.73" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
+<path fill="none" stroke-width="1.2" d="M978.4,-32.73C978.4,-30.92 966.3,-29.45 951.4,-29.45 936.5,-29.45 924.4,-30.92 924.4,-32.73" style="stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="951.4" y="-14.12" font-size="10.00" style="fill:var(--d-ink)">S3 web</text>
+</g>
+<g id="edge17" class="edge">
+<title>sync1&#45;&gt;web</title>
+<path fill="none" stroke-dasharray="5,2" d="M601.6,-62.97C627.77,-57.5 658.99,-51.4 687.34,-47 768.89,-34.35 865.5,-25.18 915.89,-20.83" style="stroke:var(--d-line)"/>
+<polygon points="915.89,-23.29 922.65,-20.25 915.47,-18.4 915.89,-23.29" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node13" class="node">
+<title>inval</title>
+<path stroke-width="1.2" d="M977.29,-94C977.29,-94 925.51,-94 925.51,-94 919.51,-94 913.51,-88 913.51,-82 913.51,-82 913.51,-70 913.51,-70 913.51,-64 919.51,-58 925.51,-58 925.51,-58 977.29,-58 977.29,-58 983.29,-58 989.29,-64 989.29,-70 989.29,-70 989.29,-82 989.29,-82 989.29,-88 983.29,-94 977.29,-94" style="fill:var(--d-surface);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="951.4" y="-77.75" font-size="10.00" style="fill:var(--d-ink)">CloudFront</text>
+<text xml:space="preserve" text-anchor="middle" x="951.4" y="-66.5" font-size="10.00" style="fill:var(--d-ink)">invalidation /*</text>
+</g>
+<g id="edge8" class="edge">
+<title>sync2&#45;&gt;inval</title>
+<path fill="none" d="M802.25,-76C833.57,-76 874.01,-76 904.72,-76" style="stroke:var(--d-line)"/>
+<polygon points="904.6,-78.45 911.6,-76 904.6,-73.55 904.6,-78.45" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="edge18" class="edge">
+<title>sync2&#45;&gt;web</title>
+<path fill="none" stroke-dasharray="5,2" d="M801.96,-60.13C817.53,-55.14 834.89,-49.71 850.87,-45 872.41,-38.65 896.74,-32.04 915.95,-26.95" style="stroke:var(--d-line)"/>
+<polygon points="916.51,-29.34 922.65,-25.18 915.26,-24.6 916.51,-29.34" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="edge15" class="edge">
+<title>ecr&#45;&gt;remote</title>
+<path fill="none" stroke-dasharray="5,2" d="M568.92,-294.99C588.89,-291.49 616.84,-285.61 640.34,-277 663.1,-268.66 687.1,-256.61 706.96,-245.66" style="stroke:var(--d-line)"/>
+<polygon points="708.12,-247.81 713.03,-242.26 705.73,-243.54 708.12,-247.81" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="663.84" y="-270.55" font-size="9.00" style="fill:var(--d-muted)">pull</text>
+</g>
+<g id="edge16" class="edge">
+<title>ssm&#45;&gt;remote</title>
+<path fill="none" stroke-dasharray="5,2" d="M370.5,-346.57C429.46,-355.72 549.67,-367.1 640.34,-328 679.09,-311.29 711.94,-274.45 731.69,-248.23" style="stroke:var(--d-line)"/>
+<polygon points="733.59,-249.78 735.77,-242.69 729.64,-246.88 733.59,-249.78" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="541.7" y="-356.68" font-size="9.00" style="fill:var(--d-muted)">app.env · db.env</text>
+</g>
+</g>
+</svg>

@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg data-generated-by="scripts/build-diagrams.py" role="img" aria-label="아키텍처 — 브라우저 → CloudFront(정적 S3·/api EC2·/uploads S3) → EC2 Docker Compose(Spring Boot + PostgreSQL), ECR·SSM·CloudWatch·Cognito·End User Messaging·외부 IdP" width="1275" height="724"
+ viewBox="0.00 0.00 1275.00 724.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<style>svg { --d-ink: #1f2328; --d-muted: #59636e; --d-line: #8c959f; --d-surface: #ffffff; --d-surface-2: #f6f8fa; --d-accent: #0969da; --d-accent-bg: #ddf4ff; --d-aws: #bc4c00; --d-aws-bg: #fff1e5; --d-ext: #8250df; --d-ext-bg: #fbefff; --d-data: #1a7f37; --d-data-bg: #dafbe1; --d-warn: #cf222e; --d-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { --d-ink: #e6edf3; --d-muted: #9198a1; --d-line: #656c76; --d-surface: #151b23; --d-surface-2: #1c2128; --d-accent: #4493f8; --d-accent-bg: #0c2d6b; --d-aws: #f0883e; --d-aws-bg: #3d1e0b; --d-ext: #ab7df8; --d-ext-bg: #2b1b4a; --d-data: #3fb950; --d-data-bg: #0f2d19; --d-warn: #f85149; --d-bg: #0d1117; } }
+text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", Helvetica, Arial, sans-serif; }</style>
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 702.88)">
+<title>architecture</title>
+<polygon stroke="none" points="-21.6,21.6 -21.6,-702.88 1253.65,-702.88 1253.65,21.6 -21.6,21.6" style="fill:var(--d-bg)"/>
+<g id="clust1" class="cluster">
+<title>cluster_idp</title>
+<path d="M882.85,-572C882.85,-572 972.26,-572 972.26,-572 978.26,-572 984.26,-578 984.26,-584 984.26,-584 984.26,-634 984.26,-634 984.26,-640 978.26,-646 972.26,-646 972.26,-646 882.85,-646 882.85,-646 876.85,-646 870.85,-640 870.85,-634 870.85,-634 870.85,-584 870.85,-584 870.85,-578 876.85,-572 882.85,-572" style="fill:var(--d-ext-bg);stroke:var(--d-ext)"/>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-631.55" font-size="11.00" style="fill:var(--d-ext)">외부 OAuth 제공자</text>
+</g>
+<g id="clust2" class="cluster">
+<title>cluster_aws</title>
+<path d="M184.41,-8C184.41,-8 1212.05,-8 1212.05,-8 1218.05,-8 1224.05,-14 1224.05,-20 1224.05,-20 1224.05,-552 1224.05,-552 1224.05,-558 1218.05,-564 1212.05,-564 1212.05,-564 184.41,-564 184.41,-564 178.41,-564 172.41,-558 172.41,-552 172.41,-552 172.41,-20 172.41,-20 172.41,-14 178.41,-8 184.41,-8" style="fill:var(--d-surface-2);stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="698.23" y="-549.55" font-size="11.00" style="fill:var(--d-aws)">AWS us&#45;east&#45;1</text>
+</g>
+<g id="clust3" class="cluster">
+<title>cluster_vpc</title>
+<path fill="none" stroke-dasharray="5,2" d="M565.07,-413C565.07,-413 1204.05,-413 1204.05,-413 1210.05,-413 1216.05,-419 1216.05,-425 1216.05,-425 1216.05,-524 1216.05,-524 1216.05,-530 1210.05,-536 1204.05,-536 1204.05,-536 565.07,-536 565.07,-536 559.07,-536 553.07,-530 553.07,-524 553.07,-524 553.07,-425 553.07,-425 553.07,-419 559.07,-413 565.07,-413" style="stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="884.56" y="-521.55" font-size="11.00" style="fill:var(--d-muted)">VPC · public subnet · SG 8080 ← CloudFront prefix list</text>
+</g>
+<g id="clust4" class="cluster">
+<title>cluster_ec2</title>
+<path d="M573.07,-421C573.07,-421 970.76,-421 970.76,-421 976.76,-421 982.76,-427 982.76,-433 982.76,-433 982.76,-494 982.76,-494 982.76,-500 976.76,-506 970.76,-506 970.76,-506 573.07,-506 573.07,-506 567.07,-506 561.07,-500 561.07,-494 561.07,-494 561.07,-433 561.07,-433 561.07,-427 567.07,-421 573.07,-421" style="fill:var(--d-surface);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="771.92" y="-491.55" font-size="11.00" style="fill:var(--d-accent)">EC2 t4g.small (EIP, SSM, SSH 없음) · Docker Compose /opt/board</text>
+</g>
+<g id="node1" class="node">
+<title>browser</title>
+<path stroke-width="1.2" d="M95.16,-171.29C95.16,-171.29 12,-171.29 12,-171.29 6,-171.29 0,-165.29 0,-159.29 0,-159.29 0,-144.71 0,-144.71 0,-138.71 6,-132.71 12,-132.71 12,-132.71 95.16,-132.71 95.16,-132.71 101.16,-132.71 107.16,-138.71 107.16,-144.71 107.16,-144.71 107.16,-159.29 107.16,-159.29 107.16,-165.29 101.16,-171.29 95.16,-171.29" style="fill:var(--d-accent-bg);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="53.58" y="-155.8" font-size="11.00" style="fill:var(--d-ink)">브라우저</text>
+<text xml:space="preserve" text-anchor="middle" x="53.58" y="-141.55" font-size="11.00" style="fill:var(--d-ink)">(Next.js 정적 SPA)</text>
+</g>
+<g id="node2" class="node">
+<title>idps</title>
+<path stroke-width="1.2" d="M964.26,-616C964.26,-616 890.85,-616 890.85,-616 884.85,-616 878.85,-610 878.85,-604 878.85,-604 878.85,-592 878.85,-592 878.85,-586 884.85,-580 890.85,-580 890.85,-580 964.26,-580 964.26,-580 970.26,-580 976.26,-586 976.26,-592 976.26,-592 976.26,-604 976.26,-604 976.26,-610 970.26,-616 964.26,-616" style="fill:var(--d-surface);stroke:var(--d-ext)"/>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-599.55" font-size="11.00" style="fill:var(--d-ink)">Google · GitHub</text>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-587.55" font-size="11.00" style="fill:var(--d-ink)">Naver · Kakao</text>
+</g>
+<g id="edge6" class="edge">
+<title>browser&#45;&gt;idps</title>
+<path fill="none" stroke-dasharray="5,2" d="M57.08,-171.69C67.15,-247.49 107.3,-518.78 172.41,-570 381.91,-734.81 734.72,-655.35 870.75,-615.78" style="stroke:var(--d-ext)"/>
+<polygon points="871.14,-618.22 877.17,-613.89 869.76,-613.52 871.14,-618.22" style="fill:var(--d-ext);stroke:var(--d-ext)"/>
+<text xml:space="preserve" text-anchor="middle" x="470.82" y="-672.73" font-size="9.00" style="fill:var(--d-muted)">로그인 리다이렉트</text>
+</g>
+<g id="node3" class="node">
+<title>cf</title>
+<path stroke-width="1.2" d="M362.57,-229.29C362.57,-229.29 192.41,-229.29 192.41,-229.29 186.41,-229.29 180.41,-223.29 180.41,-217.29 180.41,-217.29 180.41,-190.71 180.41,-190.71 180.41,-184.71 186.41,-178.71 192.41,-178.71 192.41,-178.71 362.57,-178.71 362.57,-178.71 368.57,-178.71 374.57,-184.71 374.57,-190.71 374.57,-190.71 374.57,-217.29 374.57,-217.29 374.57,-223.29 368.57,-229.29 362.57,-229.29" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="277.49" y="-213.8" font-size="11.00" style="fill:var(--d-ink)">CloudFront</text>
+<text xml:space="preserve" text-anchor="middle" x="277.49" y="-201.8" font-size="11.00" style="fill:var(--d-ink)">*.cloudfront.net (또는 domain_name)</text>
+<text xml:space="preserve" text-anchor="middle" x="277.49" y="-187.55" font-size="11.00" style="fill:var(--d-ink)">CF Function: /x/ → /x/index.html</text>
+</g>
+<g id="edge1" class="edge">
+<title>browser&#45;&gt;cf</title>
+<path fill="none" stroke-width="1.5" d="M107.73,-164.46C126.86,-168.94 149.17,-174.17 171.19,-179.32" style="stroke:var(--d-accent)"/>
+<polygon stroke-width="1.5" points="170.35,-181.64 177.72,-180.86 171.46,-176.87 170.35,-181.64" style="fill:var(--d-accent);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="143.78" y="-176.09" font-size="9.00" style="fill:var(--d-muted)">HTTPS</text>
+</g>
+<g id="node5" class="node">
+<title>uploads</title>
+<path stroke-width="1.2" d="M988.64,-140.45C988.64,-143.94 961.26,-146.77 927.56,-146.77 893.86,-146.77 866.48,-143.94 866.48,-140.45 866.48,-140.45 866.48,-83.55 866.48,-83.55 866.48,-80.06 893.86,-77.23 927.56,-77.23 961.26,-77.23 988.64,-80.06 988.64,-83.55 988.64,-83.55 988.64,-140.45 988.64,-140.45" style="fill:var(--d-data-bg);stroke:var(--d-data)"/>
+<path fill="none" stroke-width="1.2" d="M988.64,-140.45C988.64,-136.96 961.26,-134.13 927.56,-134.13 893.86,-134.13 866.48,-136.96 866.48,-140.45" style="stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-121.8" font-size="11.00" style="fill:var(--d-ink)">S3 uploads</text>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-109.8" font-size="11.00" style="fill:var(--d-ink)">첨부 이미지 (OAC)</text>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-95.55" font-size="11.00" style="fill:var(--d-ink)">pending 태그 1일 정리</text>
+</g>
+<g id="edge5" class="edge">
+<title>browser&#45;&gt;uploads</title>
+<path fill="none" stroke-dasharray="5,2" d="M107.6,-145.92C198.58,-135.82 390.35,-116.01 553.07,-109 619.08,-106.16 635.66,-108.56 701.73,-109 753.99,-109.35 813.07,-110.15 857.55,-110.84" style="stroke:var(--d-line)"/>
+<polygon points="857.42,-113.29 864.45,-110.95 857.49,-108.39 857.42,-113.29" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="470.82" y="-119.53" font-size="9.00" style="fill:var(--d-muted)">presigned PUT</text>
+</g>
+<g id="node12" class="node">
+<title>cognito</title>
+<path stroke-width="1.2" d="M969.89,-52C969.89,-52 885.23,-52 885.23,-52 879.23,-52 873.23,-46 873.23,-40 873.23,-40 873.23,-28 873.23,-28 873.23,-22 879.23,-16 885.23,-16 885.23,-16 969.89,-16 969.89,-16 975.89,-16 981.89,-22 981.89,-28 981.89,-28 981.89,-40 981.89,-40 981.89,-46 975.89,-52 969.89,-52" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-35.55" font-size="11.00" style="fill:var(--d-ink)">Cognito User Pool</text>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-23.55" font-size="11.00" style="fill:var(--d-ink)">Hosted UI (OIDC)</text>
+</g>
+<g id="edge7" class="edge">
+<title>browser&#45;&gt;cognito</title>
+<path fill="none" stroke-dasharray="5,2" d="M107.62,-132.32C127.67,-125.57 150.86,-118.57 172.41,-114 425.74,-60.32 734.96,-41.9 864.66,-36.25" style="stroke:var(--d-ext)"/>
+<polygon points="864.54,-38.71 871.43,-35.96 864.33,-33.81 864.54,-38.71" style="fill:var(--d-ext);stroke:var(--d-ext)"/>
+<text xml:space="preserve" text-anchor="middle" x="470.82" y="-76.81" font-size="9.00" style="fill:var(--d-muted)">Hosted UI</text>
+</g>
+<g id="node4" class="node">
+<title>web</title>
+<path stroke-width="1.2" d="M688.98,-166.44C688.98,-168.94 664.96,-170.98 635.4,-170.98 605.84,-170.98 581.82,-168.94 581.82,-166.44 581.82,-166.44 581.82,-125.56 581.82,-125.56 581.82,-123.06 605.84,-121.02 635.4,-121.02 664.96,-121.02 688.98,-123.06 688.98,-125.56 688.98,-125.56 688.98,-166.44 688.98,-166.44" style="fill:var(--d-data-bg);stroke:var(--d-data)"/>
+<path fill="none" stroke-width="1.2" d="M688.98,-166.44C688.98,-163.93 664.96,-161.89 635.4,-161.89 605.84,-161.89 581.82,-163.93 581.82,-166.44" style="stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="middle" x="635.4" y="-148.68" font-size="11.00" style="fill:var(--d-ink)">S3 web</text>
+<text xml:space="preserve" text-anchor="middle" x="635.4" y="-136.68" font-size="11.00" style="fill:var(--d-ink)">정적 export (OAC)</text>
+</g>
+<g id="edge2" class="edge">
+<title>cf&#45;&gt;web</title>
+<path fill="none" d="M374.8,-188.3C437.95,-178.01 518.62,-164.87 573.14,-155.98" style="stroke:var(--d-line)"/>
+<polygon points="573.32,-158.44 579.83,-154.89 572.53,-153.6 573.32,-158.44" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="470.82" y="-186.28" font-size="9.00" style="fill:var(--d-muted)">기본 /*</text>
+</g>
+<g id="edge4" class="edge">
+<title>cf&#45;&gt;uploads</title>
+<path fill="none" d="M375.01,-207.93C461.54,-209.4 591.46,-206.52 701.73,-183 755.36,-171.56 814.42,-152.65 858.55,-137.23" style="stroke:var(--d-line)"/>
+<polygon points="859.12,-139.62 864.91,-134.99 857.49,-135 859.12,-139.62" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="635.4" y="-204.31" font-size="9.00" style="fill:var(--d-muted)">/uploads/*</text>
+</g>
+<g id="node6" class="node">
+<title>api</title>
+<path stroke-width="1.2" d="M689.73,-475.04C689.73,-475.04 581.07,-475.04 581.07,-475.04 575.07,-475.04 569.07,-469.04 569.07,-463.04 569.07,-463.04 569.07,-440.96 569.07,-440.96 569.07,-434.96 575.07,-428.96 581.07,-428.96 581.07,-428.96 689.73,-428.96 689.73,-428.96 695.73,-428.96 701.73,-434.96 701.73,-440.96 701.73,-440.96 701.73,-463.04 701.73,-463.04 701.73,-469.04 695.73,-475.04 689.73,-475.04" style="fill:var(--d-accent-bg);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="635.4" y="-459.55" font-size="11.00" style="fill:var(--d-ink)">api</text>
+<text xml:space="preserve" text-anchor="middle" x="635.4" y="-447.55" font-size="11.00" style="fill:var(--d-ink)">Spring Boot 4 · Java 25</text>
+<text xml:space="preserve" text-anchor="middle" x="635.4" y="-435.55" font-size="11.00" style="fill:var(--d-ink)">:8080 /api</text>
+</g>
+<g id="edge3" class="edge">
+<title>cf&#45;&gt;api</title>
+<path fill="none" stroke-width="1.5" d="M303.84,-229.75C349.72,-275.07 451.26,-369.5 553.07,-425 555.55,-426.35 558.11,-427.65 560.73,-428.9" style="stroke:var(--d-accent)"/>
+<polygon stroke-width="1.5" points="559.25,-430.93 566.64,-431.56 561.26,-426.46 559.25,-430.93" style="fill:var(--d-accent);stroke:var(--d-accent)"/>
+<text xml:space="preserve" text-anchor="middle" x="470.82" y="-434.37" font-size="9.00" style="fill:var(--d-muted)">/api/* &#160;캐시 없음</text>
+<text xml:space="preserve" text-anchor="middle" x="470.82" y="-423.12" font-size="9.00" style="fill:var(--d-muted)">쿠키·헤더·CloudFront&#45;Viewer&#45;Address</text>
+</g>
+<g id="edge11" class="edge">
+<title>api&#45;&gt;idps</title>
+<path fill="none" d="M683.34,-475.62C738.34,-503.29 828.75,-548.78 882.48,-575.82" style="stroke:var(--d-ext)"/>
+<polygon points="881.1,-577.87 888.46,-578.83 883.31,-573.49 881.1,-577.87" style="fill:var(--d-ext);stroke:var(--d-ext)"/>
+<text xml:space="preserve" text-anchor="middle" x="777.73" y="-547.81" font-size="9.00" style="fill:var(--d-muted)">token · userinfo</text>
+</g>
+<g id="edge10" class="edge">
+<title>api&#45;&gt;uploads</title>
+<path fill="none" d="M698.57,-428.58C699.68,-427.45 700.74,-426.25 701.73,-425 740.04,-376.53 682.11,-333.41 723.73,-287.75 757.11,-251.12 797.34,-295.69 831.73,-260 863.61,-226.92 827.56,-196.76 853.73,-159 855.92,-155.84 858.4,-152.85 861.08,-150.01" style="stroke:var(--d-line)"/>
+<polygon points="862.44,-152.1 865.77,-145.47 859.04,-148.58 862.44,-152.1" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="777.73" y="-290.45" font-size="9.00" style="fill:var(--d-muted)">presign · HeadObject · 태그</text>
+</g>
+<g id="node7" class="node">
+<title>db</title>
+<path stroke-width="1.2" d="M974.76,-471.17C974.76,-473.52 953.61,-475.43 927.56,-475.43 901.51,-475.43 880.35,-473.52 880.35,-471.17 880.35,-471.17 880.35,-432.83 880.35,-432.83 880.35,-430.48 901.51,-428.57 927.56,-428.57 953.61,-428.57 974.76,-430.48 974.76,-432.83 974.76,-432.83 974.76,-471.17 974.76,-471.17" style="fill:var(--d-data-bg);stroke:var(--d-data)"/>
+<path fill="none" stroke-width="1.2" d="M974.76,-471.17C974.76,-468.82 953.61,-466.91 927.56,-466.91 901.51,-466.91 880.35,-468.82 880.35,-471.17" style="stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-453.55" font-size="11.00" style="fill:var(--d-ink)">db</text>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-441.55" font-size="11.00" style="fill:var(--d-ink)">PostgreSQL 18</text>
+</g>
+<g id="edge8" class="edge">
+<title>api&#45;&gt;db</title>
+<path fill="none" d="M702.12,-461.17C709.4,-461.92 716.71,-462.56 723.73,-463 771.64,-466.01 783.81,-465.77 831.73,-463 844.62,-462.25 858.46,-460.94 871.46,-459.48" style="stroke:var(--d-line)"/>
+<polygon points="871.69,-461.92 878.36,-458.68 871.13,-457.05 871.69,-461.92" style="fill:var(--d-line);stroke:var(--d-line)"/>
+</g>
+<g id="node9" class="node">
+<title>ecr</title>
+<path stroke-width="1.2" d="M969.89,-208.16C969.89,-208.16 885.23,-208.16 885.23,-208.16 879.23,-208.16 873.23,-202.16 873.23,-196.16 873.23,-196.16 873.23,-183.84 873.23,-183.84 873.23,-177.84 879.23,-171.84 885.23,-171.84 885.23,-171.84 969.89,-171.84 969.89,-171.84 975.89,-171.84 981.89,-177.84 981.89,-183.84 981.89,-183.84 981.89,-196.16 981.89,-196.16 981.89,-202.16 975.89,-208.16 969.89,-208.16" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-192.68" font-size="11.00" style="fill:var(--d-ink)">ECR board&#45;api</text>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-180.68" font-size="11.00" style="fill:var(--d-ink)">(arm64, 최근 20개)</text>
+</g>
+<g id="edge16" class="edge">
+<title>api&#45;&gt;ecr</title>
+<path fill="none" stroke-dasharray="1,5" d="M703.33,-422.05C725.96,-387.82 694.91,-358.35 723.73,-328.75 758.3,-293.24 796.45,-335.8 831.73,-301 858.29,-274.8 829.06,-247.98 853.73,-220 858.98,-214.05 865.58,-209.26 872.66,-205.4" style="stroke:var(--d-line)"/>
+<polygon points="701.64,-420.23 699.37,-427.29 705.55,-423.18 701.64,-420.23" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="777.73" y="-331.45" font-size="9.00" style="fill:var(--d-muted)">이미지 pull</text>
+</g>
+<g id="node10" class="node">
+<title>ssm</title>
+<path stroke-width="1.2" d="M979.26,-281.17C979.26,-281.17 875.85,-281.17 875.85,-281.17 869.85,-281.17 863.85,-275.17 863.85,-269.17 863.85,-269.17 863.85,-244.84 863.85,-244.84 863.85,-238.84 869.85,-232.84 875.85,-232.84 875.85,-232.84 979.26,-232.84 979.26,-232.84 985.26,-232.84 991.26,-238.84 991.26,-244.84 991.26,-244.84 991.26,-269.17 991.26,-269.17 991.26,-275.17 985.26,-281.17 979.26,-281.17" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-265.68" font-size="11.00" style="fill:var(--d-ink)">SSM Parameter Store</text>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-253.68" font-size="11.00" style="fill:var(--d-ink)">/board/prod/*</text>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-241.68" font-size="11.00" style="fill:var(--d-ink)">(시크릿 SecureString)</text>
+</g>
+<g id="edge15" class="edge">
+<title>api&#45;&gt;ssm</title>
+<path fill="none" stroke-dasharray="1,5" d="M703.44,-422.07C717.44,-402.5 705.83,-385.51 723.73,-369.75 760.93,-337.01 793.83,-373.93 831.73,-342 849.99,-326.62 837.17,-310.19 853.73,-293 857.74,-288.84 862.34,-285.08 867.23,-281.71" style="stroke:var(--d-line)"/>
+<polygon points="701.6,-420.45 698.91,-427.36 705.33,-423.63 701.6,-420.45" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="777.73" y="-372.45" font-size="9.00" style="fill:var(--d-muted)">배포 때 env 파일</text>
+</g>
+<g id="node11" class="node">
+<title>logs</title>
+<path stroke-width="1.2" d="M969.51,-342.17C969.51,-342.17 885.6,-342.17 885.6,-342.17 879.6,-342.17 873.6,-336.17 873.6,-330.17 873.6,-330.17 873.6,-317.83 873.6,-317.83 873.6,-311.83 879.6,-305.83 885.6,-305.83 885.6,-305.83 969.51,-305.83 969.51,-305.83 975.51,-305.83 981.51,-311.83 981.51,-317.83 981.51,-317.83 981.51,-330.17 981.51,-330.17 981.51,-336.17 975.51,-342.17 969.51,-342.17" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-326.68" font-size="11.00" style="fill:var(--d-ink)">CloudWatch Logs</text>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-314.68" font-size="11.00" style="fill:var(--d-ink)">/board/prod (14일)</text>
+</g>
+<g id="edge14" class="edge">
+<title>api&#45;&gt;logs</title>
+<path fill="none" stroke-dasharray="1,5" d="M694.64,-428.4C697.05,-427.28 699.42,-426.14 701.73,-425 711.86,-420 713.3,-416.6 723.73,-412.25 769.63,-393.12 790.5,-410.8 831.73,-383 845.14,-373.96 840.91,-363.87 853.73,-354 857.48,-351.11 861.54,-348.46 865.77,-346.03" style="stroke:var(--d-line)"/>
+<polygon points="866.67,-348.33 871.68,-342.86 864.35,-344.01 866.67,-348.33" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="777.73" y="-413.45" font-size="9.00" style="fill:var(--d-muted)">awslogs</text>
+</g>
+<g id="edge12" class="edge">
+<title>api&#45;&gt;cognito</title>
+<path fill="none" d="M698.88,-428.36C699.88,-427.29 700.84,-426.17 701.73,-425 749.48,-362.41 695.3,-322.66 723.73,-249.25 759.92,-155.79 775.76,-127.97 853.73,-65 857.5,-61.96 861.61,-59.17 865.89,-56.61" style="stroke:var(--d-line)"/>
+<polygon points="866.99,-58.81 871.92,-53.27 864.61,-54.52 866.99,-58.81" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="777.73" y="-250.45" font-size="9.00" style="fill:var(--d-muted)">token · userinfo · JWKS</text>
+</g>
+<g id="node13" class="node">
+<title>sms</title>
+<path stroke-width="1.2" d="M989.39,-403.17C989.39,-403.17 865.73,-403.17 865.73,-403.17 859.73,-403.17 853.73,-397.17 853.73,-391.17 853.73,-391.17 853.73,-378.83 853.73,-378.83 853.73,-372.83 859.73,-366.83 865.73,-366.83 865.73,-366.83 989.39,-366.83 989.39,-366.83 995.39,-366.83 1001.39,-372.83 1001.39,-378.83 1001.39,-378.83 1001.39,-391.17 1001.39,-391.17 1001.39,-397.17 995.39,-403.17 989.39,-403.17" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-387.68" font-size="11.00" style="fill:var(--d-ink)">End User Messaging SMS</text>
+<text xml:space="preserve" text-anchor="middle" x="927.56" y="-375.68" font-size="11.00" style="fill:var(--d-ink)">(휴대폰 OTP)</text>
+</g>
+<g id="edge13" class="edge">
+<title>api&#45;&gt;sms</title>
+<path fill="none" d="M702.3,-446.1C740.54,-441.71 789.37,-434.46 831.73,-423 836.39,-421.74 854.27,-414.66 873.27,-406.95" style="stroke:var(--d-line)"/>
+<polygon points="874.19,-409.22 879.75,-404.32 872.35,-404.69 874.19,-409.22" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="777.73" y="-444.31" font-size="9.00" style="fill:var(--d-muted)">SendTextMessage</text>
+</g>
+<g id="node8" class="node">
+<title>ebs</title>
+<path stroke-width="1.2" d="M1208.05,-484.45C1208.05,-487.94 1181.85,-490.77 1149.59,-490.77 1117.34,-490.77 1091.14,-487.94 1091.14,-484.45 1091.14,-484.45 1091.14,-427.55 1091.14,-427.55 1091.14,-424.06 1117.34,-421.23 1149.59,-421.23 1181.85,-421.23 1208.05,-424.06 1208.05,-427.55 1208.05,-427.55 1208.05,-484.45 1208.05,-484.45" style="fill:var(--d-data-bg);stroke:var(--d-data)"/>
+<path fill="none" stroke-width="1.2" d="M1208.05,-484.45C1208.05,-480.96 1181.85,-478.13 1149.59,-478.13 1117.34,-478.13 1091.14,-480.96 1091.14,-484.45" style="stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="middle" x="1149.59" y="-465.8" font-size="11.00" style="fill:var(--d-ink)">데이터 EBS gp3</text>
+<text xml:space="preserve" text-anchor="middle" x="1149.59" y="-451.55" font-size="11.00" style="fill:var(--d-ink)">/srv/pgdata</text>
+<text xml:space="preserve" text-anchor="middle" x="1149.59" y="-439.55" font-size="11.00" style="fill:var(--d-ink)">DLM 일일 스냅샷 7개</text>
+</g>
+<g id="edge9" class="edge">
+<title>db&#45;&gt;ebs</title>
+<path fill="none" stroke-dasharray="1,5" d="M975.22,-452.85C1008.91,-453.46 1054.61,-454.29 1090.63,-454.95" style="stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="1046.26" y="-455.68" font-size="9.00" style="fill:var(--d-muted)">bind mount</text>
+</g>
+</g>
+</svg>
