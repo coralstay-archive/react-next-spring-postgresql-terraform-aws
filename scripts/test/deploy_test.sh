@@ -669,7 +669,9 @@ if need_linter shellcheck; then
   # TASK-19#3 로컬 shellcheck 는 CI 고정 버전(ci.yml SHELLCHECK_VERSION)과 같아야 결과가 같다
   SHELLCHECK_VERSION="$(sed -nE 's/^[[:space:]]*SHELLCHECK_VERSION: "?([0-9.]+)"?.*/\1/p' .github/workflows/ci.yml | head -n1)"
   local_sc="$(shellcheck --version | sed -nE 's/^version: ([0-9.]+).*/\1/p')"
-  if [ -n "$SHELLCHECK_VERSION" ] && [ "$local_sc" != "$SHELLCHECK_VERSION" ]; then
+  if [ -z "$SHELLCHECK_VERSION" ]; then
+    if [ "${REQUIRE_LINTERS:-0}" = 1 ]; then echo "  FAIL - ci.yml 에서 SHELLCHECK_VERSION 을 읽지 못했다"; failures=$((failures + 1)); fi
+  elif [ "$local_sc" != "$SHELLCHECK_VERSION" ]; then
     if [ "${REQUIRE_LINTERS:-0}" = 1 ]; then
       echo "  FAIL - shellcheck $local_sc ≠ ci.yml 고정 $SHELLCHECK_VERSION"; failures=$((failures + 1))
     else

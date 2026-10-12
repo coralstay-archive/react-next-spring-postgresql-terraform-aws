@@ -169,8 +169,8 @@ fi
 check "TASK-19#2 TASK-19#B1 ci.yml 은 pull_request 에서 make test 실행" sh -c 'grep -Eq "^  pull_request:" .github/workflows/ci.yml && grep -q "run: make test" .github/workflows/ci.yml'
 # TASK-19#3 CI shellcheck 를 로컬과 같은 버전으로 고정(구버전 Ubuntu 패키지가 로컬에서 안 나는 경고를 낸 사고)
 check "TASK-19#3 ci.yml 은 SHELLCHECK_VERSION 을 고정한다" grep -Eq '^\s*SHELLCHECK_VERSION: "?[0-9]+\.[0-9]+\.[0-9]+"?' .github/workflows/ci.yml
-check "TASK-19#3 ci.yml 은 shellcheck tarball 을 sha256 으로 검증한다" sh -c 'grep -q "SHELLCHECK_SHA256" .github/workflows/ci.yml && grep -q "sha256sum -c" .github/workflows/ci.yml'
-check "TASK-19#3 deploy_test.sh 는 로컬 shellcheck 버전을 ci.yml 고정값과 비교한다" grep -q "SHELLCHECK_VERSION" scripts/test/deploy_test.sh
+check "TASK-19#3 ci.yml 은 shellcheck tarball 을 sha256 으로 검증한다" sh -c 'grep -Eq "^\s*SHELLCHECK_SHA256: [0-9a-f]{64}$" .github/workflows/ci.yml && grep -Eq "^\s*echo .*SHELLCHECK_SHA256.*\| sha256sum -c -$" .github/workflows/ci.yml'
+check "TASK-19#3 deploy_test.sh 는 로컬 shellcheck 버전을 ci.yml 고정값과 비교한다" sh -c 'grep -q "shellcheck --version" scripts/test/deploy_test.sh && grep -Eq "^\s*SHELLCHECK_VERSION=.*ci.yml" scripts/test/deploy_test.sh'
 
 echo "repo tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]
