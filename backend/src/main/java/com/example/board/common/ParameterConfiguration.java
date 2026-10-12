@@ -1,7 +1,5 @@
 package com.example.board.common;
 
-import java.util.Locale;
-
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.core.convert.converter.ConverterFactory;
@@ -35,7 +33,17 @@ public class ParameterConfiguration implements WebMvcConfigurer {
 				if (value.isEmpty()) {
 					return null;
 				}
-				return (T) Enum.valueOf(type, value.toUpperCase(Locale.ROOT));
+				for (T constant : type.getEnumConstants()) {
+					if (constant.name().equals(value)) {
+						return constant;
+					}
+				}
+				for (T constant : type.getEnumConstants()) {
+					if (constant.name().equalsIgnoreCase(value)) {
+						return constant;
+					}
+				}
+				throw new IllegalArgumentException("없는 값입니다: " + value);
 			};
 		}
 
