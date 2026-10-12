@@ -1,10 +1,10 @@
 ---
 id: TASK-21
 title: '백엔드: 운영 설정 fail-fast + 보안 기본값'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 06:13'
+updated_date: '2026-10-12 06:14'
 labels:
   - backend
   - security
@@ -42,6 +42,22 @@ documentation:
 - [ ] #4 BE-26 운영 모드에서 SMS_PROVIDER=console이면 기동 실패, console 출력은 번호 마스킹
 - [ ] #5 BE-12 pg_trgm 확장 권한 요구사항을 문서화하고 기동 실패 메시지를 개선
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+## 구현 계획 (Plan-Review-Go)
+0. 운영 모드 판정: app.public-base-url이 https://이면 운영으로 본다(설정 app.security.production-mode=auto|true|false로 강제 가능). 판정과 검사는 기동 시 한 곳(ProductionSafetyCheck, ApplicationRunner 또는 @PostConstruct 검증 빈)에서 하고, 실패하면 무엇을 고쳐야 하는지 모두 나열한 메시지로 기동을 중단한다.
+1. AC#1 BE-8: 운영 모드에서 JWT_SECRET이 dev 기본값(또는 저장소 공개 값 목록), OTP_HASH_KEY 기본값, COOKIE_SECURE=false, DB_PASSWORD가 기본값(board)이면 기동 실패. 로컬·테스트(http)는 경고만 유지.
+2. AC#2 BE-9: 운영 모드에서 CLIENT_IP_HEADER가 비어 있으면 기동 실패. 설정돼 있는데 요청에 그 헤더가 없으면 WARN 로그(요청 폭주 시 로그 폭주 방지를 위해 샘플링 또는 rate-limited 로깅).
+3. AC#3 BE-14: 가입 시 자동 승격 제거. AdminBootstrap은 기동 시 이미 있는 LOCAL 계정만 승격한다. 남는 위험(재시작 전에 누가 그 이메일로 먼저 가입)을 막기 위해 승격 조건에 해당 계정 생성 시각이 ADMIN_EMAIL을 설정한 배포 이후일 것을 둘 수 없으므로, 대신 운영 절차로 고정한다: (a) 관리자가 직접 가입 → (b) 운영자가 계정 소유를 확인 → (c) 재배포 또는 재시작. docs/first-deploy.md와 README에 반영. 승격 시 INFO 로그(계정 id). 같은 이메일 LOCAL 계정이 없으면 아무것도 하지 않는다.
+   - E2E 영향: scripts/e2e.sh와 frontend/e2e는 ADMIN_EMAIL 가입 즉시 ADMIN을 가정한다. E2E는 관리자 계정을 백엔드 기동 전에 시드하거나(예: e2e 전용 시드 SQL 또는 기동 후 재시작) 흐름을 바꾸고 make e2e 녹색을 확인한다.
+4. AC#4 BE-26: 운영 모드에서 SMS_PROVIDER가 console(또는 빈 값)이면 기동 실패. ConsoleSmsSender 로그는 번호를 마스킹(+82 10-****-5678)하고, 인증번호 원문은 로컬에서만 출력하도록 유지하되 운영 모드에서는 어떤 경우에도 출력 금지. E2E가 로그에서 코드를 읽는 방식은 그대로 동작해야 한다(로컬은 http).
+5. AC#5 BE-12: pg_trgm 확장 생성 권한 요구사항을 README·first-deploy에 기록. V8 실패 시 원인을 알 수 있도록 기동 실패 메시지 개선(Flyway 콜백 또는 마이그레이션 SQL 주석 + 문서).
+6. TASK-20 이월: Hibernate SqlExceptionHelper가 DB 상세(개인정보)를 ERROR 로그로 남기는 문제. 운영 모드에서 해당 로거를 WARN 이상 요약으로 낮추거나 마스킹하는 방안을 결정하고 적용(테스트로 확인).
+- 각 AC는 red 실행으로 실패를 확인한 뒤 green 커밋(red 증거를 메시지에), 필요하면 refactor 커밋. 표식 TASK-21#n, #B1~#B3.
+- 리뷰: 구현 후 독립 서브에이전트 리뷰 → fix·refactor 커밋.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
