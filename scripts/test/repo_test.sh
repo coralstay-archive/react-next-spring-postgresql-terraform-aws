@@ -112,6 +112,15 @@ for w in "infra/bootstrap" "envs/prod.tfvars" "terraform destroy" "CLIENT_IP_HEA
   check "TASK-16#6 README 인프라 절에 '$w'" grep -qF "$w" README.md
 done
 
+# TASK-18#2 OAuth 콘솔 체크리스트: 제공자 5종의 콜백, 운영·로컬 주소, 동의 항목(KOE205·제공 정보), SSM 키, cloudfront.net 대안
+check "TASK-18#2 docs/oauth-setup.md 존재" test -f docs/oauth-setup.md
+for p in google github naver kakao cognito; do
+  check "TASK-18#2 oauth-setup 에 $p 콜백" grep -qF "/api/login/oauth2/code/$p" docs/oauth-setup.md
+done
+for w in "http://localhost:3000" "public_base_url" "KOE205" "제공 정보" "GOOGLE_CLIENT_SECRET" "GITHUB_CLIENT_ID" "NAVER_CLIENT_ID" "KAKAO_CLIENT_SECRET" "COGNITO_CLIENT_SECRET" "domain_name" "make put-secrets" "체크리스트"; do
+  check "TASK-18#2 oauth-setup 에 '$w'" grep -qF -- "$w" docs/oauth-setup.md
+done
+
 # TASK-18#5 Playwright E2E: frontend/e2e + playwright.config.ts(chromium), scripts/e2e.sh(로컬 스택 기동·정리), make e2e(make test 에는 없음)
 check "TASK-18#5 make e2e 타깃은 scripts/e2e.sh 를 호출" sh -c 'make -n e2e | grep -q "scripts/e2e.sh"'
 check "TASK-18#5 scripts/e2e.sh 실행 가능" test -x scripts/e2e.sh
