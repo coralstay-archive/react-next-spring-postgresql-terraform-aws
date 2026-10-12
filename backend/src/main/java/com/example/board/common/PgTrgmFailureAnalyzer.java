@@ -1,6 +1,8 @@
 package com.example.board.common;
 
 import java.sql.SQLException;
+import java.util.Locale;
+import java.util.Set;
 
 import org.springframework.boot.diagnostics.FailureAnalysis;
 import org.springframework.boot.diagnostics.FailureAnalyzer;
@@ -35,10 +37,21 @@ public class PgTrgmFailureAnalyzer implements FailureAnalyzer {
 				failure);
 	}
 
+	/** 확장 생성 권한 부족·확장 파일 없음·기능 미지원. */
+	static final Set<String> EXTENSION_SQL_STATES = Set.of("42501", "58P01", "0A000");
+
+	/**
+	 * 원인 사슬에 확장 생성 실패인 DB 오류(SQLException)가 있는지: 메시지가 pg_trgm 확장을 말하거나, SQLState 가 권한·파일·미지원이고
+	 * 메시지가 확장(extension)을 말할 때. 감싼 예외 메시지에만 pg_trgm 이 나오는 경우(다른 DB 오류)는 보지 않는다.
+	 */
 	private static boolean mentionsPgTrgm(Throwable failure) {
 		for (Throwable cause = failure; cause != null; cause = cause.getCause() == cause ? null : cause.getCause()) {
-			if (cause.getMessage() != null && cause.getMessage().contains(EXTENSION)) {
-				return true;
+			if (cause instanceof SQLException sql && sql.getMessage() != null) {
+				String message = sql.getMessage().toLowerCase(Locale.ROOT);
+				boolean aboutExtension = message.contains("extension");
+				if (aboutExtension && (message.contains(EXTENSION) || EXTENSION_SQL_STATES.contains(sql.getSQLState()))) {
+					return true;
+				}
 			}
 		}
 		return false;

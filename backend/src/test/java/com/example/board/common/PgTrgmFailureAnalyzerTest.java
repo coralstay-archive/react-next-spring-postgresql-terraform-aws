@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 import java.net.URL;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -72,6 +73,21 @@ class PgTrgmFailureAnalyzerTest {
 	void ignoresUnrelatedFailures() {
 		assertThat(analyzer.analyze(new IllegalStateException("something else"))).isNull();
 		assertThat(analyzer.analyze(new RuntimeException("wrapper", new IllegalArgumentException("x")))).isNull();
+	}
+
+	@Test
+	@DisplayName("TASK-21#5 pg_trgm 이 메시지에 나와도 DB 오류(SQLException)가 아니거나, 다른 권한 오류면 분석하지 않는다")
+	void requiresExtensionSqlError() {
+		assertThat(analyzer.analyze(new IllegalStateException("검색어 pg_trgm 인덱스가 느리다"))).as("SQLException 없음").isNull();
+		assertThat(analyzer.analyze(new RuntimeException("Migration V8__post_search_trgm.sql failed: CREATE INDEX ... (pg_trgm)",
+				new SQLException("ERROR: permission denied for table posts", "42501"))))
+			.as("확장 생성이 아닌 42501(감싼 메시지에만 pg_trgm)")
+			.isNull();
+		assertThat(analyzer.analyze(new RuntimeException("Migration V8__post_search_trgm.sql failed",
+				new SQLException("ERROR: could not open extension control file \"/usr/share/postgresql/extension/pg_trgm.control\"",
+						"58P01"))))
+			.as("확장 미설치")
+			.isNotNull();
 	}
 
 	@Test
