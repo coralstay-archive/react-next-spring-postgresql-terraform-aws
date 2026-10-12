@@ -26,7 +26,8 @@ class ProductionSafetyCheckTest {
 			.withProperty("app.jwt.secret", "Zt0q9w1Lr3m8Xc5Vb7Nn2Kk4Jj6Hh8Gg0Ff2Dd4Ss6Aa")
 			.withProperty("app.otp.hash-key", "Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0Lz9Xc8Vb7Nm6Qa5W")
 			.withProperty("app.security.cookie-secure", "true")
-			.withProperty("spring.datasource.password", "R4nd0m-db-p4ssw0rd-from-ssm");
+			.withProperty("spring.datasource.password", "R4nd0m-db-p4ssw0rd-from-ssm")
+			.withProperty("app.client-ip.header", "CloudFront-Viewer-Address");
 	}
 
 	@Test
@@ -95,7 +96,8 @@ class ProductionSafetyCheckTest {
 			.withProperty("app.public-base-url", "https://board.example.com")
 			.withProperty("app.jwt.secret", "Zt0q9w1Lr3m8Xc5Vb7Nn2Kk4Jj6Hh8Gg0Ff2Dd4Ss6Aa")
 			.withProperty("app.otp.hash-key", "Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0Lz9Xc8Vb7Nm6Qa5W")
-			.withProperty("spring.datasource.password", "R4nd0m-db-p4ssw0rd-from-ssm")))
+			.withProperty("spring.datasource.password", "R4nd0m-db-p4ssw0rd-from-ssm")
+			.withProperty("app.client-ip.header", "CloudFront-Viewer-Address")))
 			.singleElement()
 			.asString()
 			.contains("COOKIE_SECURE");
@@ -112,6 +114,15 @@ class ProductionSafetyCheckTest {
 			.singleElement()
 			.asString()
 			.contains("DB_PASSWORD");
+	}
+
+	@Test
+	@DisplayName("TASK-21#2 운영 모드에서 CLIENT_IP_HEADER 가 비어 있으면 문제다(CloudFront 엣지 IP 를 모두가 공유해 IP 별 OTP 한도가 서비스 거부가 된다)")
+	void clientIpHeaderRequired() {
+		assertThat(ProductionSafetyCheck.problems(safeProduction().withProperty("app.client-ip.header", " ")))
+			.singleElement()
+			.asString()
+			.contains("CLIENT_IP_HEADER");
 	}
 
 	@Test

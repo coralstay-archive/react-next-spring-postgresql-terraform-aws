@@ -81,6 +81,10 @@ public class ProductionSafetyCheck implements BeanFactoryPostProcessor, Environm
 		if (dbPassword.isBlank() || DEFAULT_DB_PASSWORD.equals(dbPassword)) {
 			problems.add("DB_PASSWORD 가 비어 있거나 로컬 기본값(board)이다. 무작위 값으로 바꾼다");
 		}
+		if (env.getProperty("app.client-ip.header", "").isBlank()) {
+			problems.add("CLIENT_IP_HEADER 가 비어 있다. CloudFront 뒤에서는 엣지 IP 를 모두가 공유해 IP 별 OTP 발송 한도가 서비스 거부가 된다"
+					+ " (CLIENT_IP_HEADER=CloudFront-Viewer-Address)");
+		}
 		return problems;
 	}
 
