@@ -4,7 +4,7 @@ title: '백엔드: DB 타임아웃·잠금·동시성'
 status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-12 05:07'
 labels:
   - backend
   - data
@@ -41,3 +41,9 @@ documentation:
 - [ ] #5 BE-30 page×size 상한(예: 10,000행)
 - [ ] #6 BE-7 시각은 Clock 빈 하나로 통일
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-19 리뷰에서 넘어온 BE-7 우선순위(2026-10-12): 1) Post.java:99 @PrePersist와 PostService.java:128·136의 Instant.now() — POST/PATCH 응답 시각(나노초)과 이후 GET(마이크로초)이 다른 유일한 사용자 노출 지점. PostService에서 clock.instant()를 넘기는 방식으로. 2) TokenService.java:45와 JwtTokenService.java:67의 자체 Clock.systemUTC()를 Clock 빈 주입으로(만료 테스트 가능). 3) User·UserIdentity·RefreshToken·LocalCredential·Category의 @PrePersist와 LinkIntent Instant.now()는 일관성 목적. 선택: src/main에서 Instant.now()/Clock.systemUTC() 금지 검사(ClockConfiguration 제외). 참고: 통합 테스트는 @Primary MutableClock을 쓰므로 테스트 시계 절삭이 CI 수정의 핵심이다.
+<!-- SECTION:NOTES:END -->

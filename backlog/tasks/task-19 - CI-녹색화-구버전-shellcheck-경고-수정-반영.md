@@ -4,7 +4,7 @@ title: 'CI 녹색화: 구버전 shellcheck 경고 수정 반영'
 status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:55'
+updated_date: '2026-10-12 05:07'
 labels:
   - ci
 dependencies: []
@@ -34,6 +34,7 @@ documentation:
 - [x] #1 8e4d8d0 수정을 이 태스크 브랜치에 반영하고 PR로 main에 병합
 - [x] #2 PR CI(ci.yml) 녹색 확인
 - [x] #3 로컬 shellcheck 버전과 CI 버전 차이를 막는 방법(버전 고정 또는 -S 수준 통일) 적용
+- [x] #4 앱 시계(Clock 빈·테스트 MutableClock)를 마이크로초로 절삭해 Linux 나노초 시계에서 응답 시각과 DB 저장 시각이 어긋나지 않게(PR #1 CI의 AdminPostApiTest 실패)
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -49,8 +50,14 @@ documentation:
 4. Review: 독립 서브에이전트가 diff를 리뷰하고 지적을 반영한다.
 <!-- SECTION:PLAN:END -->
 
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+PR #1 CI에서 AdminPostApiTest(TASK-12#2) 실패: 같은 글을 두 번 hide 했을 때 hiddenAt이 다름. 원인은 Linux Clock.systemUTC() 나노초 정밀도 vs PostgreSQL timestamptz 마이크로초. 첫 응답은 메모리 나노초, 재조회는 DB 마이크로초. macOS는 마이크로초 시계라 로컬 재현 불가. AC#4로 다시 열어 처리. Instant.now()를 쓰는 엔티티 시각 통일은 TASK-23(BE-7) 범위.
+<!-- SECTION:NOTES:END -->
+
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-CI 녹색화. SC2015 수정(8e4d8d0)을 반영하고, CI shellcheck를 로컬과 같은 v0.11.0으로 고정했다(릴리스 tarball sha256 검증, --retry 3, GITHUB_PATH 앞에 두어 Ubuntu 패키지보다 우선). deploy_test.sh는 로컬 버전을 ci.yml 고정값과 비교한다(다르면 경고, REQUIRE_LINTERS=1이면 실패, 고정값을 읽지 못해도 실패). repo_test에 TASK-19#1~#3과 #B1 검사를 추가. 진행: Plan(카드 계획) → Red(repo_test 3건 실패 확인, 커밋 훅이 실패 커밋을 막아 실행 로그로 기록) → Green 커밋 → 독립 서브에이전트 리뷰(중대 사항 없음, 경미 3건) → Refactor 커밋으로 반영. 검증: cleanTest 후 REQUIRE_LINTERS=1 make test 통과(repo 207, deploy 133, backend, frontend 160). AC#1·#2의 PR CI 녹색은 push 후 PR에서 확인하고 병합한다(B1).
+CI 녹색화. (1) SC2015 수정(8e4d8d0). (2) CI shellcheck를 로컬과 같은 v0.11.0으로 고정(sha256 검증, --retry 3). deploy_test.sh가 로컬 버전을 ci.yml 고정값과 비교(불일치나 미검출이면 REQUIRE_LINTERS=1에서 실패). (3) PR #1 CI에서 드러난 Linux 나노초 시계 문제: AdminPostApiTest(TASK-12#2)에서 같은 글을 두 번 hide 하면 hiddenAt이 달랐다(메모리 나노초 vs timestamptz 마이크로초, macOS는 재현 불가). Clock 빈을 Clock.tick(1µs)로, 테스트 @Primary MutableClock을 truncatedTo(MICROS)로 바꿨다(CI 수정의 핵심은 MutableClock). 진행: Plan → Red(repo_test 3건 실패, ClockConfigurationTest 컴파일 실패) → Green → 독립 리뷰 2회(중대 사항 없음, 경미 3건 refactor 반영, 남은 Instant.now() 지점은 노출 없음으로 TASK-23에 우선순위 기록) → Refactor. 검증: 로컬 cleanTest 후 REQUIRE_LINTERS=1 make test 통과. PR #1 CI 녹색 확인 후 병합(B1).
 <!-- SECTION:FINAL_SUMMARY:END -->
