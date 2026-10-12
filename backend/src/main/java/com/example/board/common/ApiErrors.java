@@ -1,7 +1,6 @@
 package com.example.board.common;
 
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
@@ -25,19 +24,28 @@ public final class ApiErrors {
 	private ApiErrors() {
 	}
 
+	/** 응답에 되돌려 주는 파라미터·필드 이름의 최대 길이 (TASK-20 L7). */
+	static final int MAX_NAME_LENGTH = 100;
+
 	/**
-	 * 상태 코드에 맞는 기본 오류 코드: 500 은 {@code internal_error}, 나머지는 HTTP 상태 이름의 snake_case
-	 * (예: {@code method_not_allowed}, {@code not_found}).
+	 * 문서(docs/api.md 오류 응답)에 적은 상태 → 코드 표. HttpStatus 열거 이름에서 만들지 않는다(Spring 버전마다 이름이 바뀐다,
+	 * 예: 413 PAYLOAD_TOO_LARGE → CONTENT_TOO_LARGE).
 	 */
+	private static final Map<Integer, String> CODES = Map.ofEntries(Map.entry(400, "bad_request"),
+			Map.entry(401, "unauthorized"), Map.entry(403, "forbidden"), Map.entry(404, "not_found"),
+			Map.entry(405, "method_not_allowed"), Map.entry(406, "not_acceptable"), Map.entry(409, "conflict"),
+			Map.entry(413, "payload_too_large"), Map.entry(415, "unsupported_media_type"),
+			Map.entry(429, RateLimitedException.CODE), Map.entry(500, INTERNAL_ERROR),
+			Map.entry(503, "service_unavailable"));
+
+	/** 상태 코드에 맞는 기본 오류 코드. 표에 없으면 {@code http_<상태>}(예: {@code http_418}). */
 	public static String code(HttpStatusCode status) {
-		if (status.value() == HttpStatus.INTERNAL_SERVER_ERROR.value()) {
-			return INTERNAL_ERROR;
-		}
-		HttpStatus known = HttpStatus.resolve(status.value());
-		if (known == null) {
-			return status.is5xxServerError() ? INTERNAL_ERROR : "error";
-		}
-		return known.name().toLowerCase(Locale.ROOT);
+		return CODES.getOrDefault(status.value(), "http_" + status.value());
+	}
+
+	/** 사용자가 보낸 이름(파라미터·본문 필드)을 응답에 넣을 때 길이를 제한한다. */
+	public static String name(String name) {
+		return name.length() <= MAX_NAME_LENGTH ? name : name.substring(0, MAX_NAME_LENGTH);
 	}
 
 	/** 상태 코드에 맞는 기본 문장. 내부 예외 메시지는 쓰지 않는다(B1). */
@@ -58,7 +66,7 @@ public final class ApiErrors {
 
 	/** 쿼리·경로 파라미터 하나의 오류: 400 {@code validation} + {@code fields{name: message}} (TASK-20#4). */
 	public static ApiException invalidParam(String name, String message) {
-		return new ApiException(HttpStatus.BAD_REQUEST, VALIDATION, message, Map.of(name, message));
+		return new ApiException(HttpStatus.BAD_REQUEST, VALIDATION, message, Map.of(name(name), message));
 	}
 
 	public static Map<String, Object> body(HttpStatusCode status, String error, String message,

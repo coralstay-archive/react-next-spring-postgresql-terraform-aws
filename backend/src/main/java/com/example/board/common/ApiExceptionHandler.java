@@ -9,6 +9,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.context.MessageSourceResolvable;
+import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -19,10 +21,14 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
@@ -78,8 +84,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	 */
 	@ExceptionHandler(Exception.class)
 	ResponseEntity<Object> handleUnexpected(Exception ex, WebRequest request) throws Exception {
-		if (ex instanceof AccessDeniedException || ex instanceof AuthenticationException) {
-			throw ex;
+		// @ExceptionHandler(Exception.class) 는 원인 기반 매칭을 막으므로 원인 사슬을 직접 본다 (TASK-20 L1).
+		for (Throwable cause = ex; cause != null; cause = cause.getCause() == cause ? null : cause.getCause()) {
+			if (cause instanceof AccessDeniedException || cause instanceof AuthenticationException) {
+				throw ex;
+			}
+			if (cause instanceof RateLimitedException limited) {
+				return handle(limited);
+			}
+			if (cause instanceof ApiException api) {
+				return handle(api);
+			}
 		}
 		log.error("처리되지 않은 예외: {}", describe(request), ex);
 		if (isCommitted(request)) {
@@ -87,6 +102,33 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		}
 		HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
 		return ApiErrors.response(status, ApiErrors.INTERNAL_ERROR, ApiErrors.message(status), null);
+	}
+
+	/** 컨트롤러 메서드 파라미터 제약(@Min 등) 위반: 400 {@code validation} + {@code fields}(파라미터 이름, TASK-20 L6). */
+	@Override
+	protected ResponseEntity<Object> handleHandlerMethodValidationException(HandlerMethodValidationException ex,
+			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		Map<String, String> fields = new LinkedHashMap<>();
+		for (ParameterValidationResult result : ex.getParameterValidationResults()) {
+			String name = parameterName(result.getMethodParameter());
+			for (MessageSourceResolvable error : result.getResolvableErrors()) {
+				fields.putIfAbsent(ApiErrors.name(name), error.getDefaultMessage());
+			}
+		}
+		return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "입력값이 올바르지 않습니다", fields);
+	}
+
+	private static String parameterName(MethodParameter parameter) {
+		RequestParam requestParam = parameter.getParameterAnnotation(RequestParam.class);
+		if (requestParam != null && !requestParam.name().isEmpty()) {
+			return requestParam.name();
+		}
+		PathVariable pathVariable = parameter.getParameterAnnotation(PathVariable.class);
+		if (pathVariable != null && !pathVariable.name().isEmpty()) {
+			return pathVariable.name();
+		}
+		String name = parameter.getParameterName();
+		return name != null ? name : "arg" + parameter.getParameterIndex();
 	}
 
 	@Override
@@ -110,7 +152,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			String path = jsonPath(mismatch);
 			if (path != null) {
 				return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "입력값이 올바르지 않습니다",
-						Map.of(path, fieldMessage(mismatch)));
+						Map.of(ApiErrors.name(path), fieldMessage(mismatch)));
 			}
 		}
 		return ApiErrors.response(HttpStatus.BAD_REQUEST, "bad_request", "요청 본문을 읽을 수 없습니다", null);
@@ -130,8 +172,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	@Override
 	protected ResponseEntity<Object> handleMissingServletRequestParameter(MissingServletRequestParameterException ex,
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-		return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION,
-				"필수 파라미터가 없습니다: " + ex.getParameterName(), Map.of(ex.getParameterName(), "필수 파라미터입니다"));
+		String name = ApiErrors.name(ex.getParameterName());
+		return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "필수 파라미터가 없습니다: " + name,
+				Map.of(name, "필수 파라미터입니다"));
 	}
 
 	/**
@@ -143,9 +186,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			HttpStatusCode status, WebRequest request) {
 		String name = ex instanceof MethodArgumentTypeMismatchException mismatch ? mismatch.getName()
 				: ex.getPropertyName();
-		if (name == null) {
-			name = "parameter";
-		}
+		name = name == null ? "parameter" : ApiErrors.name(name);
 		return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "파라미터 형식이 올바르지 않습니다: " + name,
 				Map.of(name, "형식이 올바르지 않습니다"));
 	}

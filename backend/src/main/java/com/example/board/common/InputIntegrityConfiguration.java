@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.context.annotation.Bean;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.converter.autoconfigure.ServerHttpMessageConvertersCustomizer;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.Ordered;
@@ -58,9 +59,16 @@ public class InputIntegrityConfiguration implements WebMvcConfigurer {
 			.build();
 	}
 
+	private final String errorPath;
+
+	public InputIntegrityConfiguration(@Value("${server.error.path:/error}") String errorPath) {
+		this.errorPath = errorPath;
+	}
+
+	/** 오류 전달(/error)은 원래 요청의 파라미터를 그대로 가지므로 다시 검사하지 않는다(원래 오류를 400 으로 덮지 않게). */
 	@Override
 	public void addInterceptors(InterceptorRegistry registry) {
-		registry.addInterceptor(new ParameterInterceptor()).excludePathPatterns("/error");
+		registry.addInterceptor(new ParameterInterceptor()).excludePathPatterns(errorPath);
 	}
 
 	/** 본문 문자열의 제어 문자. {@link ApiExceptionHandler} 가 400 validation + 필드 경로로 바꾼다. */
@@ -94,8 +102,9 @@ public class InputIntegrityConfiguration implements WebMvcConfigurer {
 			request.getParameterMap().forEach((name, values) -> {
 				for (String value : values) {
 					if (ControlCharacters.containsForbidden(value)) {
+						String shown = ApiErrors.name(name);
 						throw new ApiException(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION,
-								name + " 에 " + ControlCharacters.MESSAGE, Map.of(name, ControlCharacters.MESSAGE));
+								shown + " 에 " + ControlCharacters.MESSAGE, Map.of(shown, ControlCharacters.MESSAGE));
 					}
 				}
 			});

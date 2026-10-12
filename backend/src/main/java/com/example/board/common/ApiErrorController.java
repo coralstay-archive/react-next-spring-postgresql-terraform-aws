@@ -25,10 +25,9 @@ public class ApiErrorController implements ErrorController {
 	@RequestMapping("${server.error.path:/error}")
 	public ResponseEntity<Object> error(HttpServletRequest request) {
 		HttpStatusCode status = status(request);
-		if (status.is5xxServerError()) {
-			Object exception = request.getAttribute(RequestDispatcher.ERROR_EXCEPTION);
-			log.error("서버 오류 {}: {}", status.value(), request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI),
-					exception instanceof Throwable throwable ? throwable : null);
+		// 예외가 있으면 서블릿 컨테이너가 이미 ERROR 로 남겼다. 예외 없는 5xx(sendError)만 여기서 남긴다(중복 로그 방지, TASK-20 L7).
+		if (status.is5xxServerError() && request.getAttribute(RequestDispatcher.ERROR_EXCEPTION) == null) {
+			log.error("서버 오류 {}: {}", status.value(), request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI));
 		}
 		return ApiErrors.response(status, ApiErrors.code(status), ApiErrors.message(status), null);
 	}

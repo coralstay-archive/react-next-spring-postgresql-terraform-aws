@@ -121,7 +121,10 @@ class ErrorContractTest {
 	@DisplayName("TASK-20#1 TASK-20#B1 /error 를 직접 불러도 같은 모양")
 	void errorPathDirect() {
 		HttpResponse<String> response = api.get("/error").send();
+		assertThat(response.statusCode()).isEqualTo(404);
 		JsonNode body = AuthClient.json(response);
+		assertThat(body.get("status").asInt()).isEqualTo(404);
+		assertThat(body.get("error").asString()).isEqualTo("not_found");
 		assertThat(body.propertyNames()).containsExactlyInAnyOrder("status", "error", "message");
 		assertThat(body.get("error").asString()).matches("[a-z][a-z0-9_]*");
 	}
@@ -138,6 +141,55 @@ class ErrorContractTest {
 	void securityErrorsUnchanged() {
 		assertContract(api.get("/test/whoami").send(), 401, "unauthorized");
 		assertContract(api.get("/test/admin-only").bearer(bearer).send(), 403, "forbidden");
+	}
+
+	@Test
+	@DisplayName("TASK-20#1 TASK-20#B1 다른 예외에 감싸인 ApiException 은 500 이 아니라 그 상태·코드")
+	void wrappedApiException() {
+		assertContract(api.get("/test/errors/wrapped").bearer(bearer).send(), 409, "wrapped_code");
+	}
+
+	@Test
+	@DisplayName("TASK-20#1 TASK-20#B1 메서드 파라미터 검증(@Min) 실패는 400 validation + fields")
+	void handlerMethodValidation() {
+		JsonNode body = assertContract(api.get("/test/errors/method-validation?n=0").bearer(bearer).send(), 400,
+				"validation");
+		assertThat(body.get("fields").has("n")).as(body.toString()).isTrue();
+	}
+
+	@Test
+	@DisplayName("TASK-20#1 상태 → 코드는 문서의 명시 표를 따르고, 표에 없으면 http_<상태>")
+	void statusCodes() {
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(400))).isEqualTo("bad_request");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(401))).isEqualTo("unauthorized");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(403))).isEqualTo("forbidden");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(404))).isEqualTo("not_found");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(405))).isEqualTo("method_not_allowed");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(406))).isEqualTo("not_acceptable");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(409))).isEqualTo("conflict");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(413))).isEqualTo("payload_too_large");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(415)))
+			.isEqualTo("unsupported_media_type");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(429))).isEqualTo("rate_limited");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(500))).isEqualTo("internal_error");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(503))).isEqualTo("service_unavailable");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(418))).isEqualTo("http_418");
+		assertThat(ApiErrors.code(org.springframework.http.HttpStatusCode.valueOf(502))).isEqualTo("http_502");
+	}
+
+	@Test
+	@DisplayName("TASK-20#1 TASK-20#B1 응답에 되돌려 주는 파라미터·필드 이름은 100자로 자른다")
+	void echoedNamesTruncated() {
+		String longName = "a".repeat(300);
+		JsonNode param = assertContract(api.get("/posts?" + longName + "=%00").send(), 400, "validation");
+		assertThat(param.get("fields").propertyNames()).allMatch(name -> name.length() <= 100);
+		assertThat(param.get("message").asString().length()).isLessThan(200);
+
+		JsonNode body = assertContract(api.post("/posts")
+			.bearer(bearer)
+			.json("{\"title\":\"t\",\"content\":\"c\",\"" + longName + "\":1}")
+			.send(), 400, "validation");
+		assertThat(body.get("fields").propertyNames()).allMatch(name -> name.length() <= 100);
 	}
 
 }

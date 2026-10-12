@@ -8,12 +8,17 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import jakarta.validation.constraints.Min;
+
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.filter.OncePerRequestFilter;
+
+import com.example.board.common.ApiException;
 
 /**
  * TASK-20 오류 응답 계약 테스트 전용 엔드포인트. 운영 코드에는 없다(src/test). 모두 인증이 필요한 경로(/test/**)다.
@@ -54,6 +59,19 @@ public class ErrorContractTestController {
 	@GetMapping("/test/errors/send-error")
 	public void sendError(@RequestParam int status, HttpServletResponse response) throws IOException {
 		response.sendError(status, SECRET);
+	}
+
+	/** 다른 예외에 감싸인 ApiException 도 그 코드로 (TASK-20#1 L1). */
+	@GetMapping("/test/errors/wrapped")
+	public Map<String, Object> wrapped() {
+		throw new IllegalStateException("wrapper",
+				new ApiException(HttpStatus.CONFLICT, "wrapped_code", "감싸인 오류입니다"));
+	}
+
+	/** 메서드 파라미터 검증(@Min) 실패 → HandlerMethodValidationException (TASK-20#1 L6). */
+	@GetMapping("/test/errors/method-validation")
+	public Map<String, Object> methodValidation(@RequestParam @Min(1) int n) {
+		return Map.of("n", n);
 	}
 
 	/** 필수 파라미터 누락. */
