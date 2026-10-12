@@ -30,6 +30,9 @@ import com.example.board.support.AuthFixtures;
 import com.example.board.support.BoardFixtures;
 import com.example.board.support.IntegrationTest;
 
+import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter;
+
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -52,9 +55,25 @@ class RequestBodyStrictnessTest {
 	@Autowired
 	JdbcTemplate jdbc;
 
-	/** 앱(Spring MVC)이 본문을 읽을 때 쓰는 매퍼. */
+	/** Boot 의 전역 JsonMapper 빈(RestClient·RestTemplate 빌더 등도 쓴다). 너그러워야 한다. */
 	@Autowired
-	JsonMapper jsonMapper;
+	JsonMapper globalMapper;
+
+	@Autowired
+	RequestMappingHandlerAdapter handlerAdapter;
+
+	/**
+	 * Spring MVC 가 요청 본문을 읽을 때 실제로 쓰는 매퍼(JSON 변환기의 것). 앞에 있는 Spring Data 의
+	 * ProjectingJacksonHttpMessageConverter(하위 클래스)는 {@code @ProjectedPayload} 인터페이스만 읽으므로 정확한 클래스로 고른다.
+	 */
+	private JsonMapper mvcMapper() {
+		return handlerAdapter.getMessageConverters()
+			.stream()
+			.filter(converter -> converter.getClass() == JacksonJsonHttpMessageConverter.class)
+			.map(converter -> ((JacksonJsonHttpMessageConverter) converter).getMapper())
+			.findFirst()
+			.orElseThrow();
+	}
 
 	Api api;
 
@@ -117,6 +136,7 @@ class RequestBodyStrictnessTest {
 	@Test
 	@DisplayName("TASK-20#3 프론트가 보내는 모든 요청 본문 모양은 그대로 읽힌다(회귀 방지)")
 	void frontendBodiesStillAccepted() {
+		JsonMapper jsonMapper = mvcMapper();
 		Map<Class<?>, String> bodies = Map.ofEntries(
 				Map.entry(SignupRequest.class, "{\"email\":\"a@b.co\",\"password\":\"passw0rd!\",\"nickname\":\"닉\"}"),
 				Map.entry(LoginRequest.class, "{\"email\":\"a@b.co\",\"password\":\"passw0rd!\"}"),
@@ -139,9 +159,20 @@ class RequestBodyStrictnessTest {
 			.doesNotThrowAnyException());
 		// 빈 사유 본문 {} 도 그대로
 		assertThatCode(() -> jsonMapper.readValue("{}", AdminRequests.ReasonRequest.class)).doesNotThrowAnyException();
-		// 매퍼 자체가 알 수 없는 필드를 거부하는지(위 검사가 의미 있는지)
+		// MVC 매퍼 자체가 알 수 없는 필드를 거부하는지(위 검사가 의미 있는지)
 		assertThatCode(() -> jsonMapper.readValue("{\"content\":\"c\",\"x\":1}", CommentRequest.class))
 			.isInstanceOf(tools.jackson.databind.exc.UnrecognizedPropertyException.class);
+	}
+
+	@Test
+	@DisplayName("TASK-20#3 엄격함은 MVC 요청 본문에만: 전역 JsonMapper 빈은 알 수 없는 필드·제어 문자를 그대로 받는다")
+	void globalMapperStaysLenient() {
+		String json = "{\"content\":\"a\\u0001b\",\"unknown\":1}";
+		assertThatCode(() -> globalMapper.readValue(json, CommentRequest.class)).doesNotThrowAnyException();
+		assertThat(globalMapper.readValue(json, CommentRequest.class).content()).isEqualTo("a\u0001b");
+		assertThatCode(() -> mvcMapper().readValue(json, CommentRequest.class)).isInstanceOf(
+				tools.jackson.databind.exc.MismatchedInputException.class);
+		assertThat(mvcMapper()).isNotSameAs(globalMapper);
 	}
 
 }
