@@ -111,6 +111,23 @@ make deploy                        # build-backend(arm64 → ECR) → deploy-bac
 `deploy-backend`는 원격 출력에서 `==> healthy: <sha>`를 보여 주면 성공이다. 실패하면 api 로그 100줄이 출력되고, 처음 배포라 되돌릴 태그가 없어 그대로 실패한다.
 CloudWatch `aws logs tail /board/prod --follow --log-stream-name-prefix api/`와 [README 문제 해결](../README.md#문제-해결)을 본다.
 
+- **운영 안전 검사**: `PUBLIC_BASE_URL`이 https면 백엔드는 운영 모드로 기동하고, 안전하지 않은 설정이면 DB에 붙기 전에 멈춘다. 로그의
+  `운영 모드(...)에서 안전하지 않은 설정이라 기동하지 않는다. 다음을 고친다:` 아래에 고칠 키가 모두 나온다 — 저장소에 공개된 `JWT_SECRET`·
+  `OTP_HASH_KEY`(개발 기본값·example.env·E2E 값), `COOKIE_SECURE`≠true, `DB_PASSWORD`가 비었거나 `board`, `CLIENT_IP_HEADER` 비어 있음,
+  `SMS_PROVIDER`≠aws. `put-secrets`로 고치고 다시 `make deploy-backend`한다.
+
+### PostgreSQL 확장(pg_trgm) 권한
+
+마이그레이션 V8이 게시판 검색용 `CREATE EXTENSION IF NOT EXISTS pg_trgm`을 실행한다. 기본 구성(EC2의 postgres 컨테이너, `POSTGRES_USER`가 슈퍼유저)은
+따로 할 일이 없다. 다른 DB(RDS, 관리형 PostgreSQL, 권한을 줄인 앱 사용자)를 쓰면 다음을 확인한다.
+
+- pg_trgm은 PostgreSQL 13+에서 trusted 확장이라 **현재 DB에 CREATE 권한**이 있는 사용자(DB 소유자, RDS 마스터 사용자)면 만들 수 있다.
+  앱 DB 사용자(`DB_USERNAME`)에게 권한이 없으면 `GRANT CREATE ON DATABASE board TO <user>;`를 하거나, 권한 있는 계정으로 그 DB에서
+  `CREATE EXTENSION IF NOT EXISTS pg_trgm;`을 먼저 실행한다(그러면 V8의 `IF NOT EXISTS`가 그냥 지나간다).
+- 확장이 설치되지 않은 PostgreSQL이면 contrib 패키지를 설치한다(공식 이미지·RDS는 기본 포함).
+- 실패하면 기동 실패 보고서가 `DB 마이그레이션 V8__post_search_trgm.sql 의 CREATE EXTENSION pg_trgm 이 실패해 기동하지 못했다: <DB 메시지>`와
+  위 조치를 보여 준다. 조치 뒤 다시 기동하면 Flyway가 V8부터 이어서 적용한다.
+
 ## 7. 스모크 (AC#1)
 
 ```bash

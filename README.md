@@ -344,6 +344,8 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `ECR 에 이미지가 없다` | `build-backend.sh`와 태그가 다르다(커밋 안 된 변경, 다른 HEAD). `IMAGE_TAG`를 맞춘다 |
 | CI 의 `Not authorized to perform sts:AssumeRoleWithWebIdentity` | `github_repository`·브랜치·environment 미사용, `AWS_DEPLOY_ROLE_ARN` 확인 |
 | `build-backend`가 커밋 안 된 변경을 거부 | 커밋하거나 `ALLOW_DIRTY=1`(태그가 내용과 달라진다) |
+| `운영 모드(...)에서 안전하지 않은 설정이라 기동하지 않는다` | `PUBLIC_BASE_URL`이 https면 운영 모드다. 메시지 아래 목록의 키(`JWT_SECRET`·`OTP_HASH_KEY` 공개 값, `COOKIE_SECURE`, `DB_PASSWORD`, `CLIENT_IP_HEADER`, `SMS_PROVIDER`)를 `put-secrets`로 고치고 재배포. 판정은 `PRODUCTION_MODE=auto\|true\|false`로 강제할 수 있다 |
+| `CREATE EXTENSION pg_trgm 이 실패해 기동하지 못했다` | V8 마이그레이션에 DB CREATE 권한이 필요하다. [first-deploy: pg_trgm 권한](docs/first-deploy.md#postgresql-확장pg_trgm-권한) |
 
 ## 시크릿·환경변수 목록
 
@@ -363,6 +365,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `JWT_REFRESH_TTL` | | | 입력(선택) | `P14D`. refresh 토큰 수명(ISO-8601). access 토큰은 15분 고정 |
 | `COOKIE_SECURE` | | ● | terraform(`true`) | `false`. `SESSION`·`XSRF-TOKEN`·`VID` 쿠키 Secure 플래그 |
 | `PUBLIC_BASE_URL` | | ● | terraform | `http://localhost:3000`. 브라우저가 보는 공개 주소(끝 `/` 없이). OAuth redirect-uri와 로그인 후 리다이렉트를 이 값으로 만든다 |
+| `PRODUCTION_MODE` | | | (없음) | `auto`. `auto`면 `PUBLIC_BASE_URL`이 https일 때 운영 모드: 기동 시 안전 설정 검사(공개 비밀값·`COOKIE_SECURE`·`DB_PASSWORD`·`CLIENT_IP_HEADER`·`SMS_PROVIDER`), 실패하면 기동 안 함. `true`\|`false`로 강제 |
 | `CLIENT_IP_HEADER` | | ● | terraform(`CloudFront-Viewer-Address`) | 비어 있음 = remote address. OTP 발송 한도의 클라이언트 IP |
 | `ADMIN_EMAIL` | | ○ | 입력 | 비어 있음. 기동할 때 이 이메일(대소문자 무시)의 **LOCAL** 계정이 이미 있으면 ADMIN으로 올린다. 가입만으로는 ADMIN이 되지 않는다 — 가입 → 소유 확인 → 재시작([first-deploy 7](docs/first-deploy.md#7-스모크-ac1)) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | 비우면 Google 로그인 꺼짐. [oauth-setup](docs/oauth-setup.md#google) |
