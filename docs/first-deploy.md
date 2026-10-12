@@ -85,7 +85,7 @@ aws ssm start-session --target "$INSTANCE_ID"                         # (선택)
 
 ```bash
 cp deploy/secrets.example.txt deploy/secrets.local.txt   # gitignore 된다
-#   ADMIN_EMAIL               첫 관리자 이메일(이 이메일로 LOCAL 가입한 뒤 재시작하면 ADMIN — 7번 참고)
+#   ADMIN_EMAIL               여기서는 넣지 않는다 — 관리자가 가입하고 확인된 뒤 7번에서 넣고, 승격되면 지운다
 #   GOOGLE_/GITHUB_/NAVER_/KAKAO_ CLIENT_ID·SECRET   — oauth-setup.md 순서로 받는다. 아직 없으면 비워 둔다(그 제공자만 꺼진다)
 #   SMS_PROVIDER=aws, SMS_ORIGINATION_IDENTITY        — sms-setup.md. 아직 준비 전이면 아래 주의 참고
 make put-secrets PUT_SECRETS_FLAGS=--generate-missing DRY_RUN=1   # 무엇을 넣을지 확인(시크릿 값은 ****)
@@ -141,13 +141,23 @@ SMOKE_BASE_URL="$BASE" make smoke                        # health·HTML no-cache
 브라우저로 직접 확인한다.
 
 1. `$BASE/`가 열리고, 새로 고쳐도 최신 HTML을 받는다.
-2. 첫 관리자: 가입만으로는 ADMIN이 되지 않는다(누가 먼저 그 이메일로 가입해 관리자를 가로채지 못하게). 다음 순서를 지킨다.
-   1. 관리자 본인이 `$BASE/signup/`에서 `ADMIN_EMAIL`로 가입한다(이때는 일반 사용자다).
+2. 첫 관리자: 가입만으로는 ADMIN이 되지 않고, 기동 시 승격은 **ADMIN이 하나도 없을 때 한 번만** 한다(누가 먼저 그 이메일로 가입하거나,
+   나중에 같은 이메일을 다시 차지해 관리자를 가로채지 못하게). 다음 순서를 지킨다.
+   1. 관리자 본인이 `$BASE/signup/`에서 관리자 이메일로 가입한다(이때는 일반 사용자다). 이 시점에 `ADMIN_EMAIL`은 아직 SSM에 없다.
    2. 운영자가 그 계정이 관리자 본인 것인지 확인한다 — 가입한 사람에게 닉네임·가입 시각을 묻고, 모르는 가입이면 승격하지 않는다
-      (그 계정을 지우거나 `ADMIN_EMAIL`을 다른 주소로 바꾼다).
-   3. `make deploy-backend`(또는 인스턴스에서 api 컨테이너 재시작)로 백엔드를 다시 띄운다. 기동할 때 그 LOCAL 계정을 ADMIN으로 올리고
+      (다른 주소로 다시 가입하게 한다).
+   3. 확인이 끝난 뒤에야 `ADMIN_EMAIL`을 넣고 백엔드를 다시 띄운다. 기동할 때 그 LOCAL 계정을 ADMIN으로 올리고
       로그에 `app.admin.email 의 LOCAL 계정(user=<id>)을 ADMIN 으로 올렸다`가 남는다.
-   4. 다시 로그인하면 헤더에 관리자 메뉴가 보이고 `/admin/`이 열린다. 승격 뒤에는 `ADMIN_EMAIL`을 비워도 된다(이미 ADMIN인 계정은 내리지 않는다).
+      ```bash
+      echo 'ADMIN_EMAIL=<확인된 관리자 이메일>' >> deploy/secrets.local.txt && make put-secrets && make deploy-backend
+      ```
+   4. 다시 로그인하면 헤더에 관리자 메뉴가 보이고 `/admin/`이 열린다.
+   5. **반드시** `ADMIN_EMAIL`을 지운다(빈 값은 put-secrets 가 넣지 않으므로 SSM 파라미터를 직접 지운다). ADMIN이 있으면 부트스트랩은 건너뛰지만,
+      남겨 두면 관리자를 모두 강등했을 때 다시 그 이메일이 승격 대상이 된다.
+      ```bash
+      sed -i.bak '/^ADMIN_EMAIL=/d' deploy/secrets.local.txt
+      aws ssm delete-parameter --name /board/prod/ADMIN_EMAIL && make deploy-backend
+      ```
 3. 글을 쓰고 이미지를 첨부한다. 이미지 URL은 `/uploads/...`(같은 오리진)이다.
 4. 휴대폰 로그인([sms-setup.md](sms-setup.md)의 샌드박스 검증 번호로)과 소셜 로그인([oauth-setup.md](oauth-setup.md)의 체크리스트)을 확인한다.
 

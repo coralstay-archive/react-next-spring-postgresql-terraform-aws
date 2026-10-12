@@ -3,7 +3,9 @@ package com.example.board.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.http.HttpResponse;
+import java.util.List;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -59,10 +61,23 @@ class AdminBootstrapTest {
 
 	AuthClient auth;
 
+	/** 이 테스트가 잠시 USER 로 내린 기존 ADMIN (다른 테스트 클래스가 만든 계정). 끝나면 되돌린다. */
+	List<Long> demotedAdmins = List.of();
+
 	@BeforeEach
 	void setUp() {
 		api = new Api(port);
 		auth = new AuthClient(api);
+		// TASK-21#3 부트스트랩은 ADMIN 이 하나도 없을 때만 올린다. 컨텍스트(DB)를 같이 쓰는 다른 테스트의 ADMIN 을 잠시 내린다
+		demotedAdmins = jdbc.queryForList("select id from users where role = 'ADMIN'", Long.class);
+		jdbc.update("update users set role = 'USER' where role = 'ADMIN'");
+	}
+
+	@AfterEach
+	void restoreAdmins() {
+		for (Long id : demotedAdmins) {
+			jdbc.update("update users set role = 'ADMIN' where id = ?", id);
+		}
 	}
 
 	private String role(String email) {
@@ -147,6 +162,33 @@ class AdminBootstrapTest {
 
 		runAtStartup("");
 		runAtStartup(null);
+
+		assertThat(role(email)).isEqualTo("USER");
+	}
+
+	@Test
+	@DisplayName("TASK-21#3 TASK-21#B2 ADMIN 이 이미 있으면 ADMIN_EMAIL 의 LOCAL 계정이 있어도 올리지 않는다(1회성 부트스트랩, 재시작마다 다시 올리지 않음)")
+	void skipsWhenAnAdminAlreadyExists(CapturedOutput output) throws Exception {
+		fixtures.admin();
+		String email = auth.signedUp();
+
+		runAtStartup(email);
+
+		assertThat(role(email)).isEqualTo("USER");
+		assertThat(output).contains("ADMIN 이 이미 있어");
+	}
+
+	@Test
+	@DisplayName("TASK-21#3 TASK-21#B2 승격 뒤 그 LOCAL identity 가 없어지고 다른 사람이 같은 이메일로 가입해도, 재시작으로 다시 승격되지 않는다")
+	void resquattedEmailIsNotPromotedAgain() throws Exception {
+		String email = auth.signedUp();
+		runAtStartup(email);
+		assertThat(role(email)).isEqualTo("ADMIN");
+		// 첫 관리자가 LOCAL 로그인을 해제(identity 삭제, 자격 증명은 cascade) → 이메일이 다시 비었다
+		jdbc.update("delete from user_identities where provider = 'LOCAL' and subject = ?", email);
+
+		assertThat(auth.signup(email, AuthClient.PASSWORD, "squatter").statusCode()).isEqualTo(201);
+		runAtStartup(email);
 
 		assertThat(role(email)).isEqualTo("USER");
 	}

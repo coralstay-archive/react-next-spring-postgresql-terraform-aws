@@ -23,8 +23,8 @@ make backend-run                      # 터미널 1: http://localhost:8080/api
 make frontend-dev                     # 터미널 2: http://localhost:3000
 ```
 
-<http://localhost:3000/signup/>에서 가입한다. 관리자가 필요하면 `.env`의 `ADMIN_EMAIL`을 채우고 그 이메일로 가입한 뒤 백엔드를 다시 시작한다
-(가입만으로는 관리자가 되지 않고, 기동할 때 이미 있는 그 LOCAL 계정을 ADMIN으로 올린다).
+<http://localhost:3000/signup/>에서 가입한다. 관리자가 필요하면 그 이메일로 가입한 뒤 `.env`의 `ADMIN_EMAIL`을 채우고 백엔드를 다시 시작한다
+(가입만으로는 관리자가 되지 않고, ADMIN이 하나도 없을 때 기동하면서 이미 있는 그 LOCAL 계정을 한 번 ADMIN으로 올린다. 승격되면 비운다).
 휴대폰 로그인의 인증번호는 백엔드 로그(`[SMS console] to=+82******5678 message=...`, 번호는 마스킹)에 찍힌다. 테스트는 `make test`, 브라우저 E2E는 `make e2e`로 돌린다.
 
 | 문서 | 내용 |
@@ -255,7 +255,7 @@ deploy/secrets.example.txt    put-secrets 입력 예시 (실제 입력 deploy/se
 
 ```bash
 make tf-outputs                                             # 0) apply 가 끝났는지 확인
-cp deploy/secrets.example.txt deploy/secrets.local.txt      # 1) ADMIN_EMAIL, OAuth id·secret, SMS_* 를 채운다
+cp deploy/secrets.example.txt deploy/secrets.local.txt      # 1) OAuth id·secret, SMS_* 를 채운다(ADMIN_EMAIL 은 관리자 가입·확인 뒤에만, first-deploy 7)
 make put-secrets PUT_SECRETS_FLAGS=--generate-missing DRY_RUN=1   # 2) 무엇을 넣을지 확인(시크릿은 '****')
 make put-secrets PUT_SECRETS_FLAGS=--generate-missing       #    DB_PASSWORD·JWT_SECRET·OTP_HASH_KEY 는 SSM 에 없을 때만 만든다
 make deploy DRY_RUN=1 && make deploy                        # 3) 커밋된 HEAD 기준(커밋 안 된 변경은 build-backend 가 거부)
@@ -368,7 +368,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `PUBLIC_BASE_URL` | | ● | terraform | `http://localhost:3000`. 브라우저가 보는 공개 주소(끝 `/` 없이). OAuth redirect-uri와 로그인 후 리다이렉트를 이 값으로 만든다 |
 | `PRODUCTION_MODE` | | | (없음) | `auto`. `auto`면 `PUBLIC_BASE_URL`이 https일 때 운영 모드: 기동 시 안전 설정 검사(공개 비밀값·`COOKIE_SECURE`·`DB_PASSWORD`·`CLIENT_IP_HEADER`·`SMS_PROVIDER`), 실패하면 기동 안 함. `true`\|`false`로 강제 |
 | `CLIENT_IP_HEADER` | | ● | terraform(`CloudFront-Viewer-Address`) | 비어 있음 = remote address. OTP 발송 한도의 클라이언트 IP |
-| `ADMIN_EMAIL` | | ○ | 입력 | 비어 있음. 기동할 때 이 이메일(대소문자 무시)의 **LOCAL** 계정이 이미 있으면 ADMIN으로 올린다. 가입만으로는 ADMIN이 되지 않는다 — 가입 → 소유 확인 → 재시작([first-deploy 7](docs/first-deploy.md#7-스모크-ac1)) |
+| `ADMIN_EMAIL` | | | 입력(일시) | 비어 있음. 기동할 때 ADMIN이 하나도 없고 이 이메일(대소문자 무시)의 **LOCAL** 계정이 이미 있으면 한 번 ADMIN으로 올린다. 가입만으로는 ADMIN이 되지 않는다 — 가입 → 소유 확인 → 그때 설정·재배포 → 승격 뒤 반드시 삭제([first-deploy 7](docs/first-deploy.md#7-스모크-ac1)) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | 비우면 Google 로그인 꺼짐. [oauth-setup](docs/oauth-setup.md#google) |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | 비우면 꺼짐. 운영·로컬 OAuth App을 따로 만든다 |
 | `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | Client ID / Client Secret. 비우면 꺼짐 |
