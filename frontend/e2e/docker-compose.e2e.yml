@@ -1,0 +1,8 @@
+# E2E 전용 덮어쓰기 (TASK-18#5). scripts/e2e.sh 가 별도 프로젝트(-p board-e2e)로 docker-compose.yml 과 함께 쓴다.
+# 개발용 컨테이너(board-postgres, board-minio)와 이름·볼륨이 겹치지 않게 하고, 포트는 e2e.sh 의 POSTGRES_PORT·MINIO_PORT 로 바꾼다.
+# 볼륨은 e2e.sh 가 끝날 때 down -v 로 지운다(매번 빈 DB — ADMIN_EMAIL 가입·발송 한도가 실행마다 같다).
+services:
+  postgres:
+    container_name: board-e2e-postgres
+  minio:
+    container_name: board-e2e-minio

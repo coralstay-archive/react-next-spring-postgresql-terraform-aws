@@ -112,5 +112,18 @@ for w in "infra/bootstrap" "envs/prod.tfvars" "terraform destroy" "CLIENT_IP_HEA
   check "TASK-16#6 README 인프라 절에 '$w'" grep -qF "$w" README.md
 done
 
+# TASK-18#5 Playwright E2E: frontend/e2e + playwright.config.ts(chromium), scripts/e2e.sh(로컬 스택 기동·정리), make e2e(make test 에는 없음)
+check "TASK-18#5 make e2e 타깃은 scripts/e2e.sh 를 호출" sh -c 'make -n e2e | grep -q "scripts/e2e.sh"'
+check "TASK-18#5 scripts/e2e.sh 실행 가능" test -x scripts/e2e.sh
+check "TASK-18#5 make test(scripts/test.sh)는 E2E 를 돌리지 않는다" sh -c '! grep -Eq "e2e|playwright" scripts/test.sh'
+check "TASK-18#5 playwright 설정: e2e 디렉터리, chromium 프로젝트 하나" sh -c 'grep -q "testDir: \"./e2e\"" frontend/playwright.config.ts && [ "$(grep -c "name: \"" frontend/playwright.config.ts)" = 1 ] && grep -q "name: \"chromium\"" frontend/playwright.config.ts'
+check "TASK-18#5 @playwright/test devDependency" sh -c 'grep -q "\"@playwright/test\"" frontend/package.json'
+check "TASK-18#5 vitest 는 e2e 를 집지 않는다(src 만)" grep -q 'include: \["src/' frontend/vitest.config.mts
+check "TASK-18#5 E2E 시나리오(제목에 TASK-18#5) 존재" sh -c '[ "$(grep -c "test(\"TASK-18#5" frontend/e2e/smoke.spec.ts)" -ge 8 ]'
+for w in "SMS_PROVIDER=console" "ADMIN_EMAIL" "next dev" "compose" "down -v" "playwright test"; do
+  check "TASK-18#5 scripts/e2e.sh 에 '$w'" grep -qF -- "$w" scripts/e2e.sh
+done
+check "TASK-18#5 gitignore 가 E2E 결과물을 무시" git check-ignore -q --no-index frontend/e2e/artifacts/x
+
 echo "repo tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]
