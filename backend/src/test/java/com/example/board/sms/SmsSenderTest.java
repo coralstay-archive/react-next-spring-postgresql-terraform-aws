@@ -82,10 +82,28 @@ class SmsSenderTest {
 	}
 
 	@Test
-	@DisplayName("TASK-7#1 콘솔 구현은 메시지를 로그로 남긴다(로컬 개발용)")
+	@DisplayName("TASK-7#1 TASK-21#4 콘솔 구현은 메시지를 로그로 남긴다(로컬 개발용). 번호는 마스킹한다")
 	void consoleLogs(CapturedOutput output) {
-		new ConsoleSmsSender().send("+821012345678", "인증번호 123456");
-		assertThat(output).contains("+821012345678").contains("인증번호 123456");
+		new ConsoleSmsSender(true).send("+821012345678", "인증번호 123456");
+		assertThat(output).contains("to=+82******5678").contains("인증번호 123456").doesNotContain("+821012345678");
+	}
+
+	@Test
+	@DisplayName("TASK-21#4 TASK-21#B3 운영 모드면 콘솔 구현이라도 메시지(인증번호) 원문을 로그에 남기지 않는다")
+	void consoleHidesMessageInProduction(CapturedOutput output) {
+		context.withPropertyValues("app.sms.provider=console", "app.public-base-url=https://board.example.com")
+			.run(ctx -> ctx.getBean(SmsSender.class).send("+821012345678", "[board] 인증번호 654321"));
+
+		assertThat(output).contains("[SMS console]").doesNotContain("654321").doesNotContain("+821012345678");
+	}
+
+	@Test
+	@DisplayName("TASK-21#4 로컬(http)에서는 콘솔 구현이 인증번호를 보여 준다(E2E 가 로그에서 읽는다)")
+	void consoleRevealsMessageLocally(CapturedOutput output) {
+		context.withPropertyValues("app.sms.provider=console", "app.public-base-url=http://localhost:3000")
+			.run(ctx -> ctx.getBean(SmsSender.class).send("+821012345678", "[board] 인증번호 654321"));
+
+		assertThat(output).contains("to=+82******5678 message=[board] 인증번호 654321");
 	}
 
 	@Test

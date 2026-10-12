@@ -75,11 +75,18 @@ export function randomPhone(): { display: string; e164: string } {
   return { display: `010-${digits.slice(0, 4)}-${digits.slice(4)}`, e164: `+8210${digits}` };
 }
 
+/** 백엔드 PhoneNumbers.mask 와 같다: 국가 코드(앞 3자) 뒤를 가리고 끝 4자리만 남긴다. +821012345678 → +82******5678 (TASK-21#4) */
+export function maskPhone(e164: string): string {
+  return e164.slice(0, 3) + "*".repeat(e164.length - 7) + e164.slice(-4);
+}
+
 function otpCodes(e164: string): string[] {
   const path = process.env.E2E_BACKEND_LOG;
   if (!path) throw new Error("E2E_BACKEND_LOG 가 없다 — scripts/e2e.sh 로 실행한다");
   const log = readFileSync(path, "utf8");
-  const re = new RegExp(`\\[SMS console\\] to=${e164.replace("+", "\\+")} message=\\[board\\] 인증번호 (\\d{6})`, "g");
+  // 콘솔 SMS 로그는 번호를 마스킹한다(TASK-21#4). 시나리오의 번호는 무작위라 끝 4자리가 겹칠 일은 사실상 없다.
+  const masked = maskPhone(e164).replace(/[+*]/g, (c) => `\\${c}`);
+  const re = new RegExp(`\\[SMS console\\] to=${masked} message=\\[board\\] 인증번호 (\\d{6})`, "g");
   return [...log.matchAll(re)].map((m) => m[1]);
 }
 

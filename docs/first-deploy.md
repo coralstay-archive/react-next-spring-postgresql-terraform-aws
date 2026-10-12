@@ -95,8 +95,8 @@ aws ssm get-parameters-by-path --path /board/prod --query 'Parameters[].Name' --
 
 - `--generate-missing`은 SSM에 `DB_PASSWORD`·`JWT_SECRET`·`OTP_HASH_KEY`가 없을 때만 무작위 값을 만든다. 다시 돌려도 기존 값은 바꾸지 않는다.
 - `DB_PASSWORD`는 postgres 데이터 디렉터리를 처음 초기화할 때만 쓰인다. 첫 배포 뒤에는 바꾸지 않는다.
-- SMS가 아직 샌드박스여도 `SMS_PROVIDER=aws`로 둔다. 검증된 대상 번호로만 발송된다([sms-setup.md](sms-setup.md)). `console`은 운영에서 쓰지 않는다
-  (인증번호가 CloudWatch 로그에 남는다).
+- SMS가 아직 샌드박스여도 `SMS_PROVIDER=aws`로 둔다. 검증된 대상 번호로만 발송된다([sms-setup.md](sms-setup.md)). 운영 모드(`PUBLIC_BASE_URL`이 https)에서
+  `console`·`memory`·빈 값이면 백엔드가 기동하지 않는다.
 
 **확인**: `DB_PASSWORD`, `JWT_SECRET`, `OTP_HASH_KEY`, `PUBLIC_BASE_URL`, `COOKIE_SECURE`, `CLIENT_IP_HEADER`, `UPLOADS_BUCKET`, `COGNITO_*`가 목록에 있다.
 

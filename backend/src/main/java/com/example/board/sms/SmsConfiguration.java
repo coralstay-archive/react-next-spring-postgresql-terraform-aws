@@ -5,6 +5,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+
+import com.example.board.security.ProductionMode;
 
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
@@ -16,11 +19,13 @@ import software.amazon.awssdk.services.pinpointsmsvoicev2.PinpointSmsVoiceV2Clie
 public class SmsConfiguration {
 
 	@Bean
-	SmsSender smsSender(SmsProperties properties, ObjectProvider<PinpointSmsVoiceV2Client> client) {
+	SmsSender smsSender(SmsProperties properties, ObjectProvider<PinpointSmsVoiceV2Client> client,
+			Environment environment) {
 		return switch (properties.provider()) {
 			case "memory" -> new InMemorySmsSender();
 			case "aws" -> new EndUserMessagingSmsSender(client.getObject(), properties.aws());
-			default -> new ConsoleSmsSender();
+			// 운영 모드에서는 인증번호 원문을 로그에 남기지 않는다(TASK-21#4 B3). 보통은 기동 검사가 먼저 막는다
+			default -> new ConsoleSmsSender(!ProductionMode.isProduction(environment));
 		};
 	}
 

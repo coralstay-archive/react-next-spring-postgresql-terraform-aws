@@ -85,6 +85,11 @@ public class ProductionSafetyCheck implements BeanFactoryPostProcessor, Environm
 			problems.add("CLIENT_IP_HEADER 가 비어 있다. CloudFront 뒤에서는 엣지 IP 를 모두가 공유해 IP 별 OTP 발송 한도가 서비스 거부가 된다"
 					+ " (CLIENT_IP_HEADER=CloudFront-Viewer-Address)");
 		}
+		String smsProvider = env.getProperty("app.sms.provider", "").strip().toLowerCase(Locale.ROOT);
+		if (!"aws".equals(smsProvider)) {
+			problems.add("SMS_PROVIDER 가 aws 가 아니다(" + (smsProvider.isEmpty() ? "비어 있음 = console" : smsProvider)
+					+ "). console 은 인증번호를 로그에만 남기고 memory 는 보내지 않는다 (SMS_PROVIDER=aws)");
+		}
 		return problems;
 	}
 

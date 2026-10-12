@@ -27,7 +27,8 @@ class ProductionSafetyCheckTest {
 			.withProperty("app.otp.hash-key", "Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0Lz9Xc8Vb7Nm6Qa5W")
 			.withProperty("app.security.cookie-secure", "true")
 			.withProperty("spring.datasource.password", "R4nd0m-db-p4ssw0rd-from-ssm")
-			.withProperty("app.client-ip.header", "CloudFront-Viewer-Address");
+			.withProperty("app.client-ip.header", "CloudFront-Viewer-Address")
+			.withProperty("app.sms.provider", "aws");
 	}
 
 	@Test
@@ -97,7 +98,8 @@ class ProductionSafetyCheckTest {
 			.withProperty("app.jwt.secret", "Zt0q9w1Lr3m8Xc5Vb7Nn2Kk4Jj6Hh8Gg0Ff2Dd4Ss6Aa")
 			.withProperty("app.otp.hash-key", "Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0Lz9Xc8Vb7Nm6Qa5W")
 			.withProperty("spring.datasource.password", "R4nd0m-db-p4ssw0rd-from-ssm")
-			.withProperty("app.client-ip.header", "CloudFront-Viewer-Address")))
+			.withProperty("app.client-ip.header", "CloudFront-Viewer-Address")
+			.withProperty("app.sms.provider", "aws")))
 			.singleElement()
 			.asString()
 			.contains("COOKIE_SECURE");
@@ -123,6 +125,20 @@ class ProductionSafetyCheckTest {
 			.singleElement()
 			.asString()
 			.contains("CLIENT_IP_HEADER");
+	}
+
+	@Test
+	@DisplayName("TASK-21#4 TASK-21#B3 운영 모드에서 SMS_PROVIDER 가 aws 가 아니면(console·빈 값=console·memory) 문제다")
+	void smsProviderMustBeAws() {
+		for (String value : new String[] { "console", " ", "memory", "CONSOLE" }) {
+			assertThat(ProductionSafetyCheck.problems(safeProduction().withProperty("app.sms.provider", value)))
+				.as(value)
+				.singleElement()
+				.asString()
+				.contains("SMS_PROVIDER");
+		}
+		assertThat(ProductionSafetyCheck.problems(safeProduction().withProperty("app.sms.provider", " AWS ")))
+			.isEmpty();
 	}
 
 	@Test

@@ -25,7 +25,7 @@ make frontend-dev                     # 터미널 2: http://localhost:3000
 
 <http://localhost:3000/signup/>에서 가입한다. 관리자가 필요하면 `.env`의 `ADMIN_EMAIL`을 채우고 그 이메일로 가입한 뒤 백엔드를 다시 시작한다
 (가입만으로는 관리자가 되지 않고, 기동할 때 이미 있는 그 LOCAL 계정을 ADMIN으로 올린다).
-휴대폰 로그인의 인증번호는 백엔드 로그(`[SMS console] ...`)에 찍힌다. 테스트는 `make test`, 브라우저 E2E는 `make e2e`로 돌린다.
+휴대폰 로그인의 인증번호는 백엔드 로그(`[SMS console] to=+82******5678 message=...`, 번호는 마스킹)에 찍힌다. 테스트는 `make test`, 브라우저 E2E는 `make e2e`로 돌린다.
 
 | 문서 | 내용 |
 |---|---|
@@ -372,7 +372,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `COGNITO_CLIENT_ID` | | ○ | terraform | Cognito 로그인. 있으면 `COGNITO_ISSUER_URI`·`COGNITO_DOMAIN`도 필요(없으면 기동 실패) |
 | `COGNITO_CLIENT_SECRET` | ● | ○ | terraform(`cognito_client_secret`) | App Client secret(state에는 남는다) |
 | `COGNITO_ISSUER_URI` / `COGNITO_DOMAIN` | | ○ | terraform | `https://cognito-idp.<region>.amazonaws.com/<pool id>` / `https://<prefix>.auth.<region>.amazoncognito.com` |
-| `SMS_PROVIDER` | | ● | 입력(`aws`) | `console`(로그로만, 로컬 전용) · `memory`(테스트) · `aws`. 그 밖의 값이면 기동 실패. [sms-setup](docs/sms-setup.md) |
+| `SMS_PROVIDER` | | ● | 입력(`aws`) | `console`(로그로만, 번호 마스킹, 로컬 전용) · `memory`(테스트) · `aws`. 그 밖의 값이면 기동 실패. 운영 모드(https)는 `aws`만 허용 [sms-setup](docs/sms-setup.md) |
 | `SMS_AWS_REGION` | | | terraform(`us-east-1`) | `us-east-1` |
 | `SMS_ORIGINATION_IDENTITY` | | | 입력 | 발신 번호·sender ID·pool. 비우면 계정 기본 |
 | `SMS_CONFIGURATION_SET` | | | 입력(선택) | 전송 이벤트 기록 |
