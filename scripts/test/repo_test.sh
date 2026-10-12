@@ -121,6 +121,12 @@ for w in "http://localhost:3000" "public_base_url" "KOE205" "제공 정보" "GOO
   check "TASK-18#2 oauth-setup 에 '$w'" grep -qF -- "$w" docs/oauth-setup.md
 done
 
+# TASK-18#3 SMS: 샌드박스 해제, 한국 발신 등록, 지출 한도, SSM 키, 검증 번호 시험, 비용
+check "TASK-18#3 docs/sms-setup.md 존재" test -f docs/sms-setup.md
+for w in "SMS_PROVIDER" "SMS_AWS_REGION" "SMS_ORIGINATION_IDENTITY" "샌드박스" "production access" "South Korea" "Registrations" "지출 한도" "create-verified-destination-number" "sms-voice:SendTextMessage" "비용" "확인 필요"; do
+  check "TASK-18#3 sms-setup 에 '$w'" grep -qF -- "$w" docs/sms-setup.md
+done
+
 # TASK-18#5 Playwright E2E: frontend/e2e + playwright.config.ts(chromium), scripts/e2e.sh(로컬 스택 기동·정리), make e2e(make test 에는 없음)
 check "TASK-18#5 make e2e 타깃은 scripts/e2e.sh 를 호출" sh -c 'make -n e2e | grep -q "scripts/e2e.sh"'
 check "TASK-18#5 scripts/e2e.sh 실행 가능" test -x scripts/e2e.sh
