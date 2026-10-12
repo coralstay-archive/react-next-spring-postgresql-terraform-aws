@@ -46,6 +46,21 @@ jobs:
           terraform_version: "~1.16"
           terraform_wrapper: false
 
+      # TASK-19: Ubuntu 패키지 shellcheck 는 로컬(0.11)보다 오래돼 다른 경고를 낸다. 같은 버전을 고정 설치한다.
+      # 버전을 올릴 때는 SHELLCHECK_SHA256 도 같이 바꾼다(deploy_test.sh 가 로컬 버전과 이 값을 비교한다).
+      - name: Install shellcheck (pinned)
+        env:
+          SHELLCHECK_VERSION: "0.11.0"
+          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          tarball="$RUNNER_TEMP/shellcheck.tar.xz"
+          curl -sSfL -o "$tarball" "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  ${tarball}" | sha256sum -c -
+          tar -xJf "$tarball" -C "$RUNNER_TEMP"
+          install -m 0755 "$RUNNER_TEMP/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "$RUNNER_TEMP/bin/shellcheck"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
       - name: Install actionlint
         run: |
           mkdir -p "$RUNNER_TEMP/bin"

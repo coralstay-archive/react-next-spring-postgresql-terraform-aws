@@ -666,6 +666,16 @@ done
 
 # ---------------------------------------------------------------- shellcheck (모든 배포 스크립트)
 if need_linter shellcheck; then
+  # TASK-19#3 로컬 shellcheck 는 CI 고정 버전(ci.yml SHELLCHECK_VERSION)과 같아야 결과가 같다
+  SHELLCHECK_VERSION="$(sed -nE 's/^[[:space:]]*SHELLCHECK_VERSION: "?([0-9.]+)"?.*/\1/p' .github/workflows/ci.yml | head -n1)"
+  local_sc="$(shellcheck --version | sed -nE 's/^version: ([0-9.]+).*/\1/p')"
+  if [ -n "$SHELLCHECK_VERSION" ] && [ "$local_sc" != "$SHELLCHECK_VERSION" ]; then
+    if [ "${REQUIRE_LINTERS:-0}" = 1 ]; then
+      echo "  FAIL - shellcheck $local_sc ≠ ci.yml 고정 $SHELLCHECK_VERSION"; failures=$((failures + 1))
+    else
+      echo "  WARNING: 로컬 shellcheck $local_sc ≠ CI 고정 $SHELLCHECK_VERSION — 결과가 다를 수 있다" >&2
+    fi
+  fi
   for f in scripts/*.sh deploy/*.sh scripts/test/*.sh; do
     [ -f "$f" ] || continue
     check "TASK-17#1 shellcheck $f" shellcheck -x "$f"
