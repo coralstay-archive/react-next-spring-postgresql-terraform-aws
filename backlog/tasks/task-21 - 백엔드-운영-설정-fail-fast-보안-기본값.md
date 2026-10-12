@@ -1,10 +1,10 @@
 ---
 id: TASK-21
 title: '백엔드: 운영 설정 fail-fast + 보안 기본값'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 06:14'
+updated_date: '2026-10-12 10:04'
 labels:
   - backend
   - security
@@ -36,11 +36,11 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 BE-8 운영 모드(PUBLIC_BASE_URL이 https)에서 dev JWT_SECRET·OTP_HASH_KEY·COOKIE_SECURE=false·기본 DB 비밀번호면 기동 실패
-- [ ] #2 BE-9 운영 모드에서 CLIENT_IP_HEADER 미설정이면 기동 실패, 헤더가 빠진 요청은 경고 로그
-- [ ] #3 BE-14 ADMIN_EMAIL 자동 승격은 기동 시 이미 있는 계정에만 하고, 가입 시 자동 승격은 하지 않는다
-- [ ] #4 BE-26 운영 모드에서 SMS_PROVIDER=console이면 기동 실패, console 출력은 번호 마스킹
-- [ ] #5 BE-12 pg_trgm 확장 권한 요구사항을 문서화하고 기동 실패 메시지를 개선
+- [x] #1 BE-8 운영 모드(PUBLIC_BASE_URL이 https)에서 dev JWT_SECRET·OTP_HASH_KEY·COOKIE_SECURE=false·기본 DB 비밀번호면 기동 실패
+- [x] #2 BE-9 운영 모드에서 CLIENT_IP_HEADER 미설정이면 기동 실패, 헤더가 빠진 요청은 경고 로그
+- [x] #3 BE-14 ADMIN_EMAIL 자동 승격은 기동 시 이미 있는 계정에만 하고, 가입 시 자동 승격은 하지 않는다
+- [x] #4 BE-26 운영 모드에서 SMS_PROVIDER=console이면 기동 실패, console 출력은 번호 마스킹
+- [x] #5 BE-12 pg_trgm 확장 권한 요구사항을 문서화하고 기동 실패 메시지를 개선
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -64,3 +64,9 @@ documentation:
 <!-- SECTION:NOTES:BEGIN -->
 TASK-20 리뷰 이월(2026-10-12): Hibernate SqlExceptionHelper가 JPA 경로의 SQL 오류를 자체 ERROR로 로깅하고, 여기에 DB 상세 'Key (email)=(...)'(개인정보)가 포함될 수 있다. 앱 처리기는 더 이상 메시지를 로깅하지 않는다. 운영 로그 개인정보 정책과 함께 이 로거 레벨이나 마스킹을 결정한다.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+운영 설정 기동 차단과 보안 기본값. 운영 모드는 PUBLIC_BASE_URL이 https면 켜지고 PRODUCTION_MODE로 강제할 수 있다. 배포 경로의 render-env는 PRODUCTION_MODE=true가 기본이다. ProductionSafetyCheck(PriorityOrdered BFPP)가 DB·Flyway·Tomcat보다 먼저 검사하고, 고칠 항목을 비밀값 노출 없이 모두 나열하며 기동을 멈춘다. 검사 대상: 공개 prefix(dev-only-, change-me, e2e-only-) 비밀값, JWT_SECRET=OTP_HASH_KEY, 서로 다른 문자 10개 미만 비밀값, COOKIE_SECURE≠true, DB_PASSWORD 기본값, CLIENT_IP_HEADER 미설정, SMS_PROVIDER≠aws(B1). https인데 검사를 끄면 WARN. 헤더가 빠진 요청은 1분에 한 번 WARN(PII 없음). ADMIN 부트스트랩: 가입 시 자동 승격 제거, ADMIN이 하나도 없을 때 기동 시 한 번만 기존 LOCAL 계정을 승격(B2). 절차는 가입 → 운영자 확인 → ADMIN_EMAIL 설정 후 재배포 → 확인 후 반드시 삭제(문서 반영). SMS console은 항상 번호 마스킹, 운영에서는 본문 미출력(B3). pg_trgm 권한 문서와 FailureAnalyzer(확장 생성 실패 SQLException일 때만). 개인정보 로그: pgjdbc logServerErrorDetail=false(앱·Hibernate)와 postgres log_error_verbosity=terse·log_min_error_statement=panic(서버 로그). Terraform app_env에 SMS_PROVIDER=aws. E2E는 관리자를 시드 가입 후 재시작해 승격(로그 30초 대기). 진행: Plan → AC마다 Red → Green → 독립 리뷰(중상 1, 중 2, 경미 5) → fix 커밋 5개로 전부 반영. 검증: cleanTest 후 REQUIRE_LINTERS=1 make test(backend 643 스킵 0, frontend 160, repo 208, deploy 135, terraform 전부) 통과, make e2e 8/8.
+<!-- SECTION:FINAL_SUMMARY:END -->
