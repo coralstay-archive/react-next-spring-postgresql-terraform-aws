@@ -459,7 +459,7 @@ t_render_env() {
   run_capture with_fakes env AWS_REGION=us-east-1 FAKE_PARAMS_JSON="$RENDER_PARAMS" deploy/render-env.sh /board/prod "$d"
   [ "$RC" = 0 ] || { echo "$OUT"; return 1; }
   grep -qF "aws ssm get-parameters-by-path --region us-east-1 --path /board/prod --recursive --with-decryption" "$FAKE_STATE/calls.log" || return 1
-  [ "$(mode_of "$d/app.env")" = 0o600 ] && [ "$(mode_of "$d/db.env")" = 0o600 ] || { echo "mode"; return 1; }
+  if [ "$(mode_of "$d/app.env")" != 0o600 ] || [ "$(mode_of "$d/db.env")" != 0o600 ]; then echo "mode"; return 1; fi
   local json
   json="$(DEPLOY_DIR="$d" ECR_REPOSITORY_URL=r/x IMAGE_TAG=t AWS_REGION=us-east-1 docker compose -f deploy/docker-compose.prod.yml config --format json)" || return 1
   # compose config 는 $ 를 $$ 로 다시 이스케이프해 보인다
@@ -666,6 +666,18 @@ done
 
 # ---------------------------------------------------------------- shellcheck (모든 배포 스크립트)
 if need_linter shellcheck; then
+  # TASK-19#3 로컬 shellcheck 는 CI 고정 버전(ci.yml SHELLCHECK_VERSION)과 같아야 결과가 같다
+  SHELLCHECK_VERSION="$(sed -nE 's/^[[:space:]]*SHELLCHECK_VERSION: "?([0-9.]+)"?.*/\1/p' .github/workflows/ci.yml | head -n1)"
+  local_sc="$(shellcheck --version | sed -nE 's/^version: ([0-9.]+).*/\1/p')"
+  if [ -z "$SHELLCHECK_VERSION" ]; then
+    if [ "${REQUIRE_LINTERS:-0}" = 1 ]; then echo "  FAIL - ci.yml 에서 SHELLCHECK_VERSION 을 읽지 못했다"; failures=$((failures + 1)); fi
+  elif [ "$local_sc" != "$SHELLCHECK_VERSION" ]; then
+    if [ "${REQUIRE_LINTERS:-0}" = 1 ]; then
+      echo "  FAIL - shellcheck $local_sc ≠ ci.yml 고정 $SHELLCHECK_VERSION"; failures=$((failures + 1))
+    else
+      echo "  WARNING: 로컬 shellcheck $local_sc ≠ CI 고정 $SHELLCHECK_VERSION — 결과가 다를 수 있다" >&2
+    fi
+  fi
   for f in scripts/*.sh deploy/*.sh scripts/test/*.sh; do
     [ -f "$f" ] || continue
     check "TASK-17#1 shellcheck $f" shellcheck -x "$f"

@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -25,9 +26,10 @@ public final class MutableClock extends Clock {
 		offset.set(Duration.ZERO);
 	}
 
+	/** 운영 시계(ClockConfiguration)처럼 마이크로초로 절삭한다(TASK-19#4: DB 정밀도와 같게). */
 	@Override
 	public Instant instant() {
-		return base.instant().plus(offset.get());
+		return base.instant().plus(offset.get()).truncatedTo(ChronoUnit.MICROS);
 	}
 
 	@Override
