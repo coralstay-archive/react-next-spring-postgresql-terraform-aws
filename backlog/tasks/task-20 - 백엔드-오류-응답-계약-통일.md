@@ -1,10 +1,10 @@
 ---
 id: TASK-20
 title: '백엔드: 오류 응답 계약 통일'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-12 05:15'
 labels:
   - backend
   - errors
