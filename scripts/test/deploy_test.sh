@@ -459,7 +459,7 @@ t_render_env() {
   run_capture with_fakes env AWS_REGION=us-east-1 FAKE_PARAMS_JSON="$RENDER_PARAMS" deploy/render-env.sh /board/prod "$d"
   [ "$RC" = 0 ] || { echo "$OUT"; return 1; }
   grep -qF "aws ssm get-parameters-by-path --region us-east-1 --path /board/prod --recursive --with-decryption" "$FAKE_STATE/calls.log" || return 1
-  [ "$(mode_of "$d/app.env")" = 0o600 ] && [ "$(mode_of "$d/db.env")" = 0o600 ] || { echo "mode"; return 1; }
+  if [ "$(mode_of "$d/app.env")" != 0o600 ] || [ "$(mode_of "$d/db.env")" != 0o600 ]; then echo "mode"; return 1; fi
   local json
   json="$(DEPLOY_DIR="$d" ECR_REPOSITORY_URL=r/x IMAGE_TAG=t AWS_REGION=us-east-1 docker compose -f deploy/docker-compose.prod.yml config --format json)" || return 1
   # compose config 는 $ 를 $$ 로 다시 이스케이프해 보인다
