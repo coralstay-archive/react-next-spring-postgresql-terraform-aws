@@ -55,6 +55,11 @@ public class ProductionSafetyCheck implements BeanFactoryPostProcessor, Environm
 	/** 운영 모드면 {@link #problems} 를 확인하고, 하나라도 있으면 모두 나열한 {@link IllegalStateException} 을 던진다. */
 	static void verify(Environment env) {
 		if (!ProductionMode.isProduction(env)) {
+			if ("false".equalsIgnoreCase(env.getProperty(ProductionMode.PROPERTY, "").strip())
+					&& env.getProperty("app.public-base-url", "").strip().toLowerCase(Locale.ROOT).startsWith("https://")) {
+				log.warn(ProductionMode.PROPERTY + "=false 로 운영 안전 검사를 껐는데 app.public-base-url 이 https 다. 운영이면"
+						+ " PRODUCTION_MODE 를 지우거나 true 로 둔다 (" + ProductionMode.describe(env) + ")");
+			}
 			return;
 		}
 		List<String> problems = problems(env);
@@ -68,11 +73,22 @@ public class ProductionSafetyCheck implements BeanFactoryPostProcessor, Environm
 	/** 운영 모드라고 보고 고칠 것을 돌려준다. 비밀값은 싣지 않는다. */
 	static List<String> problems(Environment env) {
 		List<String> problems = new ArrayList<>();
-		if (isPublicSecret(env.getProperty("app.jwt.secret"))) {
+		String jwtSecret = env.getProperty("app.jwt.secret");
+		String otpKey = env.getProperty("app.otp.hash-key");
+		if (isPublicSecret(jwtSecret)) {
 			problems.add("JWT_SECRET 이 저장소에 공개된 개발·예시 값이다(누구나 ADMIN JWT 를 위조할 수 있다). 32바이트 이상 무작위 값으로 바꾼다");
 		}
-		if (isPublicSecret(env.getProperty("app.otp.hash-key"))) {
+		else if (isLowEntropy(jwtSecret)) {
+			problems.add("JWT_SECRET 의 서로 다른 문자가 " + MIN_DISTINCT_CHARS + "개 미만이다(추측하기 쉽다). 32바이트 이상 무작위 값으로 바꾼다");
+		}
+		if (isPublicSecret(otpKey)) {
 			problems.add("OTP_HASH_KEY 가 저장소에 공개된 개발·예시 값이다. 32바이트 이상 무작위 값으로 바꾼다");
+		}
+		else if (isLowEntropy(otpKey)) {
+			problems.add("OTP_HASH_KEY 의 서로 다른 문자가 " + MIN_DISTINCT_CHARS + "개 미만이다(추측하기 쉽다). 32바이트 이상 무작위 값으로 바꾼다");
+		}
+		if (jwtSecret != null && !jwtSecret.isBlank() && jwtSecret.equals(otpKey)) {
+			problems.add("JWT_SECRET 과 OTP_HASH_KEY 가 같다. 하나가 새면 둘 다 새므로 서로 다른 무작위 값을 쓴다");
 		}
 		if (!Boolean.parseBoolean(env.getProperty("app.security.cookie-secure", "false").strip())) {
 			problems.add("COOKIE_SECURE 가 true 가 아니다. HTTPS 운영에서는 세션·CSRF 쿠키에 Secure 를 붙인다(COOKIE_SECURE=true)");
@@ -91,6 +107,13 @@ public class ProductionSafetyCheck implements BeanFactoryPostProcessor, Environm
 					+ "). console 은 인증번호를 로그에만 남기고 memory 는 보내지 않는다 (SMS_PROVIDER=aws)");
 		}
 		return problems;
+	}
+
+	/** 비밀값에 있어야 할 서로 다른 문자 수의 하한. 무작위 32바이트(base64·hex)면 훨씬 많다. */
+	static final int MIN_DISTINCT_CHARS = 10;
+
+	static boolean isLowEntropy(String value) {
+		return value != null && !value.isBlank() && value.chars().distinct().count() < MIN_DISTINCT_CHARS;
 	}
 
 	static boolean isPublicSecret(String value) {

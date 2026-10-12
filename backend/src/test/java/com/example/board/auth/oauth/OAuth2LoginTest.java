@@ -235,4 +235,21 @@ class OAuth2LoginTest {
 		assertThat(response.body()).contains("\"error\":\"unauthorized\"");
 	}
 
+	@Test
+	@DisplayName("TASK-21#3 TASK-21#B2 (회귀) 소셜 첫 로그인 이메일이 ADMIN_EMAIL 과 같아도(검증된 이메일이어도) USER 다, 기동 부트스트랩도 소셜 identity 는 보지 않는다")
+	void socialLoginWithAdminEmailIsUser() {
+		String sub = sub();
+		Authorization authorization = flow.authorize("/oauth2/authorization/google");
+		String code = OAuthFlow.newCode();
+		stub.stubGoogle(code, authorization.param("redirect_uri"), authorization.param("nonce"),
+				new GoogleUser(sub, IntegrationTest.ADMIN_EMAIL.toLowerCase(), true, "Not Admin"));
+
+		HttpResponse<String> callback = flow.callback("google", "code=" + code + "&state=" + authorization.param("state"));
+
+		assertThat(OAuthFlow.location(callback)).isEqualTo(LOGIN_OK);
+		assertThat(jdbc.queryForObject("select role from users where id = ?", String.class, userIdOf(AuthProvider.GOOGLE, sub)))
+			.isEqualTo("USER");
+		assertThat(api.get("/test/admin-only").cookie(flow.session()).send().statusCode()).isEqualTo(403);
+	}
+
 }

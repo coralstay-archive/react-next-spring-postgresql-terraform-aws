@@ -4,16 +4,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.Map;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.mock.env.MockEnvironment;
 
 import com.example.board.BoardApplication;
 
 /** TASK-21 운영 모드 판정과 기동 시 안전 설정 검사 (doc-2 BE-8). */
+@ExtendWith(OutputCaptureExtension.class)
 class ProductionSafetyCheckTest {
 
 	static final String DEV_JWT = "dev-only-insecure-jwt-secret-change-me-0123456789";
@@ -196,7 +203,7 @@ class ProductionSafetyCheckTest {
 		SpringApplicationBuilder app = new SpringApplicationBuilder(BoardApplication.class).web(WebApplicationType.NONE)
 			.logStartupInfo(false);
 
-		assertThatThrownBy(() -> app.run("--app.public-base-url=https://board.example.com",
+		assertThatThrownBy(() -> app.run("--app.security.production-mode=auto", "--app.public-base-url=https://board.example.com",
 				"--app.jwt.secret=" + DEV_JWT, "--app.otp.hash-key=" + DEV_OTP, "--app.security.cookie-secure=false",
 				"--spring.datasource.password=board", "--spring.datasource.url=jdbc:postgresql://127.0.0.1:1/none"))
 			.isInstanceOf(IllegalStateException.class)
@@ -204,6 +211,67 @@ class ProductionSafetyCheckTest {
 			.hasMessageContaining("OTP_HASH_KEY")
 			.hasMessageContaining("COOKIE_SECURE")
 			.hasMessageContaining("DB_PASSWORD");
+	}
+
+	@Test
+	@DisplayName("TASK-21#1 TASK-21#B1 운영 모드에서 JWT_SECRET 과 OTP_HASH_KEY 가 같으면 문제다(키 하나가 새면 둘 다 샌다)")
+	void jwtSecretAndOtpKeyMustDiffer() {
+		String same = "Zt0q9w1Lr3m8Xc5Vb7Nn2Kk4Jj6Hh8Gg0Ff2Dd4Ss6Aa";
+		assertThat(ProductionSafetyCheck.problems(safeProduction().withProperty("app.otp.hash-key", same)))
+			.singleElement()
+			.asString()
+			.contains("JWT_SECRET")
+			.contains("OTP_HASH_KEY");
+	}
+
+	@Test
+	@DisplayName("TASK-21#1 TASK-21#B1 운영 모드에서 비밀값의 서로 다른 문자가 10개 미만(엔트로피가 매우 낮음)이면 문제다")
+	void lowEntropySecrets() {
+		assertThat(ProductionSafetyCheck.problems(safeProduction().withProperty("app.jwt.secret", "a".repeat(40))))
+			.singleElement()
+			.asString()
+			.contains("JWT_SECRET");
+		assertThat(ProductionSafetyCheck.problems(
+				safeProduction().withProperty("app.otp.hash-key", "0123456780123456780123456780123456")))
+			.singleElement()
+			.asString()
+			.contains("OTP_HASH_KEY");
+	}
+
+	@Test
+	@DisplayName("TASK-21#1 production-mode=false 로 강제했는데 PUBLIC_BASE_URL 이 https 면 WARN 을 남긴다(검사를 끈 운영일 수 있다)")
+	void warnsWhenForcedOffButHttps(CapturedOutput output) {
+		ProductionSafetyCheck.verify(new MockEnvironment().withProperty("app.public-base-url", "https://board.example.com")
+			.withProperty("app.security.production-mode", "false"));
+		assertThat(output).contains("WARN").contains("production-mode=false");
+
+		int before = output.getAll().length();
+		ProductionSafetyCheck.verify(new MockEnvironment().withProperty("app.public-base-url", "http://localhost:3000")
+			.withProperty("app.security.production-mode", "false"));
+		assertThat(output.getAll().substring(before)).doesNotContain("production-mode=false");
+	}
+
+	@Test
+	@DisplayName("TASK-21#1 TASK-21#B1 env 로 들어온 값도 본다: application.properties 의 ${JWT_SECRET} 자리표시자, APP_JWT_SECRET 같은 완화 바인딩")
+	void readsEnvironmentVariables() {
+		ApplicationContextRunner runner = new ApplicationContextRunner().withUserConfiguration(ProductionSafetyCheck.class)
+			// application.properties 와 같은 자리표시자
+			.withPropertyValues("app.public-base-url=${PUBLIC_BASE_URL:http://localhost:3000}",
+					"app.jwt.secret=${JWT_SECRET:" + DEV_JWT + "}", "app.security.cookie-secure=${COOKIE_SECURE:false}");
+
+		runner.withInitializer(ctx -> ctx.getEnvironment().getPropertySources().addFirst(new SystemEnvironmentPropertySource(
+				"systemEnvironment", Map.of("PUBLIC_BASE_URL", "https://board.example.com", "JWT_SECRET", DEV_JWT,
+						"COOKIE_SECURE", "true", "APP_OTP_HASH_KEY", DEV_OTP))))
+			.run(ctx -> assertThat(ctx).hasFailed()
+				.getFailure()
+				.hasMessageContaining("JWT_SECRET")
+				.hasMessageContaining("OTP_HASH_KEY")
+				.hasMessageNotContaining("COOKIE_SECURE"));
+		// 완화 바인딩: 자리표시자 없이 APP_JWT_SECRET·APP_SECURITY_PRODUCTION_MODE 만으로도
+		new ApplicationContextRunner().withUserConfiguration(ProductionSafetyCheck.class)
+			.withInitializer(ctx -> ctx.getEnvironment().getPropertySources().addFirst(new SystemEnvironmentPropertySource(
+					"systemEnvironment", Map.of("APP_SECURITY_PRODUCTION_MODE", "true", "APP_JWT_SECRET", DEV_JWT))))
+			.run(ctx -> assertThat(ctx).hasFailed().getFailure().hasMessageContaining("JWT_SECRET"));
 	}
 
 }
