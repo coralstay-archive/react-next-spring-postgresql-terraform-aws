@@ -10,6 +10,7 @@ import com.example.board.category.Category;
 import com.example.board.category.CategoryController.CategoryResponse;
 import com.example.board.category.CategoryRepository;
 import com.example.board.common.ApiException;
+import com.example.board.common.SqlErrors;
 
 /**
  * 관리자 카테고리 관리 (TASK-12#3). slug 중복은 409 {@code slug_taken}: 먼저 존재 여부를 보고, 동시에 같은 slug 를 만드는 경쟁은
@@ -20,6 +21,9 @@ import com.example.board.common.ApiException;
 public class AdminCategoryService {
 
 	public static final String SLUG_TAKEN = "slug_taken";
+
+	/** V5 의 slug 유니크 제약 이름. */
+	static final String SLUG_UNIQUE = "categories_slug_uk";
 
 	private final CategoryRepository categories;
 
@@ -74,7 +78,11 @@ public class AdminCategoryService {
 			return categories.saveAndFlush(category);
 		}
 		catch (DataIntegrityViolationException ex) {
-			throw slugTaken();
+			// slug 유니크 위반(동시에 같은 slug 를 만드는 경쟁)만 slug_taken. 나머지는 공통 매핑(ApiExceptionHandler, TASK-20#5)
+			if (SqlErrors.violates(ex, SLUG_UNIQUE)) {
+				throw slugTaken();
+			}
+			throw ex;
 		}
 	}
 
