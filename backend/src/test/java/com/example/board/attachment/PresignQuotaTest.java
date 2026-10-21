@@ -139,7 +139,8 @@ class PresignQuotaTest {
 		assertThat(Long.parseLong(limited.headers().firstValue("Retry-After").orElseThrow())).isBetween(3500L, 3600L);
 		assertThat(pending(user)).isZero();
 		clock.advance(Duration.ofHours(1));
-		assertThat(presign(bearer).statusCode()).isEqualTo(200);
+		// access 토큰 만료도 같은 시계라(TASK-23#6) 1시간 뒤에는 새 토큰으로 요청한다
+		assertThat(presign(fixtures.bearer(user)).statusCode()).isEqualTo(200);
 	}
 
 	@Test

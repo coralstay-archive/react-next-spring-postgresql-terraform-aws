@@ -42,9 +42,10 @@ public class TokenService {
 
 	private final SecureRandom random = new SecureRandom();
 
-	private final Clock clock = Clock.systemUTC();
+	private final Clock clock;
 
-	public TokenService(JwtTokenService jwt, RefreshTokenRepository refreshTokens, UserRepository users) {
+	public TokenService(JwtTokenService jwt, RefreshTokenRepository refreshTokens, UserRepository users, Clock clock) {
+		this.clock = clock;
 		this.jwt = jwt;
 		this.properties = jwt.properties();
 		this.refreshTokens = refreshTokens;

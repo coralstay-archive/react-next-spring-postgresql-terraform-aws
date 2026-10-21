@@ -51,11 +51,7 @@ public class ClientIpResolver {
 	private final AtomicLong suppressed = new AtomicLong();
 
 	@Autowired
-	public ClientIpResolver(@Value("${app.client-ip.header:}") String header) {
-		this(header, Clock.systemUTC());
-	}
-
-	ClientIpResolver(String header, Clock clock) {
+	public ClientIpResolver(@Value("${app.client-ip.header:}") String header, Clock clock) {
 		this.header = header == null ? "" : header.strip();
 		this.clock = clock;
 	}

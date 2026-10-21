@@ -1,6 +1,6 @@
 package com.example.board.post;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -69,9 +69,12 @@ public class PostService {
 
 	private final RateLimitProperties rateLimits;
 
+	private final Clock clock;
+
 	public PostService(PostRepository posts, CategoryRepository categories, UserRepository users, TagService tags,
 			PostLikeService likes, AttachmentService attachments, RateLimiter rateLimiter,
-			RateLimitProperties rateLimits) {
+			RateLimitProperties rateLimits, Clock clock) {
+		this.clock = clock;
 		this.rateLimiter = rateLimiter;
 		this.rateLimits = rateLimits;
 		this.posts = posts;
@@ -115,7 +118,7 @@ public class PostService {
 		User author = users.findById(writer.id()).orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED,
 				"unauthorized", "계정을 찾을 수 없습니다"));
 		Category category = categoryFor(request.categorySlug(), writer);
-		Post post = Post.write(author, category, request.title().strip(), request.content());
+		Post post = Post.write(author, category, request.title().strip(), request.content(), clock.instant());
 		if (request.tags() != null) {
 			post.replaceTags(tags.resolve(request.tags()));
 		}
@@ -145,7 +148,7 @@ public class PostService {
 		if (request.attachmentIds() != null) {
 			attachments.replaceLinks(id, post.getOwnerId(), editor, request.attachmentIds());
 		}
-		post.touch(Instant.now());
+		post.touch(clock.instant());
 		posts.flush();
 		return PostDetail.of(post, true, likes.isLiked(id, editor), attachments.forPost(id));
 	}
@@ -153,7 +156,7 @@ public class PostService {
 	/** soft delete (TASK-8#3). */
 	@Transactional
 	public void delete(Long id, AuthUser editor) {
-		modifiable(id, editor).softDelete(Instant.now());
+		modifiable(id, editor).softDelete(clock.instant());
 	}
 
 	/**

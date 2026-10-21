@@ -4,19 +4,23 @@ import java.time.Instant;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+
+import com.example.board.common.ClockEntityListener;
+import com.example.board.common.Timestamped;
 
 /**
  * 게시판 카테고리 (TASK-8#1). {@code adminOnly} 카테고리(기본 시드: {@code notice} 공지)는 ADMIN 만 글을 쓰거나 글을 옮겨 올 수
  * 있다. 관리 API(생성·수정·삭제)는 {@code AdminCategoryController} (TASK-12#3).
  */
 @Entity
+@EntityListeners(ClockEntityListener.class)
 @Table(name = "categories")
-public class Category {
+public class Category implements Timestamped {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -67,9 +71,9 @@ public class Category {
 		}
 	}
 
-	@PrePersist
-	void onCreate() {
-		this.createdAt = Instant.now();
+	@Override
+	public void onCreate(Instant now) {
+		this.createdAt = now;
 	}
 
 	public Long getId() {

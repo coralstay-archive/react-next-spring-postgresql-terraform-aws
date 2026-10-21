@@ -17,7 +17,6 @@ import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OrderBy;
-import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
@@ -93,22 +92,18 @@ public class Post implements OwnedResource {
 	protected Post() {
 	}
 
-	private Post(User author, Category category, String title, String content) {
+	private Post(User author, Category category, String title, String content, Instant now) {
 		this.author = Objects.requireNonNull(author, "author");
 		this.category = category;
 		this.title = Objects.requireNonNull(title, "title");
 		this.content = Objects.requireNonNull(content, "content");
-	}
-
-	public static Post write(User author, Category category, String title, String content) {
-		return new Post(author, category, title, content);
-	}
-
-	@PrePersist
-	void onCreate() {
-		Instant now = Instant.now();
-		this.createdAt = now;
+		this.createdAt = Objects.requireNonNull(now, "now");
 		this.updatedAt = now;
+	}
+
+	/** 새 글. {@code now} 는 서비스의 Clock 빈 시각(TASK-23#6) — 저장 직후 응답과 다시 읽은 값이 같다. */
+	public static Post write(User author, Category category, String title, String content, Instant now) {
+		return new Post(author, category, title, content, now);
 	}
 
 	public void changeTitle(String title) {
