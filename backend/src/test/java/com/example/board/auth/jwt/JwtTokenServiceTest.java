@@ -3,13 +3,22 @@ package com.example.board.auth.jwt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+
+import javax.crypto.spec.SecretKeySpec;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 
 import com.example.board.auth.AuthUser;
 import com.example.board.user.Role;
@@ -50,6 +59,32 @@ class JwtTokenServiceTest {
 		assertThatThrownBy(() -> new JwtProperties("too-short", "board", Duration.ofMinutes(5), Duration.ofDays(14)))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessageContaining("app.jwt.secret");
+	}
+
+	@Test
+	@DisplayName("TASK-23#6 만료 판정을 Clock 빈으로 바꿔도 Spring Security 기본 검증기는 그대로: typ 헤더가 JWT 가 아닌 토큰(서명·클레임은 정상)은 거부한다")
+	void rejectsNonJwtType() {
+		Instant now = Instant.now();
+		JwtClaimsSet claims = JwtClaimsSet.builder()
+			.issuer("board-test")
+			.subject("1")
+			.issuedAt(now)
+			.expiresAt(now.plusSeconds(60))
+			.claim(JwtTokenService.CLAIM_ROLE, "USER")
+			.claim(JwtTokenService.CLAIM_STATUS, "ACTIVE")
+			.claim(JwtTokenService.CLAIM_TOKEN_TYPE, JwtTokenService.ACCESS)
+			.build();
+		NimbusJwtEncoder encoder = NimbusJwtEncoder
+			.withSecretKey(new SecretKeySpec(SECRET.getBytes(StandardCharsets.UTF_8), "HmacSHA256"))
+			.build();
+		String typed = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).type("JWT").build(), claims))
+			.getTokenValue();
+		String dpop = encoder
+			.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).type("dpop+jwt").build(), claims))
+			.getTokenValue();
+
+		assertThat(service.decode(typed).getSubject()).isEqualTo("1");
+		assertThatThrownBy(() -> service.decode(dpop)).isInstanceOf(JwtException.class);
 	}
 
 }
