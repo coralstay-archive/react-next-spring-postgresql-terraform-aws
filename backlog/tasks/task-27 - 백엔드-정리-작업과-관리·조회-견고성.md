@@ -4,7 +4,7 @@ title: '백엔드: 정리 작업과 관리·조회 견고성'
 status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-21 04:09'
 labels:
   - backend
   - ops
@@ -35,4 +35,11 @@ documentation:
 - [ ] #2 BE-28 조회수 집계 실패는 로그만 남기고 상세 응답은 정상 반환
 - [ ] #3 BE-38 정지 후 세션 삭제 실패는 로그 + 응답에 경고 필드(정지는 유지)
 - [ ] #4 BE-40 카테고리 sortOrder 범위 검증과 오버플로 방지
+- [ ] #5 rate_limit_events 정리: 설정된 app.rate-limit.* window 최댓값보다 오래된 행만 지운다(TASK-22 리뷰 M2)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-22 리뷰(M2, 2026-10-21): rate_limit_events 정리가 빠져 있어 AC #5로 추가. 정리 기준은 고정 1시간이 아니라 설정된 window 최댓값(B1과 같은 취지).
+<!-- SECTION:NOTES:END -->
