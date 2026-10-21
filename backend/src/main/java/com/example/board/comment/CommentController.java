@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import com.example.board.auth.AuthUser;
-import com.example.board.common.ApiErrors;
 import com.example.board.common.PageResponse;
 import com.example.board.common.Paging;
 

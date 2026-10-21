@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.board.admin.AdminRequests.ReasonRequest;
 import com.example.board.admin.AdminUserService.AdminUserResponse;
 import com.example.board.auth.AuthUser;
-import com.example.board.common.ApiErrors;
 import com.example.board.common.PageResponse;
 import com.example.board.common.Paging;
 import com.example.board.user.UserStatus;

@@ -27,8 +27,8 @@ import com.example.board.support.RowLock;
 import com.example.board.user.User;
 
 /**
- * TASK-23#4 (BE-29) 좋아요의 가시성 확인은 글 행을 FOR SHARE 로 읽는다(댓글 작성과 같은 방식). 확인과 쓰기 사이에 숨김·삭제가 끼어들지
- * 못하고, 글 행이 없으면 500 이 아니라 404 다. 테스트 커넥션이 숨김·삭제를 커밋하지 않고 쥔 채 좋아요를 보내고, 좋아요가 그 행 앞에서
+ * TASK-23#4 (BE-29) 좋아요의 가시성 확인은 글 행을 잠그고 읽는다(댓글 작성의 FOR SHARE 와 같은 목적. 카운터 UPDATE 와의 교착을 피하려고
+ * FOR NO KEY UPDATE — PostLikeService). 확인과 쓰기 사이에 숨김·삭제가 끼어들지 못하고, 글 행이 없으면 500 이 아니라 404 다. 테스트 커넥션이 숨김·삭제를 커밋하지 않고 쥔 채 좋아요를 보내고, 좋아요가 그 행 앞에서
  * 기다리는 것을 확인한 뒤 커밋한다.
  */
 @IntegrationTest
