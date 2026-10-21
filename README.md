@@ -363,7 +363,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `DB_URL` / `DB_USERNAME` | | | (render-env 기본) | 로컬 `jdbc:postgresql://localhost:5432/board` / `board`. 운영은 `jdbc:postgresql://db:5432/board` / `board` |
 | `DB_LOG_SERVER_ERROR_DETAIL` | | | (없음) | `false`. PostgreSQL 오류 Detail(키 값 등 개인정보)을 예외·로그에 싣지 않는다. 로컬 디버깅 때만 `true` |
 | `DB_CONNECTION_TIMEOUT_MS` / `DB_SOCKET_TIMEOUT_SECONDS` | | | 입력(선택) | `5000` / `15` (TASK-23#1). 풀에서 커넥션을 기다리는 시간(hikari `connection-timeout`), 응답 없는 DB 를 끊는 소켓 타임아웃(pgjdbc `socketTimeout`). 커넥션 대기 ×2 + 소켓 타임아웃이 30초 안이어야 DB 장애 중에도 응답이 30초 안에 503 `db_unavailable` 로 끝난다 |
-| `DB_LOCK_TIMEOUT` / `DB_STATEMENT_TIMEOUT` | | | 입력(선택) | `5s` / `10s` (TASK-23#1, PostgreSQL 시간 단위). 세션마다 거는 `lock_timeout`(넘으면 409 `lock_timeout`)·`statement_timeout`(넘으면 503 `db_timeout`). statement_timeout 은 소켓 타임아웃보다 짧게 둔다. Flyway 마이그레이션은 statement_timeout 을 끈다 |
+| `DB_LOCK_TIMEOUT` / `DB_STATEMENT_TIMEOUT` | | | 입력(선택) | `5s` / `10s` (TASK-23#1, PostgreSQL 시간 단위). 세션마다 거는 `lock_timeout`(넘으면 409 `lock_timeout`)·`statement_timeout`(넘으면 503 `db_timeout`). statement_timeout 은 소켓 타임아웃보다 짧게 둔다. Flyway 마이그레이션은 앱 풀 밖의 자기 커넥션(같은 `DB_URL`·계정)을 열어 statement_timeout·transaction_timeout·소켓 타임아웃 없이 돈다(lock_timeout 은 유지) |
 | `JWT_SECRET` | ● | ● | 생성 | 자체 서명 JWT HS256 키, 32바이트 이상. 로컬은 개발용 기본값(운영 금지). 빈 값이면 기동 실패 |
 | `OTP_HASH_KEY` | ● | ● | 생성 | OTP 코드 해시(HMAC-SHA256) 키, 32바이트 이상. 로컬은 개발용 기본값(운영 금지) |
 | `JWT_REFRESH_TTL` | | | 입력(선택) | `P14D`. refresh 토큰 수명(ISO-8601). access 토큰은 15분 고정 |
