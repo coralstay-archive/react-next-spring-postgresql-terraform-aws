@@ -48,6 +48,9 @@ public class DbFailureFilter extends OncePerRequestFilter {
 			response.getOutputStream()
 				.write(json.writeValueAsBytes(ApiErrors.body(db.getStatus(), db.getError(), db.getMessage(), null)));
 		}
+		finally {
+			DbErrors.clearSessionTimedOut();
+		}
 	}
 
 }

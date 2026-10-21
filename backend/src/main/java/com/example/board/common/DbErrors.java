@@ -12,11 +12,12 @@ import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.TransactionSystemException;
 
 /**
- * DB 장애·락·타임아웃 예외를 API 오류로 바꾼다 (TASK-23#1, BE-3). {@link ApiExceptionHandler}(MVC 안)와 {@link ApiErrorController}
+ * DB 장애·락·타임아웃 예외를 API 오류로 바꾼다 (TASK-23#1, BE-3). {@link ApiExceptionHandler}(MVC 안)와 {@link DbFailureFilter}
  * (필터·Spring Session 등 MVC 밖)가 같이 쓴다. 원인 사슬의 SQLState 를 먼저 보고, 없으면 연결 실패 예외 타입을 본다.
  * <ul>
  * <li>55P03(lock_not_available: lock_timeout)·40P01(교착): 409 {@code lock_timeout} — 경쟁이라 다시 시도하면 된다.</li>
- * <li>57014(query_canceled: statement_timeout): 503 {@code db_timeout}.</li>
+ * <li>57014(query_canceled: statement_timeout)·25P04(transaction_timeout — 서버가 세션을 끝낸다): 503 {@code db_timeout}. 25P04 뒤의
+ * 롤백이 끊긴 커넥션에서 실패해 원래 오류가 가려져도({@link DbSessionTimeoutOverride} 가 이 요청에 표시해 둔다) {@code db_timeout}.</li>
  * <li>08xxx(연결)·57P01~03(서버 종료·기동 중)·53xxx(자원 부족), 커넥션 풀 대기 초과, 트랜잭션 시작 실패, 끊긴 커넥션의 롤백·커밋
  * 실패: 503 {@code db_unavailable}.</li>
  * </ul>
@@ -29,19 +30,40 @@ public final class DbErrors {
 
 	public static final String LOCK_TIMEOUT = "lock_timeout";
 
+	/** 이 스레드(요청)에서 transaction_timeout 으로 세션이 끝났다 ({@link DbSessionTimeoutOverride}). */
+	private static final ThreadLocal<Boolean> SESSION_TIMED_OUT = new ThreadLocal<>();
+
 	private DbErrors() {
+	}
+
+	static void markSessionTimedOut() {
+		SESSION_TIMED_OUT.set(Boolean.TRUE);
+	}
+
+	/** 요청이 끝날 때 ({@link DbFailureFilter}). */
+	static void clearSessionTimedOut() {
+		SESSION_TIMED_OUT.remove();
 	}
 
 	/** DB 탓 오류면 그 응답, 아니면 null. */
 	public static ApiException classify(Throwable ex) {
+		ApiException classified = classifyCause(ex);
+		if (classified != null && DB_UNAVAILABLE.equals(classified.getError())
+				&& Boolean.TRUE.equals(SESSION_TIMED_OUT.get())) {
+			// 25P04 로 끊긴 커넥션의 롤백 실패가 원래 오류를 가렸다
+			return timeout();
+		}
+		return classified;
+	}
+
+	private static ApiException classifyCause(Throwable ex) {
 		String sqlState = SqlErrors.sqlState(ex);
 		if (sqlState != null) {
 			if ("55P03".equals(sqlState) || "40P01".equals(sqlState)) {
 				return lockTimeout();
 			}
-			if ("57014".equals(sqlState)) {
-				return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, DB_TIMEOUT,
-						"요청 처리 시간이 너무 오래 걸려 중단했습니다. 잠시 후 다시 시도하세요");
+			if ("57014".equals(sqlState) || DbSessionTimeoutOverride.TRANSACTION_TIMEOUT.equals(sqlState)) {
+				return timeout();
 			}
 			if (sqlState.startsWith("08") || sqlState.startsWith("53") || sqlState.startsWith("57P")) {
 				return unavailable();
@@ -65,6 +87,11 @@ public final class DbErrors {
 			}
 		}
 		return null;
+	}
+
+	static ApiException timeout() {
+		return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, DB_TIMEOUT,
+				"요청 처리 시간이 너무 오래 걸려 중단했습니다. 잠시 후 다시 시도하세요");
 	}
 
 	static ApiException lockTimeout() {

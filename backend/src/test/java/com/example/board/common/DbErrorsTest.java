@@ -16,7 +16,7 @@ import org.springframework.transaction.CannotCreateTransactionException;
 class DbErrorsTest {
 
 	@ParameterizedTest(name = "TASK-23#1 SQLState {0} → {1} {2}")
-	@CsvSource({ "55P03, 409, lock_timeout", "40P01, 409, lock_timeout", "57014, 503, db_timeout",
+	@CsvSource({ "55P03, 409, lock_timeout", "40P01, 409, lock_timeout", "57014, 503, db_timeout", "25P04, 503, db_timeout",
 			"08006, 503, db_unavailable", "08001, 503, db_unavailable", "57P01, 503, db_unavailable",
 			"57P03, 503, db_unavailable", "53300, 503, db_unavailable" })
 	void bySqlState(String sqlState, int status, String code) {
@@ -41,6 +41,22 @@ class DbErrorsTest {
 		assertThat(DbErrors.classify(new DataIntegrityViolationException("dup", new SQLException("x", "23505"))))
 			.isNull();
 		assertThat(DbErrors.classify(new IllegalStateException("boom"))).isNull();
+	}
+
+	@Test
+	@DisplayName("TASK-23#1 TASK-23#B2 transaction_timeout(25P04)으로 끊긴 세션은 풀에서 반드시 버리고, 뒤이은 롤백 실패(08003)가 원래 오류를 가려도 503 db_timeout")
+	void transactionTimeoutMaskedByRollback() {
+		assertThat(new DbSessionTimeoutOverride().adjudicate(new SQLException("x", "25P04")))
+			.isEqualTo(com.zaxxer.hikari.SQLExceptionOverride.Override.MUST_EVICT);
+		try {
+			assertThat(DbErrors.classify(new SQLException("closed", "08003")).getError()).isEqualTo("db_timeout");
+		}
+		finally {
+			DbErrors.clearSessionTimedOut();
+		}
+		assertThat(DbErrors.classify(new SQLException("closed", "08003")).getError()).isEqualTo("db_unavailable");
+		assertThat(new DbSessionTimeoutOverride().adjudicate(new SQLException("x", "08006")))
+			.isEqualTo(com.zaxxer.hikari.SQLExceptionOverride.Override.CONTINUE_EVICT);
 	}
 
 }

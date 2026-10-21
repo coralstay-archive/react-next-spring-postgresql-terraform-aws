@@ -37,10 +37,11 @@ class DbTimeoutDefaultsTest {
 	Flyway flyway;
 
 	@Test
-	@DisplayName("TASK-23#1 세션마다 lock_timeout·statement_timeout 이 걸린다(무한 대기 없음)")
+	@DisplayName("TASK-23#1 세션마다 lock_timeout·statement_timeout·transaction_timeout 이 걸린다(무한 대기 없음)")
 	void sessionTimeouts() {
 		assertThat(jdbc.queryForObject("show lock_timeout", String.class)).isEqualTo("5s");
-		assertThat(jdbc.queryForObject("show statement_timeout", String.class)).isEqualTo("10s");
+		assertThat(jdbc.queryForObject("show statement_timeout", String.class)).isEqualTo("5s");
+		assertThat(jdbc.queryForObject("show transaction_timeout", String.class)).isEqualTo("10s");
 	}
 
 	@Test
@@ -54,7 +55,8 @@ class DbTimeoutDefaultsTest {
 				borrowed.add(dataSource.getConnection());
 			}
 			for (Connection connection : borrowed) {
-				assertThat(show(connection, "statement_timeout")).isEqualTo("10s");
+				assertThat(show(connection, "statement_timeout")).isEqualTo("5s");
+				assertThat(show(connection, "transaction_timeout")).isEqualTo("10s");
 				assertThat(show(connection, "lock_timeout")).isEqualTo("5s");
 			}
 		}
@@ -72,6 +74,7 @@ class DbTimeoutDefaultsTest {
 		assertThat(migration.isWrapperFor(HikariDataSource.class)).as("앱 풀(Hikari)이 아니다").isFalse();
 		try (Connection connection = migration.getConnection()) {
 			assertThat(show(connection, "statement_timeout")).isEqualTo("0");
+			assertThat(show(connection, "transaction_timeout")).isEqualTo("0");
 			assertThat(show(connection, "lock_timeout")).isEqualTo("5s");
 			// pgjdbc socketTimeout 은 네트워크 타임아웃으로 보인다(0 = 없음)
 			assertThat(connection.getNetworkTimeout()).isZero();
@@ -87,18 +90,29 @@ class DbTimeoutDefaultsTest {
 	}
 
 	@Test
-	@DisplayName("TASK-23#1 TASK-23#B2 커넥션 대기 + 소켓 타임아웃 + 세션 저장의 커넥션 대기가 30초 안이고, 살아 있는 DB 의 느린 쿼리는 소켓보다 먼저 statement_timeout 으로 끝난다")
+	@DisplayName("TASK-23#1 TASK-23#B2 커넥션 대기 + transaction_timeout + 소켓 타임아웃이 30초 안이고(응답 없는 DB: 커넥션 대기 + 소켓 + 세션 저장의 커넥션 대기도), 느린 쿼리 하나는 소켓·트랜잭션 상한보다 먼저 statement_timeout 으로 끝난다")
 	void responseBudget() throws Exception {
 		HikariDataSource hikari = dataSource.unwrap(HikariDataSource.class);
 		Properties driver = hikari.getDataSourceProperties();
 		Duration connection = Duration.ofMillis(hikari.getConnectionTimeout());
 		Duration socket = Duration.ofSeconds(Long.parseLong(driver.getProperty("socketTimeout")));
-		Duration statement = Duration.ofSeconds(10);
+		Duration statement = setting("statement_timeout");
+		Duration transaction = setting("transaction_timeout");
+		Duration budget = Duration.ofSeconds(30);
 		assertThat(connection).isLessThanOrEqualTo(Duration.ofSeconds(5));
 		assertThat(hikari.getValidationTimeout()).isLessThan(hikari.getConnectionTimeout());
-		assertThat(connection.plus(socket).plus(connection)).isLessThan(Duration.ofSeconds(30));
-		assertThat(statement).isLessThan(socket);
+		// 느리지만 살아 있는 DB(트랜잭션이 상한까지 간 뒤 마지막 문장이 소켓에서 끊기는 최악)
+		assertThat(connection.plus(transaction).plus(socket)).isLessThan(budget);
+		// 응답 없는 DB
+		assertThat(connection.plus(socket).plus(connection)).isLessThan(budget);
+		assertThat(statement).isPositive().isLessThan(socket).isLessThan(transaction);
 		assertThat(Long.parseLong(driver.getProperty("connectTimeout"))).isPositive();
+	}
+
+	private Duration setting(String name) {
+		Double seconds = jdbc.queryForObject("select extract(epoch from current_setting(?)::interval)::float8",
+				Double.class, name);
+		return Duration.ofMillis(Math.round(seconds * 1000));
 	}
 
 }

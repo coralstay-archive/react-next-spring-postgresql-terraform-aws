@@ -8,6 +8,10 @@ import java.sql.PreparedStatement;
 import java.time.Duration;
 import java.time.Instant;
 
+import java.sql.ResultSet;
+import java.util.ArrayList;
+import java.util.List;
+
 import javax.sql.DataSource;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +28,7 @@ import com.example.board.support.AuthFixtures;
 import com.example.board.support.BoardFixtures;
 import com.example.board.support.IntegrationTest;
 import com.example.board.user.User;
+import com.zaxxer.hikari.HikariDataSource;
 
 import tools.jackson.databind.JsonNode;
 
@@ -35,7 +40,7 @@ import tools.jackson.databind.JsonNode;
 @TestPropertySource(properties = { "spring.datasource.hikari.connection-timeout=1000",
 		"spring.datasource.hikari.validation-timeout=500",
 		"spring.datasource.hikari.data-source-properties.socketTimeout=3", "app.db.lock-timeout=300ms",
-		"app.db.statement-timeout=1s" })
+		"app.db.statement-timeout=1s", "app.db.transaction-timeout=2s" })
 class DbFailureTest {
 
 	/** B2: DB 장애 중에도 응답은 이 시간 안에 끝난다. */
@@ -135,6 +140,38 @@ class DbFailureTest {
 		JsonNode body = error(timed(api.get("/test/errors/slow-query").bearer(fixtures.bearer(user))), 503,
 				"db_timeout");
 		assertThat(body.toString()).doesNotContain("canceling statement");
+	}
+
+	@Test
+	@DisplayName("TASK-23#1 TASK-23#B2 문장마다는 statement_timeout 안이어도 합쳐서 transaction_timeout 을 넘는 트랜잭션은 30초 안에 503 db_timeout JSON, 끊긴 커넥션은 풀에서 빠진다")
+	void transactionTimeout() throws Exception {
+		User user = fixtures.user();
+		Instant start = Instant.now();
+		JsonNode body = error(timed(api.get("/test/errors/slow-transaction").bearer(fixtures.bearer(user))), 503,
+				"db_timeout");
+		// 8 × 0.6s 를 다 기다리지 않고 transaction_timeout(2s) 무렵 끝난다
+		assertThat(Duration.between(start, Instant.now())).isLessThan(Duration.ofMillis(4500));
+		assertThat(body.toString()).doesNotContain("terminating connection");
+		// 서버가 끊은 세션은 풀에 남지 않는다: 바로 풀 크기만큼 빌려도 모두 쓸 수 있다
+		HikariDataSource hikari = dataSource.unwrap(HikariDataSource.class);
+		List<Connection> borrowed = new ArrayList<>();
+		try {
+			for (int i = 0; i < hikari.getMaximumPoolSize(); i++) {
+				borrowed.add(dataSource.getConnection());
+			}
+			for (Connection connection : borrowed) {
+				try (PreparedStatement statement = connection.prepareStatement("select 1");
+						ResultSet result = statement.executeQuery()) {
+					assertThat(result.next()).isTrue();
+				}
+			}
+		}
+		finally {
+			for (Connection connection : borrowed) {
+				connection.close();
+			}
+		}
+		assertThat(api.get("/posts").send().statusCode()).isEqualTo(200);
 	}
 
 }

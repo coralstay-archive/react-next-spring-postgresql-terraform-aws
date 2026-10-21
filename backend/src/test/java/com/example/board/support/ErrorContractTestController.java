@@ -13,6 +13,8 @@ import jakarta.validation.constraints.Min;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,8 +33,11 @@ public class ErrorContractTestController {
 
 	private final JdbcTemplate jdbc;
 
-	public ErrorContractTestController(JdbcTemplate jdbc) {
+	private final TransactionTemplate transaction;
+
+	public ErrorContractTestController(JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
 		this.jdbc = jdbc;
+		this.transaction = new TransactionTemplate(transactionManager);
 	}
 
 	/**
@@ -64,6 +69,20 @@ public class ErrorContractTestController {
 	@GetMapping("/test/errors/slow-query")
 	public Map<String, Object> slowQuery() {
 		jdbc.queryForObject("SELECT pg_sleep(5)::text", String.class);
+		return Map.of("ok", true);
+	}
+
+	/**
+	 * 문장 하나하나는 statement_timeout 안이지만 합치면 transaction_timeout 을 넘는 트랜잭션 (TASK-23#1, B2). 느리지만 살아 있는 DB 에서
+	 * 문장이 여러 개인 요청. 타임아웃을 짧게 준 컨텍스트(DbFailureTest: statement 1s, transaction 2s)에서만 부른다.
+	 */
+	@GetMapping("/test/errors/slow-transaction")
+	public Map<String, Object> slowTransaction() {
+		transaction.executeWithoutResult(status -> {
+			for (int i = 0; i < 8; i++) {
+				jdbc.queryForObject("SELECT pg_sleep(0.6)::text", String.class);
+			}
+		});
 		return Map.of("ok", true);
 	}
 
