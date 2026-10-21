@@ -1,10 +1,10 @@
 ---
 id: TASK-23
 title: '백엔드: DB 타임아웃·잠금·동시성'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 05:07'
+updated_date: '2026-10-21 04:38'
 labels:
   - backend
   - data
