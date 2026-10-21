@@ -61,7 +61,7 @@ public class StepUpController {
 	/**
 	 * 비밀번호가 맞으면: 세션은 세션 ID 를 바꾼 제한 없는 세션(응답은 사용자 요약), Bearer 는 제한 없는 새 access+refresh(본문의
 	 * refreshToken family 는 폐기). 틀리면 401 invalid_credentials, LOCAL 이 없는 계정은 400 step_up_unavailable. 사용자별로
-	 * 15분에 5번 틀리면 비밀번호를 검사하지 않고 429 (TASK-22 B1, 제한 세션의 비밀번호 추측 차단).
+	 * 15분 창 안 실패 5회(슬라이딩 창)에 이르면 비밀번호를 검사하지 않고 429 (TASK-22 B1, 제한 세션의 비밀번호 추측 차단).
 	 */
 	@PostMapping("/auth/step-up/local")
 	public Object local(@Valid @RequestBody StepUpLocalRequest body, @AuthenticationPrincipal AuthUser principal,

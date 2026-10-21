@@ -32,15 +32,16 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 
 | 대상 | 키 | 기본 한도 | 세는 것 |
 |---|---|---|---|
-| `POST /api/auth/login` | (계정(정규화 이메일), 클라이언트 IP) | 15분 5회 | 실패(`invalid_credentials`)만. 한도에 이르면 비밀번호를 검사하지 않고 429 — 계정이 있든 없든 같은 응답(B2). 성공은 세지 않지만 이미 센 실패를 지우지도 않는다. 키에 IP를 묶어 다른 IP의 공격자가 피해자 계정을 잠그지 못한다(그 IP만 막힌다). 여러 IP로 나눈 추측은 아래 IP 한도가 막는다 |
+| `POST /api/auth/login` | (계정(정규화 이메일), 클라이언트 IP) | 15분 창 안 실패 5회 | 실패(`invalid_credentials`)만. 한도에 이르면 비밀번호를 검사하지 않고 429 — 계정이 있든 없든 같은 응답(B2). 성공은 세지 않지만 이미 센 실패를 지우지도 않는다. 키에 IP를 묶어 다른 IP의 공격자가 피해자 계정을 잠그지 못한다(그 IP만 막힌다). 여러 IP로 나눈 추측은 아래 IP 한도가 막는다 |
 | `POST /api/auth/login` | 클라이언트 IP | 1시간 30회 | 실패만 |
 | `POST /api/auth/signup` | 클라이언트 IP | 1시간 10회 | 시도(201·409 모두) |
-| `POST /api/auth/step-up/local` | 사용자 | 15분 5회 | 실패만. 제한 세션·토큰을 바꿔도 같은 사용자다(B1) |
+| `POST /api/auth/step-up/local` | 사용자 | 15분 창 안 실패 5회 | 실패만. 제한 세션·토큰을 바꿔도 같은 사용자다(B1) |
 | `POST /api/posts` | 사용자 | 1분 3회, 1시간 30회 | 성공한 작성(검증 오류 등으로 실패한 요청은 세지 않는다) |
 | `POST /api/posts/{id}/comments` | 사용자 | 1분 10회 | 성공한 작성 |
 | `POST /api/attachments/presign` | 사용자 | 1시간 60회 | 성공한 presign. 미확정(PENDING) 첨부가 20개면 409 `too_many_pending_attachments`(시간이 아니라 confirm·정리로 풀리므로 `Retry-After` 없음) |
 | `POST /api/auth/phone/otp` | 번호·IP | 아래 휴대폰 OTP 절 | 발송(`otp_challenges`) |
 
+- 고정 시간 잠금이 아니라 슬라이딩 창이다. 예: 로그인 "15분 창 안 실패 5회"에서 t0에 1번·t0+14:50에 4번 틀리면 약 10초(`Retry-After`) 막히고, t0 실패가 창 밖으로 나가면 한 번 더 시도할 수 있으며, 그것도 틀리면 다음으로 오래된 실패(t0+14:50)가 나갈 때까지 다시 막힌다.
 - "세고 → 넣기"는 (한도, 키)별 트랜잭션 advisory lock으로 직렬화하므로 동시 요청으로 넘길 수 없다. 실패만 세는 로그인·step-up은 비밀번호 검사 전에 자리를 먼저 잡아 두고(바로 커밋) 성공하면 지운다 — 검사 중인 요청까지 센다.
 - 클라이언트 IP는 휴대폰 OTP와 같은 규칙(`CLIENT_IP_HEADER`)이다.
 - 오래된 행 정리(가장 긴 창 1시간보다 오래된 행)는 TASK-27 정리 잡에서 한다.
@@ -76,7 +77,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | `GET /api/auth/me` | 현재 사용자 `{id, nickname, email, role, status, providers, stepUpRequired, stepUpProviders}` (DB 최신 값). 익명은 401. `stepUpRequired`면 이 세션·토큰은 제한 상태이고 `stepUpProviders`는 다시 인증할 수 있는 수단 |
 
 - 로그인 실패는 이유와 상관없이 같은 401(`invalid_credentials`)이다. 정지 계정은 비밀번호가 맞을 때만 403(`suspended`).
-- 레이트리밋(TASK-22): 로그인 실패는 (계정, IP)별 15분 5회·IP별 1시간 30회, 가입은 IP별 1시간 10회. 넘으면 429 `rate_limited` + `Retry-After`(위 레이트리밋 표).
+- 레이트리밋(TASK-22): 로그인 실패는 (계정, IP)별 15분 창 안 5회(슬라이딩 창)·IP별 1시간 30회, 가입은 IP별 1시간 10회. 넘으면 429 `rate_limited` + `Retry-After`(위 레이트리밋 표).
 - refresh 토큰은 256비트 랜덤 값이고 DB에는 SHA-256 해시만 둔다. access 토큰은 상태가 없어 로그아웃 뒤에도 만료(15분)까지 유효하다.
 
 ### 휴대폰 OTP 로그인 (TASK-7)
@@ -89,7 +90,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | `POST /api/auth/phone/verify` `{challengeId, code}` | 맞으면 (PHONE, 번호) 계정으로 로그인, 없으면 새 계정(+ `users.phone`). 세션 로그인(세션 ID 교체 + 쿠키), 200 + 사용자 요약. CSRF 필요 |
 | `POST /api/auth/phone/verify?token=jwt` | 세션 없이 access+refresh. CSRF 면제(`login?token=jwt`와 같은 이유) |
 | `POST /api/auth/phone/verify?link=true` | (로그인 필요, 세션·Bearer) 현재 계정에 PHONE 연결 + 비어 있으면 `users.phone`, 200 + 사용자 요약. 다른 계정의 번호면 409 `identity_in_use`. 세션이면 CSRF 필요(`token`과 같이 쓸 수 없다) |
-| `POST /api/auth/step-up/local` `{password[, refreshToken]}` | (로그인 필요) 제한 세션·토큰을 비밀번호로 풀기. 세션: 세션 ID를 바꾼 제한 없는 세션. Bearer: 제한 없는 새 토큰(본문 refreshToken의 family 폐기). 틀리면 401 `invalid_credentials`, LOCAL이 없으면 400 `step_up_unavailable`. 사용자별 15분에 5번 틀리면 429 `rate_limited`(B1, 비밀번호 추측 차단) |
+| `POST /api/auth/step-up/local` `{password[, refreshToken]}` | (로그인 필요) 제한 세션·토큰을 비밀번호로 풀기. 세션: 세션 ID를 바꾼 제한 없는 세션. Bearer: 제한 없는 새 토큰(본문 refreshToken의 family 폐기). 틀리면 401 `invalid_credentials`, LOCAL이 없으면 400 `step_up_unavailable`. 사용자별 15분 창 안 실패 5회(슬라이딩 창)에 이르면 429 `rate_limited`(B1, 비밀번호 추측 차단) |
 
 - 번호는 libphonenumber로 E.164로 정규화한다(`+` 없으면 `SMS_DEFAULT_REGION`=KR). 형식이 틀리면 400 `invalid_phone`.
 - **발송 대상**(TASK-22#4, SMS pumping 방지): 허용 지역(`SMS_ALLOWED_REGIONS`, 기본 `KR`, 쉼표로 여럿)의 휴대폰(libphonenumber 유형

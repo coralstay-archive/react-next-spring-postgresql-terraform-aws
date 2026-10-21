@@ -109,7 +109,7 @@ class AuthRateLimitTest {
 	}
 
 	@Test
-	@DisplayName("TASK-22#1 계정 차단은 15분이 지나면 풀린다(창 경계)")
+	@DisplayName("TASK-22#1 한꺼번에 낸 5번 실패는 15분 창이 지나면 모두 빠져 풀린다(창 경계)")
 	void loginAccountLockoutElapses() {
 		String email = auth.signedUp();
 		failLogins(email, 5);
@@ -119,6 +119,24 @@ class AuthRateLimitTest {
 		clock.advance(Duration.ofSeconds(31));
 
 		assertThat(auth.sessionLogin(email, AuthClient.PASSWORD).statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	@DisplayName("TASK-22#1 슬라이딩 창: t0 에 1번·t0+14:50 에 4번 틀리면 막히고 Retry-After 는 t0 실패가 창 밖으로 나갈 때까지(약 10초)."
+			+ " 그 뒤 한 번 더 시도할 수 있고, 다시 다음으로 오래된 실패가 나갈 때까지 막힌다")
+	void loginSlidingWindow() {
+		String email = auth.signedUp();
+		failLogins(email, 1);
+		clock.advance(Duration.ofMinutes(14).plusSeconds(50));
+		failLogins(email, 4);
+
+		HttpResponse<String> blocked = auth.sessionLogin(email, AuthClient.PASSWORD);
+		assertRateLimited(blocked, 1, 10);
+
+		clock.advance(Duration.ofSeconds(Long.parseLong(blocked.headers().firstValue("Retry-After").orElseThrow())));
+		assertThat(auth.sessionLogin(email, WRONG).statusCode()).as("t0 실패가 창 밖으로 나가 한 번 더").isEqualTo(401);
+		// 남은 4번(t0+14:50)과 방금 실패로 다시 5번 — 이번엔 t0+14:50 실패가 나갈 때까지(약 14분 50초)
+		assertRateLimited(auth.sessionLogin(email, AuthClient.PASSWORD), 870, 890);
 	}
 
 	@Test
@@ -223,7 +241,7 @@ class AuthRateLimitTest {
 	}
 
 	@Test
-	@DisplayName("TASK-22#B1 제한 세션에서 step-up 비밀번호를 5번 틀리면 6번째는 맞아도 429(약 15분), 15분 뒤에는 된다")
+	@DisplayName("TASK-22#B1 제한 세션에서 step-up 비밀번호를 15분 창 안에 5번 틀리면 6번째는 맞아도 429(약 15분), 15분 뒤에는 된다")
 	void stepUpGuessingIsLimited() {
 		User user = localUser(auth.signedUp());
 		String restricted = fixtures.stepUpBearer(user);
@@ -237,6 +255,26 @@ class AuthRateLimitTest {
 
 		clock.advance(Duration.ofMinutes(15));
 		assertThat(stepUp(restricted, AuthClient.PASSWORD).statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	@DisplayName("TASK-22#B1 step-up 도 15분 창 안 실패 5회(슬라이딩 창): t0 에 1번·t0+14:50 에 4번 틀리면 약 10초 막히고,"
+			+ " 그 뒤 한 번 더 시도할 수 있고 다시 막힌다")
+	void stepUpSlidingWindow() {
+		User user = localUser(auth.signedUp());
+		// access 토큰 수명도 15분이라 시도마다 새 제한 토큰을 쓴다(같은 사용자)
+		assertThat(stepUp(fixtures.stepUpBearer(user), WRONG).statusCode()).isEqualTo(401);
+		clock.advance(Duration.ofMinutes(14).plusSeconds(50));
+		for (int i = 0; i < 4; i++) {
+			assertThat(stepUp(fixtures.stepUpBearer(user), WRONG).statusCode()).as("guess %d", i + 2).isEqualTo(401);
+		}
+
+		HttpResponse<String> blocked = stepUp(fixtures.stepUpBearer(user), AuthClient.PASSWORD);
+		assertRateLimited(blocked, 1, 10);
+
+		clock.advance(Duration.ofSeconds(Long.parseLong(blocked.headers().firstValue("Retry-After").orElseThrow())));
+		assertThat(stepUp(fixtures.stepUpBearer(user), WRONG).statusCode()).as("t0 실패가 창 밖으로 나가 한 번 더").isEqualTo(401);
+		assertRateLimited(stepUp(fixtures.stepUpBearer(user), AuthClient.PASSWORD), 870, 890);
 	}
 
 	@Test
