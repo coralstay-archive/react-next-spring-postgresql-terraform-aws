@@ -24,6 +24,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import com.example.board.auth.AuthUser;
 import com.example.board.common.ApiErrors;
 import com.example.board.common.PageResponse;
+import com.example.board.common.Paging;
 import com.example.board.post.PostResponses.PostDetail;
 import com.example.board.post.PostResponses.PostSummary;
 import com.example.board.tag.TagNames;
@@ -59,12 +60,7 @@ public class PostController {
 			@RequestParam(defaultValue = "20") int size, @RequestParam(defaultValue = "latest") String sort,
 			@RequestParam(defaultValue = "false") boolean includeHidden, @RequestParam(required = false) String q,
 			@AuthenticationPrincipal AuthUser viewer) {
-		if (page < 0) {
-			throw ApiErrors.invalidParam("page", "page 는 0 이상이어야 합니다");
-		}
-		if (size < 1 || size > MAX_PAGE_SIZE) {
-			throw ApiErrors.invalidParam("size", "size 는 1~" + MAX_PAGE_SIZE + " 이어야 합니다");
-		}
+		Paging.check(page, size, MAX_PAGE_SIZE);
 		PostQuery query = new PostQuery(blankToNull(category), tag == null || tag.isBlank() ? null : TagNames.normalize(tag),
 				includeHidden && PostService.isAdmin(viewer), PostSort.parse(sort), searchTerm(q));
 		return posts.list(query, page, size);

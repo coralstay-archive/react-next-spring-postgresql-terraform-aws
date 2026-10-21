@@ -15,6 +15,7 @@ import com.example.board.admin.AdminUserService.AdminUserResponse;
 import com.example.board.auth.AuthUser;
 import com.example.board.common.ApiErrors;
 import com.example.board.common.PageResponse;
+import com.example.board.common.Paging;
 import com.example.board.user.UserStatus;
 
 /**
@@ -53,12 +54,7 @@ public class AdminUserController {
 	}
 
 	static void checkPage(int page, int size) {
-		if (page < 0) {
-			throw ApiErrors.invalidParam("page", "page 는 0 이상이어야 합니다");
-		}
-		if (size < 1 || size > MAX_PAGE_SIZE) {
-			throw ApiErrors.invalidParam("size", "size 는 1~" + MAX_PAGE_SIZE + " 이어야 합니다");
-		}
+		Paging.check(page, size, MAX_PAGE_SIZE);
 	}
 
 }
