@@ -14,6 +14,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.ApplicationContext;
+import org.springframework.web.multipart.MultipartResolver;
 
 import com.example.board.support.Api;
 import com.example.board.support.AuthClient;
@@ -34,6 +36,9 @@ class RequestBodyLimitTest {
 
 	@Autowired
 	AuthFixtures fixtures;
+
+	@Autowired
+	ApplicationContext context;
 
 	Api api;
 
@@ -93,6 +98,42 @@ class RequestBodyLimitTest {
 		assertThat(body.getBytes(StandardCharsets.UTF_8).length).isGreaterThan(60_000).isLessThan(LIMIT);
 		HttpResponse<String> response = api.post("/posts").bearer(fixtures.bearer(user)).json(body).send();
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+	}
+
+	private HttpResponse<String> chunked(String path, String contentType, byte[] body, String bearer) throws Exception {
+		HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api" + path))
+			.header("Content-Type", contentType)
+			.POST(HttpRequest.BodyPublishers.ofInputStream(() -> new ByteArrayInputStream(body)));
+		if (bearer != null) {
+			request.header("Authorization", "Bearer " + bearer);
+		}
+		return HttpClient.newHttpClient().send(request.build(), HttpResponse.BodyHandlers.ofString());
+	}
+
+	@Test
+	@DisplayName("TASK-23#2 길이를 모르는(chunked) form-urlencoded 본문도 64KB 를 넘으면 413 payload_too_large JSON — 컨테이너의 파라미터 파싱(CSRF 필터의 _csrf 조회 등)이 상한을 돌아가지 못한다")
+	void chunkedFormOverLimit() throws Exception {
+		byte[] body = ("_csrf=x&title=" + "a".repeat(LIMIT)).getBytes(StandardCharsets.US_ASCII);
+		// 세션(쿠키) 요청 경로: CsrfFilter 가 헤더가 없으면 getParameter("_csrf") 로 본문을 파싱한다
+		assertTooLarge(chunked("/posts", "application/x-www-form-urlencoded", body, null));
+		assertTooLarge(chunked("/posts", "application/x-www-form-urlencoded; charset=UTF-8", body,
+				fixtures.bearer(fixtures.user())));
+	}
+
+	@Test
+	@DisplayName("TASK-23#2 multipart 는 파싱하지 않는다(멀티파트 엔드포인트 없음, MultipartResolver 없음): chunked multipart 64KB 초과도 본문을 읽지 않고 JSON 오류")
+	void chunkedMultipartNotParsed() throws Exception {
+		assertThat(context.getBeanNamesForType(MultipartResolver.class)).isEmpty();
+		String boundary = "----board-test";
+		byte[] body = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\nx\r\n--" + boundary
+				+ "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n\r\n" + "a".repeat(LIMIT)
+				+ "\r\n--" + boundary + "--\r\n")
+			.getBytes(StandardCharsets.US_ASCII);
+		HttpResponse<String> response = chunked("/posts", "multipart/form-data; boundary=" + boundary, body,
+				fixtures.bearer(fixtures.user()));
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(415);
+		JsonNode error = AuthClient.json(response);
+		assertThat(error.get("error").asString()).isEqualTo("unsupported_media_type");
 	}
 
 }

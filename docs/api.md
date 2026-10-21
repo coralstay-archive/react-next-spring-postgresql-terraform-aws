@@ -21,7 +21,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | 404 `not_found` | 없는 경로(인증된 요청. 익명은 먼저 401) |
 | 405 `method_not_allowed` | 경로는 있지만 메서드가 다르다. `Allow` 헤더가 붙는다 |
 | 406 `not_acceptable` | `Accept`가 JSON을 받지 않는다(본문은 그래도 JSON) |
-| 413 `payload_too_large` | 요청 본문이 64KB(`app.request.max-body-size`)를 넘었다(TASK-23#2). `Content-Length`가 넘으면 본문을 읽지 않고, 길이를 모르는(chunked) 본문은 읽다가 넘는 순간 끊는다. 가장 큰 정상 글(한글 제목 100자 + 본문 20000자 ≈ 60KB)은 들어간다. 첨부 이미지는 S3로 바로 올리므로(아래 TASK-11) 해당하지 않는다. 본문 문자열을 `\uXXXX`로 이스케이프하면 글자당 6바이트라 한도에 먼저 걸릴 수 있다(브라우저 `JSON.stringify`는 이스케이프하지 않는다) |
+| 413 `payload_too_large` | 요청 본문이 64KB(`app.request.max-body-size`)를 넘었다(TASK-23#2). `Content-Length`가 넘으면 본문을 읽지 않고, 길이를 모르는(chunked) 본문은 읽다가 넘는 순간 끊는다. form 본문(`application/x-www-form-urlencoded`, chunked 포함)도 같은 상한이다(컨테이너 `server.tomcat.max-http-form-post-size=64KB`). multipart 는 받지 않는다(파싱하지 않음 — 415). 가장 큰 정상 글(한글 제목 100자 + 본문 20000자 ≈ 60KB)은 들어간다. 첨부 이미지는 S3로 바로 올리므로(아래 TASK-11) 해당하지 않는다. 본문 문자열을 `\uXXXX`로 이스케이프하면 글자당 6바이트라 한도에 먼저 걸릴 수 있다(브라우저 `JSON.stringify`는 이스케이프하지 않는다) |
 | 415 `unsupported_media_type` | 본문이 `application/json`이 아니다 |
 | 409 `lock_timeout` | 다른 요청이 같은 행을 잠그고 있어 `lock_timeout`(기본 5s)을 넘겼거나 교착(40P01)으로 취소됐다(TASK-23#1). 잠시 뒤 다시 시도하면 된다 |
 | 429 `rate_limited` | 요청 한도 초과(아래 레이트리밋). `Retry-After` 헤더(초)가 붙는다 |
