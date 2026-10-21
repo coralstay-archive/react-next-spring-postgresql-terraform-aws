@@ -106,6 +106,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			if (cause instanceof ApiException api) {
 				return handle(api);
 			}
+			if (cause instanceof RequestBodyLimitFilter.TooLargeException) {
+				return tooLarge();
+			}
 		}
 		ApiException db = DbErrors.classify(ex);
 		if (db != null) {
@@ -166,6 +169,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	@Override
 	protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		if (tooLarge(ex)) {
+			return tooLarge();
+		}
 		if (ex.getCause() instanceof MismatchedInputException mismatch) {
 			String path = jsonPath(mismatch);
 			if (path != null) {
@@ -174,6 +180,21 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			}
 		}
 		return ApiErrors.response(HttpStatus.BAD_REQUEST, "bad_request", "요청 본문을 읽을 수 없습니다", null);
+	}
+
+	/** 길이를 모르는 본문이 상한을 넘었다 (TASK-23#2, {@link RequestBodyLimitFilter}). */
+	private static boolean tooLarge(Throwable ex) {
+		for (Throwable cause = ex; cause != null; cause = cause.getCause() == cause ? null : cause.getCause()) {
+			if (cause instanceof RequestBodyLimitFilter.TooLargeException) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static ResponseEntity<Object> tooLarge() {
+		HttpStatus status = HttpStatus.CONTENT_TOO_LARGE;
+		return ApiErrors.response(status, ApiErrors.code(status), ApiErrors.message(status), null);
 	}
 
 	private static String fieldMessage(MismatchedInputException ex) {
