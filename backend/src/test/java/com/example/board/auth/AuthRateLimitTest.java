@@ -24,8 +24,9 @@ import com.example.board.user.UserRepository;
 
 /**
  * TASK-22#1 (doc-2 BE-13) 로그인·가입·step-up 실패 횟수 제한. DB(rate_limit_events) 기준 슬라이딩 창이고, 넘으면 429
- * {@code rate_limited} + {@code Retry-After}(초). 기본값: 로그인 계정별 15분 5회 실패·IP별 1시간 30회 실패, 가입 IP별 1시간 10회,
- * step-up 사용자별 15분 5회 실패. 시계는 테스트 시계로 움직이고, 키(이메일·IP·사용자)는 테스트마다 새로 만든다.
+ * {@code rate_limited} + {@code Retry-After}(초). 기본값: 로그인 (계정, IP)별 15분 창 안 실패 5회·IP별 1시간 30회 실패, 가입 IP별
+ * 1시간 10회, step-up 사용자별 15분 창 안 실패 5회. 고정 15분 잠금이 아니라 슬라이딩 창이다 — 가장 오래된 실패가 창 밖으로 나가면
+ * 한 번 더 시도할 수 있다. 시계는 테스트 시계로 움직이고, 키(이메일·IP·사용자)는 테스트마다 새로 만든다.
  */
 @IntegrationTest
 class AuthRateLimitTest {
@@ -69,25 +70,42 @@ class AuthRateLimitTest {
 		assertThat(retryAfter).isBetween(minRetry, maxRetry);
 	}
 
-	/** 매번 다른 IP 에서 틀린 비밀번호로 로그인한다(계정 한도만 보려고). */
+	/** 지금 IP({@code auth.ip()})에서 틀린 비밀번호로 로그인한다. */
 	private void failLogins(String email, int times) {
 		for (int i = 0; i < times; i++) {
-			HttpResponse<String> response = auth.ip(PhoneClient.uniqueIp()).sessionLogin(email, WRONG);
+			HttpResponse<String> response = auth.sessionLogin(email, WRONG);
 			assertThat(response.statusCode()).as("failure %d: %s", i + 1, response.body()).isEqualTo(401);
 		}
 	}
 
 	@Test
-	@DisplayName("TASK-22#1 같은 계정에 15분 안에 5번 틀리면(IP 가 달라도) 6번째는 맞는 비밀번호여도 429 + Retry-After(약 15분)")
+	@DisplayName("TASK-22#1 같은 (계정, IP)로 15분 창 안에 5번 틀리면 6번째는 맞는 비밀번호여도 429 + Retry-After(약 15분)")
 	void loginAccountLockout() {
 		String email = auth.signedUp();
 		failLogins(email, 5);
 
-		HttpResponse<String> blocked = auth.ip(PhoneClient.uniqueIp()).sessionLogin(email, AuthClient.PASSWORD);
+		HttpResponse<String> blocked = auth.sessionLogin(email, AuthClient.PASSWORD);
 
 		assertRateLimited(blocked, 880, 900);
 		assertThat(Api.cookie(blocked, "SESSION")).isEmpty();
 		assertThat(auth.jwtLogin(email, AuthClient.PASSWORD).statusCode()).isEqualTo(429);
+	}
+
+	@Test
+	@DisplayName("TASK-22#1 계정 한도는 (계정, IP) 조합이다: IP A 에서 5번 틀려 A 가 막혀도 IP B 에서는 맞는 비밀번호로 로그인된다(잠금 DoS 방지)")
+	void loginAccountLimitIsPerAccountAndIp() {
+		String email = auth.signedUp();
+		String ipA = auth.ip();
+		failLogins(email, 5);
+		assertThat(auth.sessionLogin(email, AuthClient.PASSWORD).statusCode()).isEqualTo(429);
+
+		String ipB = PhoneClient.uniqueIp();
+		assertThat(ipB).isNotEqualTo(ipA);
+		assertThat(auth.ip(ipB).sessionLogin(email, AuthClient.PASSWORD).statusCode()).isEqualTo(200);
+		// B 에서도 실패는 B 몫으로 따로 센다
+		failLogins(email, 5);
+		assertThat(auth.sessionLogin(email, AuthClient.PASSWORD).statusCode()).isEqualTo(429);
+		assertThat(auth.ip(ipA).sessionLogin(email, AuthClient.PASSWORD).statusCode()).isEqualTo(429);
 	}
 
 	@Test
@@ -124,8 +142,8 @@ class AuthRateLimitTest {
 		failLogins(existing, 5);
 		failLogins(missing, 5);
 
-		HttpResponse<String> forExisting = auth.ip(PhoneClient.uniqueIp()).sessionLogin(existing, WRONG);
-		HttpResponse<String> forMissing = auth.ip(PhoneClient.uniqueIp()).sessionLogin(missing, WRONG);
+		HttpResponse<String> forExisting = auth.sessionLogin(existing, WRONG);
+		HttpResponse<String> forMissing = auth.sessionLogin(missing, WRONG);
 
 		assertRateLimited(forExisting, 880, 900);
 		assertRateLimited(forMissing, 880, 900);

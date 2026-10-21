@@ -32,7 +32,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 
 | 대상 | 키 | 기본 한도 | 세는 것 |
 |---|---|---|---|
-| `POST /api/auth/login` | 계정(정규화 이메일) | 15분 5회 | 실패(`invalid_credentials`)만. 한도에 이르면 비밀번호를 검사하지 않고 429 — 계정이 있든 없든 같은 응답(B2). 성공은 세지 않지만 이미 센 실패를 지우지도 않는다 |
+| `POST /api/auth/login` | (계정(정규화 이메일), 클라이언트 IP) | 15분 5회 | 실패(`invalid_credentials`)만. 한도에 이르면 비밀번호를 검사하지 않고 429 — 계정이 있든 없든 같은 응답(B2). 성공은 세지 않지만 이미 센 실패를 지우지도 않는다. 키에 IP를 묶어 다른 IP의 공격자가 피해자 계정을 잠그지 못한다(그 IP만 막힌다). 여러 IP로 나눈 추측은 아래 IP 한도가 막는다 |
 | `POST /api/auth/login` | 클라이언트 IP | 1시간 30회 | 실패만 |
 | `POST /api/auth/signup` | 클라이언트 IP | 1시간 10회 | 시도(201·409 모두) |
 | `POST /api/auth/step-up/local` | 사용자 | 15분 5회 | 실패만. 제한 세션·토큰을 바꿔도 같은 사용자다(B1) |
@@ -76,7 +76,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | `GET /api/auth/me` | 현재 사용자 `{id, nickname, email, role, status, providers, stepUpRequired, stepUpProviders}` (DB 최신 값). 익명은 401. `stepUpRequired`면 이 세션·토큰은 제한 상태이고 `stepUpProviders`는 다시 인증할 수 있는 수단 |
 
 - 로그인 실패는 이유와 상관없이 같은 401(`invalid_credentials`)이다. 정지 계정은 비밀번호가 맞을 때만 403(`suspended`).
-- 레이트리밋(TASK-22): 로그인 실패는 계정별 15분 5회·IP별 1시간 30회, 가입은 IP별 1시간 10회. 넘으면 429 `rate_limited` + `Retry-After`(위 레이트리밋 표).
+- 레이트리밋(TASK-22): 로그인 실패는 (계정, IP)별 15분 5회·IP별 1시간 30회, 가입은 IP별 1시간 10회. 넘으면 429 `rate_limited` + `Retry-After`(위 레이트리밋 표).
 - refresh 토큰은 256비트 랜덤 값이고 DB에는 SHA-256 해시만 둔다. access 토큰은 상태가 없어 로그아웃 뒤에도 만료(15분)까지 유효하다.
 
 ### 휴대폰 OTP 로그인 (TASK-7)

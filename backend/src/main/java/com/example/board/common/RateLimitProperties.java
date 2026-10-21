@@ -8,7 +8,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * 공용 레이트리밋 설정 ({@code app.rate-limit.*}, TASK-22). 한도마다 {@code max}(창 안 최대 횟수)와 {@code window}(슬라이딩 창)를
  * 정한다. 빠진 값은 아래 기본값을 쓴다.
  *
- * @param loginAccount 로그인 실패 — 계정(정규화 이메일)별. 기본 15분 5회 (TASK-22#1)
+ * @param loginAccount 로그인 실패 — (계정(정규화 이메일), 클라이언트 IP) 조합별. 기본 15분 창 안 5회 (TASK-22#1)
  * @param loginIp 로그인 실패 — 클라이언트 IP 별. 기본 1시간 30회
  * @param signupIp 가입 시도 — 클라이언트 IP 별. 기본 1시간 10회
  * @param stepUp step-up 비밀번호 실패 — 사용자별. 기본 15분 5회 (B1)
