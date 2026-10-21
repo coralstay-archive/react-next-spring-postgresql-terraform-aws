@@ -22,8 +22,11 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | 405 `method_not_allowed` | 경로는 있지만 메서드가 다르다. `Allow` 헤더가 붙는다 |
 | 406 `not_acceptable` | `Accept`가 JSON을 받지 않는다(본문은 그래도 JSON) |
 | 415 `unsupported_media_type` | 본문이 `application/json`이 아니다 |
+| 409 `lock_timeout` | 다른 요청이 같은 행을 잠그고 있어 `lock_timeout`(기본 5s)을 넘겼거나 교착(40P01)으로 취소됐다(TASK-23#1). 잠시 뒤 다시 시도하면 된다 |
 | 429 `rate_limited` | 요청 한도 초과(아래 레이트리밋). `Retry-After` 헤더(초)가 붙는다 |
 | 500 `internal_error` | 처리되지 않은 서버 오류 |
+| 503 `db_unavailable` | DB 에 닿지 못했다: 커넥션 풀 대기 초과(기본 5s), 응답 없는 DB 의 소켓 타임아웃(기본 15s), 연결 오류(SQLState 08xxx·57P01~03·53xxx). 세션 조회처럼 필터 단계에서 난 경우도 같다. DB 장애 중에도 응답은 30초 안에 이 JSON 으로 끝난다(TASK-23 B2) |
+| 503 `db_timeout` | 쿼리가 `statement_timeout`(기본 10s)을 넘겨 DB 가 취소했다(57014). DB 는 살아 있지만 과부하일 때다. 잠시 뒤 다시 시도 |
 | 그 밖의 상태 | 필터·컨테이너에서 난 오류(`/api/error`)도 같은 표를 따른다: 409 `conflict`, 413 `payload_too_large`, 429 `rate_limited`, 503 `service_unavailable`. 표에 없는 상태는 `http_<상태>`(예: 502 `http_502`) |
 
 ### 레이트리밋 (TASK-22)

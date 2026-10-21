@@ -60,6 +60,13 @@ public class ErrorContractTestController {
 		return Map.of("ok", true);
 	}
 
+	/** statement_timeout 보다 오래 걸리는 쿼리 (TASK-23#1). 타임아웃을 짧게 준 컨텍스트(DbFailureTest)에서만 부른다. */
+	@GetMapping("/test/errors/slow-query")
+	public Map<String, Object> slowQuery() {
+		jdbc.queryForObject("SELECT pg_sleep(5)::text", String.class);
+		return Map.of("ok", true);
+	}
+
 	/** 처리되지 않은 예외 → 500 internal_error (TASK-20#1). */
 	@GetMapping("/test/errors/boom")
 	public Map<String, Object> boom() {

@@ -107,6 +107,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 				return handle(api);
 			}
 		}
+		ApiException db = DbErrors.classify(ex);
+		if (db != null) {
+			// DB 장애·락·타임아웃 (TASK-23#1). SQLState 만 남긴다(DB 메시지는 키 값 같은 개인정보를 담을 수 있다).
+			log.warn("DB 오류 {} (SQLState {}, {}): {}", db.getError(), SqlErrors.sqlState(ex), ex.getClass().getSimpleName(),
+					describe(request));
+			return isCommitted(request) ? null : handle(db);
+		}
 		log.error("처리되지 않은 예외: {}", describe(request), ex);
 		if (isCommitted(request)) {
 			return null;
