@@ -4,7 +4,7 @@ title: '프론트: 목록·관리자 엣지 케이스와 좋아요 롤백'
 status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-21 09:04'
 labels:
   - frontend
   - board
@@ -33,4 +33,5 @@ documentation:
 - [ ] #1 FE-20 좋아요 롤백은 해당 필드만 함수형 업데이트, 404면 상세 무효화
 - [ ] #2 FE-22 page 클램프(int, totalPages), 목록 오류에 첫 페이지 링크, 잘못된 q면 '검색어 무시' 표시, 카테고리·태그 오류 표시
 - [ ] #3 FE-33 관리자 페이저 범위 클램프
+- [ ] #4 목록 페이지 이동은 서버 OFFSET 상한(page×size ≤ 10,000, TASK-23#5)을 넘지 않는다 — 넘는 '다음'·페이지 번호는 숨기거나 막는다(TASK-23 리뷰)
 <!-- AC:END -->

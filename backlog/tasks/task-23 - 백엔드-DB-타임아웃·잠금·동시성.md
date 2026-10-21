@@ -4,7 +4,7 @@ title: '백엔드: DB 타임아웃·잠금·동시성'
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-21 04:45'
+updated_date: '2026-10-21 09:04'
 labels:
   - backend
   - data
@@ -67,4 +67,6 @@ documentation:
 
 <!-- SECTION:NOTES:BEGIN -->
 TASK-19 리뷰에서 넘어온 BE-7 우선순위(2026-10-12): 1) Post.java:99 @PrePersist와 PostService.java:128·136의 Instant.now() — POST/PATCH 응답 시각(나노초)과 이후 GET(마이크로초)이 다른 유일한 사용자 노출 지점. PostService에서 clock.instant()를 넘기는 방식으로. 2) TokenService.java:45와 JwtTokenService.java:67의 자체 Clock.systemUTC()를 Clock 빈 주입으로(만료 테스트 가능). 3) User·UserIdentity·RefreshToken·LocalCredential·Category의 @PrePersist와 LinkIntent Instant.now()는 일관성 목적. 선택: src/main에서 Instant.now()/Clock.systemUTC() 금지 검사(ClockConfiguration 제외). 참고: 통합 테스트는 @Primary MutableClock을 쓰므로 테스트 시계 절삭이 CI 수정의 핵심이다.
+
+독립 리뷰(2026-10-21) 반영 결정: (1) AC#4는 카드 문구의 FOR SHARE 대신 SELECT ... FOR NO KEY UPDATE — FOR SHARE는 동시 좋아요끼리 like_count UPDATE로 잠금을 올리다 교착(40P01). NKU는 FK 검사(KEY SHARE)를 막지 않고 잠금 순서(글 행 → post_likes)를 뒤집는 경로도 없음을 리뷰에서 확인. (2) B2 예산은 문장별 statement_timeout만으로는 부족 → PG18의 transaction_timeout을 함께 건다(유저 결정). (3) Flyway는 풀과 분리한 커넥션으로 statement_timeout·socketTimeout을 끈다. (4) JWT 기본 검증기 복원, multipart 끄기·form 본문 64KB, 동시성 테스트 lock_timeout 여유, 문서 정리. (5) 프론트 페이지 상한은 TASK-33 AC로 이월.
 <!-- SECTION:NOTES:END -->
