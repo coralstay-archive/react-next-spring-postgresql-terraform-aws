@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +22,7 @@ import com.example.board.support.AuthClient;
 import com.example.board.support.AuthFixtures;
 import com.example.board.support.IntegrationTest;
 import com.example.board.support.MutableClock;
+import com.example.board.support.Parallel;
 import com.example.board.support.UploadClient;
 import com.example.board.user.User;
 
@@ -84,6 +89,19 @@ class PresignQuotaTest {
 		assertThat(response.headers().firstValue("Retry-After")).isEmpty();
 		assertThat(pending(user)).isEqualTo(20);
 		assertThat(presign(fixtures.bearer(fixtures.user())).statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	@DisplayName("TASK-22#3 같은 사용자가 presign 30개를 동시에 보내도 PENDING 은 정확히 20개: 200 이 20개, 나머지 10개는 409(시간당 60회 안이라 429 없음)")
+	void concurrentPresignsDoNotExceedPendingLimit() throws Exception {
+		User user = fixtures.user();
+		String bearer = fixtures.bearer(user);
+
+		List<Integer> statuses = Parallel.run(30, () -> presign(bearer).statusCode());
+
+		Map<Integer, Long> counts = statuses.stream().collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+		assertThat(counts).as(statuses.toString()).containsOnlyKeys(200, 409).containsEntry(200, 20L).containsEntry(409, 10L);
+		assertThat(pending(user)).isEqualTo(20);
 	}
 
 	@Test

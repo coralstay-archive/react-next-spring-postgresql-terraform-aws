@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +21,7 @@ import com.example.board.support.Api;
 import com.example.board.support.AuthClient;
 import com.example.board.support.AuthFixtures;
 import com.example.board.support.MutableClock;
+import com.example.board.support.Parallel;
 import com.example.board.support.IntegrationTest;
 import com.example.board.support.PhoneClient;
 import com.example.board.user.User;
@@ -137,6 +142,18 @@ class AuthRateLimitTest {
 		assertThat(auth.sessionLogin(email, WRONG).statusCode()).as("t0 실패가 창 밖으로 나가 한 번 더").isEqualTo(401);
 		// 남은 4번(t0+14:50)과 방금 실패로 다시 5번 — 이번엔 t0+14:50 실패가 나갈 때까지(약 14분 50초)
 		assertRateLimited(auth.sessionLogin(email, AuthClient.PASSWORD), 870, 890);
+	}
+
+	@Test
+	@DisplayName("TASK-22#1 같은 (계정, IP)로 틀린 로그인 10개를 동시에 보내도 401 은 정확히 5개(한도), 나머지는 429 — 검사 중인 시도까지 센다")
+	void concurrentWrongLoginsDoNotExceedLimit() throws Exception {
+		String email = auth.signedUp();
+
+		List<Integer> statuses = Parallel.run(10, () -> auth.jwtLogin(email, WRONG).statusCode());
+
+		Map<Integer, Long> counts = statuses.stream().collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+		assertThat(counts).as(statuses.toString()).containsOnlyKeys(401, 429).containsEntry(401, 5L).containsEntry(429, 5L);
+		assertThat(auth.jwtLogin(email, AuthClient.PASSWORD).statusCode()).isEqualTo(429);
 	}
 
 	@Test
