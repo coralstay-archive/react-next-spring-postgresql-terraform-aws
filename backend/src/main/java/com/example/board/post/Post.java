@@ -19,6 +19,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import com.example.board.category.Category;
 import com.example.board.security.OwnedResource;
@@ -79,6 +80,15 @@ public class Post implements OwnedResource {
 	/** 조회수 (TASK-9#3). {@link PostViewService} 가 SQL 로만 +1 한다. 읽기 전용 매핑. */
 	@Column(name = "view_count", nullable = false, insertable = false, updatable = false)
 	private long viewCount;
+
+	/**
+	 * 낙관적 잠금 (TASK-23#3, B1). 작성자 수정·삭제와 관리자 숨김·복구가 겹치면 늦게 커밋하는 쪽이 409 {@code conflict} 다. 엔티티는 모든
+	 * 컬럼을 UPDATE 하므로 이게 없으면 늦은 쪽이 먼저 커밋된 숨김·삭제를 옛 값으로 되돌린다. 클라이언트는 버전을 보내지 않는다(서버
+	 * 트랜잭션끼리 겹친 경쟁만 잡는다, docs/api.md).
+	 */
+	@Version
+	@Column(nullable = false)
+	private long version;
 
 	protected Post() {
 	}

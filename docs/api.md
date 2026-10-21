@@ -16,7 +16,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | 400 `validation` | 본문 필드 검증 실패. 쿼리·경로 파라미터 오류(필수 파라미터 누락, 형식 오류 `?page=abc`·`/posts/abc`, 없는 enum 값, 범위 밖 `page`·`size`, 지원하지 않는 `?token=`)도 모두 이 코드이고 `fields`의 키는 파라미터 이름이다. enum 파라미터(예: `status`)는 앞뒤 공백을 무시하고 대소문자를 가리지 않는다. 본문 문자열·쿼리 파라미터에 제어 문자(U+0000–U+001F 중 탭·LF·CR 제외, U+007F–U+009F)가 있을 때도 같다. DB가 데이터 오류(SQLState 22xxx)로 거부한 값도 400 `validation` |
 | 400 `validation` (본문) | 요청 본문의 알 수 없는 필드(오타 PATCH가 조용히 무시되지 않는다), 필드 타입 오류. `fields`의 키는 본문 경로다(예: `titel`, `sortOrder`, `attachmentIds[1]`) |
 | 400 `bad_request` | 본문이 JSON 문법에 맞지 않거나 비었다(특정 필드 탓이 아님). 요청 조합이 맞지 않는다(예: Bearer 요청의 세션 로그인, `link=true`와 `token` 동시 사용) |
-| 409 `conflict` | 앞단 검사를 지나 DB 유니크(23505)·FK(23503) 제약에 걸렸고 엔드포인트 고유 코드(예: `email_taken`, `slug_taken`)가 없을 때. NOT NULL(23502)·CHECK(23514) 위반은 앞단 검증이 놓친 서버 버그로 보고 500 `internal_error` |
+| 409 `conflict` | 앞단 검사를 지나 DB 유니크(23505)·FK(23503) 제약에 걸렸고 엔드포인트 고유 코드(예: `email_taken`, `slug_taken`)가 없을 때. NOT NULL(23502)·CHECK(23514) 위반은 앞단 검증이 놓친 서버 버그로 보고 500 `internal_error`. 글을 읽은 뒤 다른 요청이 같은 글을 먼저 바꿔 커밋했을 때(낙관적 잠금, 아래 게시판 동시 수정)도 409 `conflict` |
 | 401 `unauthorized` · 403 `forbidden`·`csrf`·`suspended`·`step_up_required` | 보안 체인(아래 인증·인가 모델) |
 | 404 `not_found` | 없는 경로(인증된 요청. 익명은 먼저 401) |
 | 405 `method_not_allowed` | 경로는 있지만 메서드가 다르다. `Allow` 헤더가 붙는다 |
@@ -221,6 +221,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 - **수정·삭제 권한(B1)**: 작성자와 ADMIN만 할 수 있다. `@PreAuthorize("@ownership.canModify(authentication, @postService.ownerOf(#id, authentication))")`로 검사하며, 글이 없거나 이미 삭제됐으면 404를 먼저 낸다. 숨긴 글은 ADMIN이 아니면 없는 글처럼 404다. 그다음 남의 글이면 403 `forbidden`이다. 삭제된 글은 ADMIN도 수정할 수 없다(복구는 TASK-12).
 - **삭제·숨김 글(B2)**: ADMIN이 아니면 목록에 나오지 않고 상세는 404다. ADMIN은 상세에서 `deleted`·`hidden` 표시와 함께 볼 수 있고, 목록은 `?includeHidden=true`를 붙였을 때만 포함한다(ADMIN이 아니면 이 파라미터는 무시한다).
 - **태그(B3)**: 이름은 NFC로 정규화한 뒤 앞뒤 공백을 지우고, 안쪽 공백을 한 칸으로 줄이고, 소문자로 바꾼다. 30자를 넘거나 비면 400 `invalid_tag`다. 한 글 안의 중복은 하나로 합치며, 합친 뒤 5개를 넘으면 400 `too_many_tags`다(입력 배열은 20개까지 받는다). 태그는 `INSERT ... ON CONFLICT (name) DO NOTHING`으로 넣은 뒤 다시 읽어서 재사용하므로, 같은 새 태그를 동시에 써도 행은 하나만 생긴다.
+- **동시 수정(TASK-23#3, B1)**: 글에는 낙관적 잠금 버전(`posts.version`)이 있다. 작성자 수정·삭제와 관리자 숨김·숨김 해제·복구가 동시에 겹치면 늦게 커밋하는 쪽이 409 `conflict`이고 아무것도 바뀌지 않는다. 그래서 먼저 커밋된 숨김·삭제가 늦은 수정에 덮여 되살아나지 않는다. 클라이언트는 버전을 보내지 않는다(`If-Match`·`version` 필드 없음, 기존 요청 그대로) — 서버 트랜잭션끼리 겹친 경쟁만 잡고, 409를 받으면 다시 읽고 시도한다. 오래 열어 둔 편집 화면의 덮어쓰기(읽은 뒤 몇 분 지나 저장)는 잡지 않는다(후속). 좋아요·조회수 카운터는 SQL로 ±1 하므로 버전을 올리지 않는다(좋아요가 수정을 409로 만들지 않는다).
 - **ADMIN 전용 카테고리**: `categories.admin_only=true`인 카테고리(공지)에 글을 쓰거나 글을 옮기는 것은 ADMIN만 할 수 있다. USER는 403 `category_admin_only`를 받는다.
 
 ### 댓글 · 좋아요 · 조회수 (TASK-9)
@@ -293,7 +294,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | `GET /api/admin/users?q&status&page&size` | `{items:[{id, nickname, email, phone, role, status, providers[], createdAt}], page, size, totalElements, totalPages}` 최근 가입순. `q`는 닉네임·이메일 부분 일치(대소문자 무시) 또는 전화번호 부분 일치(숫자만 비교, `010-1234-5678`처럼 앞자리 0인 국내 표기도 찾는다). `status`=`ACTIVE`\|`SUSPENDED`(대소문자 무시), `size` 1~100(기본 20) |
 | `POST /api/admin/users/{id}/suspend` `{reason?}` | 200 사용자 한 줄(`status:"SUSPENDED"`). 멱등 |
 | `POST /api/admin/users/{id}/unsuspend` `{reason?}` | 200 사용자 한 줄(`status:"ACTIVE"`). 멱등. 끊긴 세션·토큰은 되살리지 않는다(다시 로그인) |
-| `POST /api/admin/posts/{id}/hide` · `/unhide` · `/restore` `{reason?}` | 200 `{id, hidden, deleted, hiddenAt, deletedAt}`. 멱등(다시 숨겨도 처음 숨긴 시각 유지). `restore`는 `deleted_at`만 지우고 숨김은 그대로 둔다 |
+| `POST /api/admin/posts/{id}/hide` · `/unhide` · `/restore` `{reason?}` | 200 `{id, hidden, deleted, hiddenAt, deletedAt}`. 멱등(다시 숨겨도 처음 숨긴 시각 유지). `restore`는 `deleted_at`만 지우고 숨김은 그대로 둔다. 작성자 수정·삭제와 겹치면 늦은 쪽이 409 `conflict`(위 게시판 동시 수정, TASK-23#3) |
 | `POST /api/admin/categories` `{slug, name, sortOrder?, adminOnly?}` | 201 `{id, slug, name, sortOrder, adminOnly}`. `sortOrder` 생략 시 맨 뒤(최대 + 1), `adminOnly` 생략 시 false |
 | `PATCH /api/admin/categories/{id}` `{slug?, name?, sortOrder?, adminOnly?}` | 200 같은 모양. 보낸 필드만 바꾼다 |
 | `DELETE /api/admin/categories/{id}` | 204. 그 카테고리의 글은 남고 카테고리 없음이 된다(FK `ON DELETE SET NULL`) |

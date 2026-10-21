@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpHeaders;
@@ -77,6 +78,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			return ApiErrors.response(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, "입력값이 올바르지 않습니다", null);
 		}
 		return ApiErrors.response(HttpStatus.CONFLICT, "conflict", "다른 데이터와 충돌해 처리하지 못했습니다", null);
+	}
+
+	/**
+	 * 낙관적 잠금 충돌 (TASK-23#3): 읽은 뒤 다른 요청이 같은 행을 먼저 바꿔 커밋했다. 409 {@code conflict}. 다시 읽고 시도하면 된다.
+	 */
+	@ExceptionHandler(OptimisticLockingFailureException.class)
+	ResponseEntity<Object> handle(OptimisticLockingFailureException ex, WebRequest request) {
+		log.info("낙관적 잠금 충돌: {}", describe(request));
+		return ApiErrors.response(HttpStatus.CONFLICT, "conflict", "다른 사람이 먼저 바꿨습니다. 새로 불러온 뒤 다시 시도하세요", null);
 	}
 
 	/** 429: 같은 본문 + {@code Retry-After}. */
