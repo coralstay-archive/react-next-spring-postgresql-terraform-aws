@@ -2,6 +2,8 @@ package com.example.board.auth;
 
 import java.util.function.Supplier;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import com.example.board.auth.local.Emails;
@@ -23,10 +25,14 @@ import com.example.board.common.RateLimiter.Rule;
  * <li>가입: 시도를 IP 별로 센다(성공·409 모두 — 이메일 존재 여부 탐색도 막는다).</li>
  * <li>step-up: 실패를 사용자별로 센다(B1). 제한 세션·토큰을 바꿔 가며 추측해도 같은 사용자다.</li>
  * </ul>
- * 실패만 세는 쪽은 {@link RateLimiter#reserve} 로 미리 자리를 잡고, 결과가 {@code invalid_credentials} 가 아니면 지운다.
+ * 실패만 세는 쪽은 {@link RateLimiter#reserve} 로 미리 자리를 잡고, 결과가 {@code invalid_credentials} 가 아니면 지운다. 지우기가
+ * 실패해도(DB 순간 장애 등) 성공한 시도를 500 으로 바꾸거나 원래 예외를 가리지 않는다 — WARN 만 남기고(이메일·IP 없이) 그 시도는 실패로
+ * 남는다(한도 쪽으로 안전한 방향).
  */
 @Component
 public class AuthRateLimits {
+
+	private static final Logger log = LoggerFactory.getLogger(AuthRateLimits.class);
 
 	static final String LOGIN_ACCOUNT = "login-account";
 
@@ -70,8 +76,18 @@ public class AuthRateLimits {
 		}
 		finally {
 			if (!failed) {
-				limiter.release(reservation);
+				release(reservation);
 			}
+		}
+	}
+
+	private void release(Reservation reservation) {
+		try {
+			limiter.release(reservation);
+		}
+		catch (RuntimeException ex) {
+			// 키(이메일·IP)는 남기지 않는다. 예약 이벤트 id 만으로 충분하다
+			log.warn("레이트리밋 예약 해제 실패 — 이 시도가 창이 지날 때까지 실패로 남는다 (events={})", reservation.ids(), ex);
 		}
 	}
 
