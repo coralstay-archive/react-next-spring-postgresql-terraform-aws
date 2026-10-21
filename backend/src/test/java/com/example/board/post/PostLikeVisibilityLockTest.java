@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.TestPropertySource;
 
 import com.example.board.support.Api;
 import com.example.board.support.AuthClient;
@@ -32,6 +33,9 @@ import com.example.board.user.User;
  * 기다리는 것을 확인한 뒤 커밋한다.
  */
 @IntegrationTest
+@TestPropertySource(properties = { "app.db.lock-timeout=" + RowLock.LOCK_TIMEOUT, "app.db.statement-timeout=" + RowLock.LOCK_TIMEOUT,
+		"app.db.transaction-timeout=" + RowLock.TRANSACTION_TIMEOUT,
+		"spring.datasource.hikari.data-source-properties.socketTimeout=" + RowLock.SOCKET_TIMEOUT_SECONDS })
 class PostLikeVisibilityLockTest {
 
 	@LocalServerPort
