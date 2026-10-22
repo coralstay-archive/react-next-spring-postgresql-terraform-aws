@@ -1,6 +1,7 @@
 package com.example.board.security;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -22,6 +23,7 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -67,6 +69,25 @@ public class SecurityConfig {
 			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/token/refresh"),
 			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/phone/otp"),
 			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/phone/verify"));
+
+	/**
+	 * 익명도 부를 수 있는 공개 GET (아래 인가 규칙의 permitAll). 새 공개 읽기 API 는 여기에 더한다.
+	 * 게시판 읽기(TASK-8): 글 목록·상세·카테고리·태그, 댓글 목록(TASK-9#1). CSRF 토큰 발급, 헬스체크.
+	 */
+	static final List<RequestMatcher> PUBLIC_GETS = Stream
+		.of("/auth/csrf", "/posts", "/posts/*", "/categories", "/tags", "/posts/*/comments", "/actuator/health",
+				"/actuator/health/**")
+		.<RequestMatcher>map(path -> PathPatternRequestMatcher.pathPattern(HttpMethod.GET, path))
+		.toList();
+
+	/**
+	 * 만료된 Bearer 헤더를 무시하는 요청 (TASK-24#1, BE-15): refresh(새 토큰을 받으려는 것), 로그아웃(B1: refresh family 폐기),
+	 * 공개 GET. {@link LenientBearerTokenResolver} 참고.
+	 */
+	static final RequestMatcher IGNORE_EXPIRED_BEARER = new OrRequestMatcher(
+			Stream.concat(Stream.of(LOGOUT, PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/token/refresh")),
+					PUBLIC_GETS.stream())
+				.toList());
 
 	@Bean
 	SecurityContextRepository securityContextRepository() {
@@ -119,6 +140,7 @@ public class SecurityConfig {
 			.logout(AbstractHttpConfigurer::disable)
 			.oauth2Login(oauth2Login)
 			.oauth2ResourceServer(resourceServer -> resourceServer
+				.bearerTokenResolver(new LenientBearerTokenResolver(IGNORE_EXPIRED_BEARER, tokens))
 				.jwt(jwt -> jwt.decoder(jwtDecoder).jwtAuthenticationConverter(tokens::toAuthentication))
 				.authenticationEntryPoint(errors)
 				.accessDeniedHandler(errors))
@@ -126,15 +148,13 @@ public class SecurityConfig {
 			.authorizeHttpRequests(authorize -> authorize
 				// 공개 엔드포인트. 새 공개 API(예: 게시글 목록, 로그인)는 여기에 명시적으로 더한다.
 				.requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
-				.requestMatchers(HttpMethod.GET, "/auth/csrf").permitAll()
+				// 공개 GET: CSRF 토큰, 게시판 읽기(TASK-8: 글 목록·상세·카테고리·태그는 익명도 본다), 댓글 목록(TASK-9#1).
+				// 쓰기는 아래 기본 규칙(인증) + CSRF + 정지·step-up 필터.
+				.requestMatchers(PUBLIC_GETS.toArray(RequestMatcher[]::new)).permitAll()
 				.requestMatchers(HttpMethod.POST, "/auth/signup", "/auth/login", "/auth/logout", "/auth/token/refresh")
 					.permitAll()
 				// 휴대폰 OTP 발송·검증 (TASK-7). 세션 경로는 CSRF 검사 대상이다.
 				.requestMatchers(HttpMethod.POST, "/auth/phone/otp", "/auth/phone/verify").permitAll()
-				// 게시판 읽기 (TASK-8): 글 목록·상세·카테고리·태그는 익명도 본다. 쓰기는 아래 기본 규칙(인증) + CSRF + 정지·step-up 필터.
-				.requestMatchers(HttpMethod.GET, "/posts", "/posts/*", "/categories", "/tags").permitAll()
-				// 댓글 목록 (TASK-9#1). 작성·삭제·좋아요는 기본 규칙(인증) + CSRF + 정지·step-up 필터.
-				.requestMatchers(HttpMethod.GET, "/posts/*/comments").permitAll()
 				.requestMatchers("/error").permitAll()
 				// 관리자 API (TASK-12 B1): 체인에서 ADMIN 만. 익명은 401, 비ADMIN 은 403. 쓰기는 여전히 CSRF·정지·step-up 필터를 거친다.
 				.requestMatchers("/admin/**").hasRole("ADMIN")

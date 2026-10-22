@@ -9,6 +9,8 @@ import jakarta.validation.Valid;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.board.auth.jwt.JwtTokenService;
 import com.example.board.auth.local.LocalAccountService;
 import com.example.board.auth.local.LoginRequest;
 import com.example.board.auth.local.SignupRequest;
@@ -56,8 +59,14 @@ public class AuthController {
 
 	private final ClientIpResolver clientIps;
 
+	private final JwtTokenService jwt;
+
+	private static final BearerTokenResolver BEARER_TOKENS = new DefaultBearerTokenResolver();
+
 	public AuthController(LocalAccountService localAccounts, UserRepository users, UserIdentityRepository identities,
-			SessionLogin sessionLogin, TokenService tokens, AuthRateLimits rateLimits, ClientIpResolver clientIps) {
+			SessionLogin sessionLogin, TokenService tokens, AuthRateLimits rateLimits, ClientIpResolver clientIps,
+			JwtTokenService jwt) {
+		this.jwt = jwt;
 		this.localAccounts = localAccounts;
 		this.users = users;
 		this.identities = identities;
@@ -127,7 +136,8 @@ public class AuthController {
 	 * <ul>
 	 * <li>세션: 세션 무효화 + SESSION 쿠키 만료 + XSRF-TOKEN 삭제. CSRF 검사 대상이다(강제 로그아웃 방지).</li>
 	 * <li>Bearer: 본문 {@code {refreshToken}} 이 있으면 그 family 를 폐기한다. access 토큰은 상태가 없어 만료(최대 15분)까지
-	 * 유효하다 — 클라이언트가 버린다.</li>
+	 * 유효하다 — 클라이언트가 버린다. access 토큰이 이미 만료됐어도(보안 체인이 401 대신 익명으로 넘긴다) 그 토큰의 서명 검증된 사용자
+	 * 것이면 폐기한다(TASK-24 B1). 남의 refresh 토큰은 어느 쪽이든 폐기하지 않는다.</li>
 	 * </ul>
 	 * 정지된 사용자도 로그아웃은 해야 하므로 {@code SuspendedUserWriteFilter} 의 예외 경로다.
 	 */
@@ -136,16 +146,26 @@ public class AuthController {
 	public void logout(@RequestBody(required = false) RefreshRequest body, @AuthenticationPrincipal AuthUser user,
 			HttpServletRequest request, HttpServletResponse response) {
 		if (BearerRequests.isBearer(request)) {
-			if (user != null && body != null && body.refreshToken() != null && !body.refreshToken().isBlank()) {
-				tokens.revokeFamilyOf(user.id(), body.refreshToken());
+			Long userId = user != null ? user.id() : expiredBearerUserId(request);
+			if (userId != null && body != null && body.refreshToken() != null && !body.refreshToken().isBlank()) {
+				tokens.revokeFamilyOf(userId, body.refreshToken());
 			}
 			return;
 		}
 		sessionLogin.logout(request, response);
 	}
 
+	/** 보안 체인이 만료돼서 무시한 Bearer 토큰(TASK-24#1)의 사용자 id. 없거나 만료가 아닌 다른 이유로 틀리면 null. */
+	private Long expiredBearerUserId(HttpServletRequest request) {
+		String token = BEARER_TOKENS.resolve(request);
+		if (token == null) {
+			return null;
+		}
+		return jwt.expiredOnly(token).map(expired -> jwt.toAuthUser(expired).id()).orElse(null);
+	}
+
 	/**
-	 * refresh 로테이션 (AC#5). Bearer 헤더 없이 호출한다(만료된 access 토큰을 같이 보내면 보안 체인이 먼저 401 을 낸다).
+	 * refresh 로테이션 (AC#5). Bearer 헤더는 필요 없다. 만료된 access 토큰을 같이 보내도 무시한다(TASK-24#1, 위조 토큰은 401).
 	 * CSRF 면제 이유는 {@code SecurityConfig#csrfExempt}. 실패는 401 {@code invalid_refresh_token}, 정지 계정은 403.
 	 */
 	@PostMapping("/auth/token/refresh")

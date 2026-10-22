@@ -87,4 +87,21 @@ class JwtTokenServiceTest {
 		assertThatThrownBy(() -> service.decode(dpop)).isInstanceOf(JwtException.class);
 	}
 
+	@Test
+	@DisplayName("TASK-24#1 expiredOnly: 만료만 된 토큰이면 그 토큰, 정상·위조(다른 발급자) 토큰은 empty")
+	void expiredOnly() {
+		AuthUser user = new AuthUser(7L, Role.USER, UserStatus.ACTIVE);
+		JwtProperties properties = new JwtProperties(SECRET, "board-test", Duration.ofMinutes(5), Duration.ofDays(14));
+		Clock past = Clock.fixed(Instant.now().minus(Duration.ofHours(1)), java.time.ZoneOffset.UTC);
+		String expired = new JwtTokenService(properties, past).issueAccessToken(user);
+		String expiredOtherIssuer = new JwtTokenService(
+				new JwtProperties(SECRET, "someone-else", Duration.ofMinutes(5), Duration.ofDays(14)), past)
+			.issueAccessToken(user);
+
+		assertThat(service.expiredOnly(expired)).hasValueSatisfying(jwt -> assertThat(jwt.getSubject()).isEqualTo("7"));
+		assertThat(service.expiredOnly(service.issueAccessToken(user))).isEmpty();
+		assertThat(service.expiredOnly(expiredOtherIssuer)).isEmpty();
+		assertThat(service.expiredOnly("not-a-jwt")).isEmpty();
+	}
+
 }
