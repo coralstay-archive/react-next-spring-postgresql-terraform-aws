@@ -85,7 +85,9 @@ public class PhoneAuthController {
 	 * ({@code stepUpRequired})이다. 제한 세션은 연결 모드를 쓸 수 없다(403 step_up_required).
 	 *
 	 * <p>BE-22 (TASK-25#5): 코드가 맞아 챌린지를 소모한 뒤 계정 처리(가입·연결·세션/토큰 발급)에서 예외가 나면 소모를 되돌리고 원래 오류
-	 * 응답을 그대로 낸다({@link PhoneOtpService#release}). 사용자는 같은 인증번호로 다시 확인할 수 있다.
+	 * 응답을 그대로 낸다({@link PhoneOtpService#release}). 사용자는 같은 인증번호로 다시 확인할 수 있다. 불변식: 오류 응답이면 로그인되지
+	 * 않았고 OTP 는 다시 쓸 수 있다 — 세션 로그인을 마지막 단계로 두고, 그 도중 실패하면 이 요청이 세션에 넣은 인증을 걷어 낸 뒤 되돌린다
+	 * ({@link SessionLogin#discardLogin}). 토큰 모드는 발급(refresh 저장)이 마지막 단계라 실패하면 토큰이 나가지 않는다.
 	 */
 	@PostMapping("/auth/phone/verify")
 	public Object verify(@Valid @RequestBody PhoneVerifyRequest body,
@@ -106,8 +108,19 @@ public class PhoneAuthController {
 			return login(verified.phone(), token, request, response);
 		}
 		catch (RuntimeException ex) {
+			// 오류 응답이면 로그인되지 않은 상태 + OTP 재사용 가능. 세션 로그인 도중 실패했으면 넣은 인증부터 걷어 낸다.
+			discardLogin(request, ex);
 			otp.release(verified.challengeId(), ex);
 			throw ex;
+		}
+	}
+
+	private void discardLogin(HttpServletRequest request, RuntimeException cause) {
+		try {
+			sessionLogin.discardLogin(request);
+		}
+		catch (RuntimeException ex) {
+			cause.addSuppressed(ex);
 		}
 	}
 
@@ -121,8 +134,10 @@ public class PhoneAuthController {
 		if (token != null) {
 			return tokens.issueForLogin(user, stepUpRequired);
 		}
+		// 세션 로그인은 마지막 단계다(TASK-25#5): 그 뒤에 실패할 일이 없어야 "로그인됐는데 오류 응답 + OTP 재사용"이 생기지 않는다.
+		UserSummary summary = UserSummary.of(user, identities.findProvidersByUserId(user.getId()), stepUpRequired);
 		sessionLogin.login(user, stepUpRequired, request, response);
-		return UserSummary.of(user, identities.findProvidersByUserId(user.getId()), stepUpRequired);
+		return summary;
 	}
 
 	private UserSummary link(PhoneVerifyRequest body, String token, AuthUser principal) {
