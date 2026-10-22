@@ -15,6 +15,14 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 	@Query("select u.status from User u where u.id = :id")
 	Optional<UserStatus> findStatusById(Long id);
 
+	/** 요청마다 principal 을 최신 역할·상태로 바꿀 때 읽는 값 (TASK-24#2, BE-16). */
+	record RoleAndStatus(Role role, UserStatus status) {
+	}
+
+	/** 인증된 요청마다 최신 역할·상태만 가볍게 읽는다 (TASK-24#2). 계정이 없으면 empty. */
+	@Query("select new com.example.board.user.UserRepository$RoleAndStatus(u.role, u.status) from User u where u.id = :id")
+	Optional<RoleAndStatus> findRoleAndStatusById(Long id);
+
 	/** 이 역할의 계정이 하나라도 있는지 (TASK-21#3: 첫 ADMIN 부트스트랩은 ADMIN 이 없을 때만). */
 	boolean existsByRole(Role role);
 

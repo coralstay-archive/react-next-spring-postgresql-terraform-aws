@@ -160,6 +160,8 @@ public class SecurityConfig {
 				.requestMatchers("/admin/**").hasRole("ADMIN")
 				// 기본은 인증 필요 (deny-by-default). 세부 인가는 @PreAuthorize.
 				.anyRequest().authenticated())
+			// principal 을 DB 최신 역할·상태로 (TASK-24#2, BE-16). 인가(AuthorizationFilter)와 아래 필터들이 최신 값을 본다.
+			.addFilterBefore(new CurrentUserFilter(users), AuthorizationFilter.class)
 			// SUSPENDED 쓰기 차단(B3). 여기서 던진 AccessDeniedException 도 ExceptionTranslationFilter 가 403 JSON 으로 바꾼다.
 			.addFilterAfter(new SuspendedUserWriteFilter(users, List.of(LOGOUT)), AuthorizationFilter.class)
 			// 재활용 번호 보호(TASK-7 B4): 제한 세션·토큰의 쓰기 차단. 정지 판정 다음에 둔다(정지가 우선).
