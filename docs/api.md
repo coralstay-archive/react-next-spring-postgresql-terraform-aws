@@ -175,7 +175,18 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
     boolean 또는 문자열 `"true"`(Cognito userinfo) 모두 받는다.
 - 실패 코드: `access_denied`(사용자가 거부), `authorization_request_not_found`(state 없음·만료·재사용), `invalid_id_token`,
   `invalid_nonce`, `invalid_grant`, `invalid_token_response`(토큰 응답에 access_token 없음 — Naver 토큰 오류), `invalid_user_info_response`, `invalid_user_info`(제공자 응답에 id 없음), `unknown_provider`(설정 안 된 제공자), `suspended`,
-  연결 전용 `identity_in_use`, `link_expired`(연결 시작 10분 초과 또는 그 사이 다른 계정으로 바뀜).
+  연결 전용 `identity_in_use`, `link_expired`(연결 시작 10분 초과 또는 그 사이 다른 계정으로 바뀜), 제공자가 콜백에 실어 보낸 OAuth 오류
+  코드(예: `temporarily_unavailable`, 형식이 이상하면 `oauth2_failed`), `server_error`(TASK-25#1 — 제공자 인증은 끝났지만 우리 쪽 계정 처리가
+  예외로 실패: DB 장애 등. 다시 시도하면 된다).
+- **어떤 실패든 프론트로 302**(TASK-25 B1): 인가 시작·콜백의 모든 실패(실패 핸들러, 매퍼 예외, state 불일치, 제공자 오류 파라미터, 성공 핸들러
+  안의 예외)는 500·JSON 이 아니라 로그인 콜백(`/auth/callback/?error=`) 또는 연결이었으면 계정 화면(`/account/?error=`)으로 돌아간다. 로그인
+  도중 실패면 그 요청이 만든 인증은 세션에 남지 않는다. 예외: 응답이 이미 커밋된 뒤의 실패와, 핸들러가 302 를 쓴 뒤 응답 끝 세션 저장의 실패
+  (DB 장애 — 필터 단계 503 `db_unavailable` JSON, TASK-23)는 바꾸지 않는다.
+- **제공자 호출 타임아웃**(TASK-25#3): 토큰 교환·userinfo·JWKS 호출은 연결 3초·읽기 5초(`OAUTH_HTTP_CONNECT_TIMEOUT`·`OAUTH_HTTP_READ_TIMEOUT`).
+  넘으면 각각 `invalid_token_response`·`invalid_user_info_response`·`invalid_id_token`.
+- **로그**(TASK-25#1·#2): 실패는 WARN `OAuth 로그인 실패 → ?error=코드: registration=… mode=login|link [status=제공자 HTTP 상태] 오류=예외 클래스 사슬`,
+  매퍼 예외는 WARN `OAuth 사용자 정보 매핑 실패`, 성공 핸들러 예외는 ERROR `OAuth 콜백 처리 실패`. 예외 메시지·제공자 응답 본문·
+  error_description·인가 코드·state·토큰·이메일은 남기지 않는다(메시지에 제공자 원문이 섞이기 때문).
 
 OAuth 로그인 흐름(시퀀스라 DOT 대신 mermaid로 그렸다):
 
