@@ -58,20 +58,40 @@ import com.example.board.user.UserRepository;
 @EnableConfigurationProperties(JwtProperties.class)
 public class SecurityConfig {
 
-	/** 정지된 사용자도 할 수 있어야 하는 쓰기: 로그아웃 (TASK-3#3). */
+	/** 정지·제한 계정도 할 수 있어야 하는 쓰기: 로그아웃 (TASK-3#3). */
 	static final RequestMatcher LOGOUT = PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/logout");
 
 	/**
-	 * 제한 세션·토큰(TASK-7 B4)도 할 수 있는 쓰기: 로그아웃, step-up, 다시 로그인하기(로그인 계열). 다시 로그인하면 새 세션·토큰으로
-	 * 바뀌므로 제한을 우회하는 길이 아니다.
+	 * 로그인 계열 쓰기: LOCAL 로그인·가입, refresh, 휴대폰 OTP 발송·검증. 다른(또는 같은) 계정으로 새로 로그인하는 요청이라 지금 붙어 있는
+	 * 세션·토큰의 제한(정지·step-up)과 상관없이 각 엔드포인트의 계약대로 판정한다.
 	 */
-	static final List<RequestMatcher> STEP_UP_EXEMPT = List.of(LOGOUT,
-			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/step-up/**"),
+	static final List<RequestMatcher> LOGIN_FAMILY = List.of(
 			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/login"),
 			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/signup"),
 			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/token/refresh"),
 			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/phone/otp"),
 			PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/phone/verify"));
+
+	/**
+	 * 제한 세션·토큰(TASK-7 B4)도 할 수 있는 쓰기: 로그아웃, step-up, 다시 로그인하기(로그인 계열). 다시 로그인하면 새 세션·토큰으로
+	 * 바뀌므로 제한을 우회하는 길이 아니다. (휴대폰 검증의 연결 모드는 컨트롤러가 제한 세션을 막는다.)
+	 */
+	static final List<RequestMatcher> STEP_UP_EXEMPT = Stream
+		.concat(Stream.of(LOGOUT, PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/step-up/**")),
+				LOGIN_FAMILY.stream())
+		.toList();
+
+	/**
+	 * 정지 계정(TASK-2 B3)도 할 수 있는 쓰기 (TASK-24#4, BE-18): 로그아웃, 로그인 계열. 정지 계정의 세션·토큰이 남은 클라이언트도 다른 계정으로
+	 * 로그인·가입할 수 있고, 정지 계정 자신으로 로그인하면 필터의 쓰기 오류가 아니라 로그인 계약(비밀번호가 맞으면 403 {@code suspended}
+	 * "정지된 계정은 로그인할 수 없습니다", 틀리면 401)을 받는다. 단 휴대폰 검증의 연결 모드({@code ?link=true})는 지금 계정(정지)을 바꾸는
+	 * 쓰기라 빼지 않는다.
+	 */
+	static final List<RequestMatcher> SUSPENDED_EXEMPT = Stream
+		.concat(Stream.of(LOGOUT), LOGIN_FAMILY.stream()
+			.map(matcher -> (RequestMatcher) request -> matcher.matches(request)
+					&& !"true".equalsIgnoreCase(queryParam(request, "link"))))
+		.toList();
 
 	/**
 	 * 익명도 부를 수 있는 공개 GET (아래 인가 규칙의 permitAll). 새 공개 읽기 API 는 여기에 더한다.
@@ -179,7 +199,7 @@ public class SecurityConfig {
 			// principal 을 DB 최신 역할·상태로 (TASK-24#2, BE-16). 인가(AuthorizationFilter)와 아래 필터들이 최신 값을 본다.
 			.addFilterBefore(new CurrentUserFilter(users), AuthorizationFilter.class)
 			// SUSPENDED 쓰기 차단(B3). 여기서 던진 AccessDeniedException 도 ExceptionTranslationFilter 가 403 JSON 으로 바꾼다.
-			.addFilterAfter(new SuspendedUserWriteFilter(List.of(LOGOUT)), AuthorizationFilter.class)
+			.addFilterAfter(new SuspendedUserWriteFilter(SUSPENDED_EXEMPT), AuthorizationFilter.class)
 			// 재활용 번호 보호(TASK-7 B4): 제한 세션·토큰의 쓰기 차단. 정지 판정 다음에 둔다(정지가 우선).
 			.addFilterAfter(new StepUpRequiredWriteFilter(STEP_UP_EXEMPT), SuspendedUserWriteFilter.class);
 		return http.build();

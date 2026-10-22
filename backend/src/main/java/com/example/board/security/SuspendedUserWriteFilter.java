@@ -22,8 +22,8 @@ import com.example.board.user.UserStatus;
  *
  * <p>보안 체인의 {@code AuthorizationFilter} 바로 뒤에 붙어 URL 규칙·컨트롤러·{@code @PreAuthorize} 와 상관없이 한곳에서 적용된다.
  * 세션·토큰에 실린 status 는 발급 시점 값이라 낡을 수 있으므로 DB 의 최신 status 를 본다 — 그 값은 앞의 {@link CurrentUserFilter} 가
- * 요청마다 principal 에 채운다(TASK-24#2; 계정이 없어졌으면 이미 익명이라 보호된 쓰기는 401). 정지된 사용자도 해야 하는 쓰기(예: TASK-3 의
- * 로그아웃)는 {@code exemptions} 로 뺀다.
+ * 요청마다 principal 에 채운다(TASK-24#2; 계정이 없어졌으면 이미 익명이라 보호된 쓰기는 401). 정지된 사용자도 해야 하는 쓰기(TASK-3 의
+ * 로그아웃, TASK-24#4 의 로그인 계열 — {@code SecurityConfig.SUSPENDED_EXEMPT})는 {@code exemptions} 로 뺀다.
  */
 public class SuspendedUserWriteFilter extends OncePerRequestFilter {
 
