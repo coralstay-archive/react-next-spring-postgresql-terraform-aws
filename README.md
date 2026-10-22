@@ -379,6 +379,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `COGNITO_CLIENT_ID` | | ○ | terraform | Cognito 로그인. 있으면 `COGNITO_ISSUER_URI`·`COGNITO_DOMAIN`도 필요(없으면 기동 실패) |
 | `COGNITO_CLIENT_SECRET` | ● | ○ | terraform(`cognito_client_secret`) | App Client secret(state에는 남는다) |
 | `COGNITO_ISSUER_URI` / `COGNITO_DOMAIN` | | ○ | terraform | `https://cognito-idp.<region>.amazonaws.com/<pool id>` / `https://<prefix>.auth.<region>.amazoncognito.com` |
+| `OAUTH_HTTP_CONNECT_TIMEOUT` / `OAUTH_HTTP_READ_TIMEOUT` | | | 입력(선택) | `3s` / `5s` (`app.oauth2.http.*`, TASK-25#3). 모든 제공자의 토큰 교환·userinfo·JWKS 호출의 연결·읽기 타임아웃. 넘으면 프론트 콜백 `?error=invalid_token_response`·`invalid_user_info_response`·`invalid_id_token`. 콜백 한 번의 최악은 대략 (연결 + 읽기) × 3. 0·음수면 기동 실패 |
 | `SMS_PROVIDER` | | ● | terraform(`aws`) | `console`(로그로만, 번호 마스킹, 로컬 전용) · `memory`(테스트) · `aws`. 그 밖의 값이면 기동 실패. 운영 모드(https)는 `aws`만 허용 [sms-setup](docs/sms-setup.md) |
 | `SMS_AWS_REGION` | | | terraform(`us-east-1`) | `us-east-1` |
 | `SMS_ORIGINATION_IDENTITY` | | | 입력 | 발신 번호·sender ID·pool. 비우면 계정 기본 |

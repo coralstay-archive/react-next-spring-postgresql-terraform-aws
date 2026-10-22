@@ -27,7 +27,9 @@ import com.example.board.TestcontainersConfiguration;
 				// TASK-7#1 SMS 는 메모리 수신함(InMemorySmsSender)으로 받는다
 				"app.sms.provider=memory",
 				// TASK-7#4 클라이언트 IP 는 CloudFront 처럼 신뢰 헤더로 받는다(테스트마다 다른 IP → IP 별 발송 한도를 나눠 쓰지 않는다)
-				"app.client-ip.header=CloudFront-Viewer-Address" })
+				"app.client-ip.header=CloudFront-Viewer-Address",
+				// TASK-25#3 OAuth 제공자 호출 읽기 타임아웃을 짧게(stub 은 ms 안에 응답한다) → 지연 stub 테스트가 빨리 끝난다
+				"app.oauth2.http.read-timeout=" + IntegrationTest.OAUTH_READ_TIMEOUT })
 @Import({ TestcontainersConfiguration.class, TestFixturesConfiguration.class })
 public @interface IntegrationTest {
 
@@ -39,5 +41,8 @@ public @interface IntegrationTest {
 	 * 프론트 리다이렉트가 요청 Host 가 아니라 이 설정으로 만들어지는지 확인한다.
 	 */
 	String PUBLIC_BASE_URL = "http://board.test";
+
+	/** TASK-25#3 통합 테스트의 OAuth 제공자 호출 읽기 타임아웃 (운영 기본 5s). */
+	String OAUTH_READ_TIMEOUT = "3s";
 
 }

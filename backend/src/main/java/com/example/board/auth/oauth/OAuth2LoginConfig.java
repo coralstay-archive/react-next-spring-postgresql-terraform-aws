@@ -8,13 +8,16 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
+import org.springframework.security.oauth2.jwt.JwtDecoderFactory;
+
 import com.example.board.auth.SessionLogin;
 import com.example.board.auth.identity.IdentityResolver;
 import com.example.board.user.UserRepository;
 
 /** 소셜 로그인 빈 (TASK-4). 제공자는 {@link OAuth2UserInfoMapper} 빈 + {@code app.oauth2.registrations.<id>.*} 설정으로 붙는다. */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(OAuth2Properties.class)
+@EnableConfigurationProperties({ OAuth2Properties.class, OAuth2HttpProperties.class })
 public class OAuth2LoginConfig {
 
 	@Bean
@@ -44,10 +47,25 @@ public class OAuth2LoginConfig {
 		return new OAuth2LoginFailureHandler(redirects);
 	}
 
+	/** 제공자 HTTP 호출 타임아웃 (TASK-25#3). */
+	@Bean
+	OAuth2HttpClients oauth2HttpClients(OAuth2HttpProperties properties) {
+		return new OAuth2HttpClients(properties);
+	}
+
+	/**
+	 * id_token 디코더(JWKS 조회에 타임아웃). oauth2Login 설정이 이 타입의 빈을 찾아 OIDC 인증 공급자에 건다 — 빈으로만 바꿀 수 있다.
+	 */
+	@Bean
+	JwtDecoderFactory<ClientRegistration> oidcIdTokenDecoderFactory(OAuth2HttpClients clients) {
+		return clients.idTokenDecoderFactory();
+	}
+
 	@Bean
 	OAuth2LoginCustomizer oauth2LoginCustomizer(OAuth2ClientRegistrations registrations,
-			OAuth2LoginSuccessHandler successHandler, OAuth2LoginFailureHandler failureHandler) {
-		return new OAuth2LoginCustomizer(registrations, successHandler, failureHandler);
+			OAuth2LoginSuccessHandler successHandler, OAuth2LoginFailureHandler failureHandler,
+			OAuth2HttpClients clients) {
+		return new OAuth2LoginCustomizer(registrations, successHandler, failureHandler, clients);
 	}
 
 }
