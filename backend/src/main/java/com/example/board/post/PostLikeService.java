@@ -2,6 +2,7 @@ package com.example.board.post;
 
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.util.List;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -17,7 +18,12 @@ import com.example.board.auth.AuthUser;
  * INSERT 는 PostgreSQL 이 먼저 들어간 행의 커밋을 기다렸다가 충돌(0행)로 처리하고, 동시 DELETE 는 한쪽만 1행을 지운다. 그래서 카운터는
  * 항상 행 수와 같다. 카운터 UPDATE 는 글 행 잠금으로 직렬화된다(읽고-쓰기가 아니라 {@code like_count + 1}).
  *
- * <p>대상 글은 보이는 글(삭제·숨김 아님)이어야 한다. 아니면 404 {@code post_not_found}(ADMIN 포함).
+ * <p>대상 글은 보이는 글(삭제·숨김 아님)이어야 한다. 아니면 404 {@code post_not_found}(ADMIN 포함). 확인은 글 행을 잠그고 읽는다
+ * (TASK-23#4): 확인 뒤의 숨김·삭제 UPDATE 는 이 트랜잭션이 끝날 때까지 기다리고, 먼저 커밋된 숨김·삭제는 여기서 보인다. 글 행이 없으면
+ * (확인 전이든 카운터 갱신 때든) 500 이 아니라 404 다. 잠금은 댓글 작성의 {@code FOR SHARE} 가 아니라 {@code FOR NO KEY UPDATE} 다 — 좋아요는
+ * 같은 행의 카운터를 이어서 UPDATE 하므로, 공유 잠금을 쥔 동시 좋아요 둘이 서로의 공유 잠금 때문에 UPDATE 로 올리지 못해 교착(40P01)이 난다.
+ * {@code FOR NO KEY UPDATE} 는 같은 글의 좋아요끼리 처음부터 줄 세우고(어차피 카운터 UPDATE 에서 줄 선다), 댓글·좋아요 행 INSERT 의
+ * FK 확인({@code FOR KEY SHARE})은 막지 않는다.
  */
 @Service
 public class PostLikeService {
@@ -63,7 +69,7 @@ public class PostLikeService {
 
 	private void requireVisible(Long postId) {
 		Boolean visible = jdbc
-			.query("select deleted_at is null and hidden_at is null from posts where id = ?",
+			.query("select deleted_at is null and hidden_at is null from posts where id = ? for no key update",
 					rs -> rs.next() ? rs.getBoolean(1) : null, postId);
 		if (!Boolean.TRUE.equals(visible)) {
 			throw PostService.notFound();
@@ -71,12 +77,20 @@ public class PostLikeService {
 	}
 
 	private long adjust(Long postId, int delta) {
-		return jdbc.queryForObject("update posts set like_count = like_count + ? where id = ? returning like_count",
-				Long.class, delta, postId);
+		return single(jdbc.query("update posts set like_count = like_count + ? where id = ? returning like_count",
+				(rs, row) -> rs.getLong(1), delta, postId));
 	}
 
 	private long count(Long postId) {
-		return jdbc.queryForObject("select like_count from posts where id = ?", Long.class, postId);
+		return single(jdbc.query("select like_count from posts where id = ?", (rs, row) -> rs.getLong(1), postId));
+	}
+
+	/** 글 행이 없으면 404 (TASK-23#4: 예전에는 queryForObject 가 EmptyResultDataAccessException → 500). */
+	private static long single(List<Long> rows) {
+		if (rows.isEmpty()) {
+			throw PostService.notFound();
+		}
+		return rows.get(0);
 	}
 
 }

@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.TypeMismatchException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpHeaders;
@@ -79,6 +80,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		return ApiErrors.response(HttpStatus.CONFLICT, "conflict", "다른 데이터와 충돌해 처리하지 못했습니다", null);
 	}
 
+	/**
+	 * 낙관적 잠금 충돌 (TASK-23#3): 읽은 뒤 다른 요청이 같은 행을 먼저 바꿔 커밋했다. 409 {@code conflict}. 다시 읽고 시도하면 된다.
+	 */
+	@ExceptionHandler(OptimisticLockingFailureException.class)
+	ResponseEntity<Object> handle(OptimisticLockingFailureException ex, WebRequest request) {
+		log.info("낙관적 잠금 충돌: {}", describe(request));
+		return ApiErrors.response(HttpStatus.CONFLICT, "conflict", "다른 사람이 먼저 바꿨습니다. 새로 불러온 뒤 다시 시도하세요", null);
+	}
+
 	/** 429: 같은 본문 + {@code Retry-After}. */
 	@ExceptionHandler(RateLimitedException.class)
 	ResponseEntity<Object> handle(RateLimitedException ex) {
@@ -106,6 +116,16 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			if (cause instanceof ApiException api) {
 				return handle(api);
 			}
+			if (cause instanceof RequestBodyLimitFilter.TooLargeException) {
+				return tooLarge();
+			}
+		}
+		ApiException db = DbErrors.classify(ex);
+		if (db != null) {
+			// DB 장애·락·타임아웃 (TASK-23#1). SQLState 만 남긴다(DB 메시지는 키 값 같은 개인정보를 담을 수 있다).
+			log.warn("DB 오류 {} (SQLState {}, {}): {}", db.getError(), SqlErrors.sqlState(ex), ex.getClass().getSimpleName(),
+					describe(request));
+			return isCommitted(request) ? null : handle(db);
 		}
 		log.error("처리되지 않은 예외: {}", describe(request), ex);
 		if (isCommitted(request)) {
@@ -159,6 +179,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	@Override
 	protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException ex,
 			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+		if (tooLarge(ex)) {
+			return tooLarge();
+		}
 		if (ex.getCause() instanceof MismatchedInputException mismatch) {
 			String path = jsonPath(mismatch);
 			if (path != null) {
@@ -167,6 +190,21 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			}
 		}
 		return ApiErrors.response(HttpStatus.BAD_REQUEST, "bad_request", "요청 본문을 읽을 수 없습니다", null);
+	}
+
+	/** 길이를 모르는 본문이 상한을 넘었다 (TASK-23#2, {@link RequestBodyLimitFilter}). */
+	private static boolean tooLarge(Throwable ex) {
+		for (Throwable cause = ex; cause != null; cause = cause.getCause() == cause ? null : cause.getCause()) {
+			if (cause instanceof RequestBodyLimitFilter.TooLargeException) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static ResponseEntity<Object> tooLarge() {
+		HttpStatus status = HttpStatus.CONTENT_TOO_LARGE;
+		return ApiErrors.response(status, ApiErrors.code(status), ApiErrors.message(status), null);
 	}
 
 	private static String fieldMessage(MismatchedInputException ex) {

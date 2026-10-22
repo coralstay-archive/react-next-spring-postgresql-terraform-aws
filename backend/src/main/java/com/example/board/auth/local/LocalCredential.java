@@ -5,18 +5,21 @@ import java.util.Objects;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+
+import com.example.board.common.ClockEntityListener;
+import com.example.board.common.Timestamped;
 
 /**
  * LOCAL identity 의 비밀번호 (local_credentials). 해시는 {@code DelegatingPasswordEncoder} 형식({@code {bcrypt}...})만 저장한다
  * (TASK-3 B4).
  */
 @Entity
+@EntityListeners(ClockEntityListener.class)
 @Table(name = "local_credentials")
-public class LocalCredential {
+public class LocalCredential implements Timestamped {
 
 	@Id
 	@Column(name = "identity_id")
@@ -40,10 +43,14 @@ public class LocalCredential {
 		return new LocalCredential(identityId, passwordHash);
 	}
 
-	@PrePersist
-	@PreUpdate
-	void touch() {
-		this.updatedAt = Instant.now();
+	@Override
+	public void onCreate(Instant now) {
+		this.updatedAt = now;
+	}
+
+	@Override
+	public void onUpdate(Instant now) {
+		this.updatedAt = now;
 	}
 
 	public Long getIdentityId() {

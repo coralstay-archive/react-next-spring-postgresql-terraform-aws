@@ -6,11 +6,14 @@ import java.util.UUID;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+
+import com.example.board.common.ClockEntityListener;
+import com.example.board.common.Timestamped;
 
 /**
  * refresh 토큰 한 개 (refresh_tokens). 원문은 저장하지 않고 SHA-256 해시만 둔다.
@@ -22,8 +25,9 @@ import jakarta.persistence.Table;
  * </ul>
  */
 @Entity
+@EntityListeners(ClockEntityListener.class)
 @Table(name = "refresh_tokens")
-public class RefreshToken {
+public class RefreshToken implements Timestamped {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -78,9 +82,9 @@ public class RefreshToken {
 		return stepUpRequired;
 	}
 
-	@PrePersist
-	void onCreate() {
-		this.createdAt = Instant.now();
+	@Override
+	public void onCreate(Instant now) {
+		this.createdAt = now;
 	}
 
 	/** 로테이션: 이 토큰은 폐기되고 {@code next} 로 대체됐다. */

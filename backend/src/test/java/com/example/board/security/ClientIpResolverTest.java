@@ -39,7 +39,7 @@ class ClientIpResolverTest {
 		MockHttpServletRequest request = request();
 		request.addHeader("CloudFront-Viewer-Address", "203.0.113.5:443");
 
-		assertThat(new ClientIpResolver("").resolve(request)).isEqualTo("192.0.2.10");
+		assertThat(new ClientIpResolver("", new MutableClock()).resolve(request)).isEqualTo("192.0.2.10");
 	}
 
 	@ParameterizedTest
@@ -50,7 +50,7 @@ class ClientIpResolverTest {
 		MockHttpServletRequest request = request();
 		request.addHeader("CloudFront-Viewer-Address", header);
 
-		assertThat(new ClientIpResolver("CloudFront-Viewer-Address").resolve(request)).isEqualTo(expected);
+		assertThat(new ClientIpResolver("CloudFront-Viewer-Address", new MutableClock()).resolve(request)).isEqualTo(expected);
 	}
 
 	@Test
@@ -59,7 +59,7 @@ class ClientIpResolverTest {
 		MockHttpServletRequest request = request();
 		request.addHeader("cloudfront-viewer-address", "203.0.113.7:1234");
 
-		assertThat(new ClientIpResolver("CloudFront-Viewer-Address").resolve(request)).isEqualTo("203.0.113.7");
+		assertThat(new ClientIpResolver("CloudFront-Viewer-Address", new MutableClock()).resolve(request)).isEqualTo("203.0.113.7");
 	}
 
 	@ParameterizedTest
@@ -70,13 +70,13 @@ class ClientIpResolverTest {
 		MockHttpServletRequest request = request();
 		request.addHeader("CloudFront-Viewer-Address", header);
 
-		assertThat(new ClientIpResolver("CloudFront-Viewer-Address").resolve(request)).isEqualTo("192.0.2.10");
+		assertThat(new ClientIpResolver("CloudFront-Viewer-Address", new MutableClock()).resolve(request)).isEqualTo("192.0.2.10");
 	}
 
 	@Test
 	@DisplayName("TASK-7#4 신뢰 헤더가 없으면 remote address (X-Forwarded-For 첫 값을 쓰지 않는다)")
 	void fallsBackWhenHeaderMissing() {
-		assertThat(new ClientIpResolver("CloudFront-Viewer-Address").resolve(request())).isEqualTo("192.0.2.10");
+		assertThat(new ClientIpResolver("CloudFront-Viewer-Address", new MutableClock()).resolve(request())).isEqualTo("192.0.2.10");
 	}
 
 	@Test

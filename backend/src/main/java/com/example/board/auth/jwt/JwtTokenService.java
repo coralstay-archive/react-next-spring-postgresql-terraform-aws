@@ -10,8 +10,6 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -20,6 +18,8 @@ import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
@@ -62,11 +62,7 @@ public class JwtTokenService {
 
 	private final NimbusJwtDecoder decoder;
 
-	@Autowired
-	public JwtTokenService(JwtProperties properties) {
-		this(properties, Clock.systemUTC());
-	}
-
+	/** 발급(iat·exp)과 검증(만료 판정)이 같은 Clock 빈을 쓴다 (TASK-23#6). */
 	public JwtTokenService(JwtProperties properties, Clock clock) {
 		this.properties = properties;
 		this.clock = clock;
@@ -76,10 +72,17 @@ public class JwtTokenService {
 		SecretKey key = new SecretKeySpec(properties.secret().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
 		this.encoder = NimbusJwtEncoder.withSecretKey(key).build();
 		this.decoder = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
-		this.decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
-				JwtValidators.createDefaultWithIssuer(properties.issuer()),
+		// Spring Security 기본 검증기(typ=JWT·x5t 지문·만료)는 그대로 두고, 만료 판정만 Clock 빈을 쓰는 것으로 바꾼다
+		this.decoder.setJwtValidator(JwtValidators.createDefaultWithValidators(
+				new JwtIssuerValidator(properties.issuer()), timestampValidator(clock),
 				new JwtClaimValidator<String>(JwtClaimNames.SUB, sub -> sub != null && !sub.isBlank()),
 				new JwtClaimValidator<String>(CLAIM_TOKEN_TYPE, ACCESS::equals)));
+	}
+
+	private static JwtTimestampValidator timestampValidator(Clock clock) {
+		JwtTimestampValidator validator = new JwtTimestampValidator();
+		validator.setClock(clock);
+		return validator;
 	}
 
 	public String issueAccessToken(AuthUser user) {

@@ -6,7 +6,11 @@ import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** 시각이 필요한 규칙(OTP 만료·발송 한도)이 쓰는 시계. 테스트는 조절 가능한 시계로 바꿔 sleep 없이 확인한다. */
+/**
+ * 앱의 유일한 시계 (TASK-23#6, BE-7). 만료·한도 판정, 엔티티 생성·수정 시각({@link ClockEntityListener}), 글 시각, JWT 발급·검증, 연결
+ * 플래그 만료가 모두 이 빈을 쓴다. 시스템 시계를 직접 읽는 곳은 여기뿐이다(ClockUsageTest 가 검사). 테스트는 조절 가능한 시계로 바꿔
+ * sleep 없이 확인한다.
+ */
 @Configuration(proxyBeanMethods = false)
 public class ClockConfiguration {
 

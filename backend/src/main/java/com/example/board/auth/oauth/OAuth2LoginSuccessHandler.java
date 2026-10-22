@@ -1,7 +1,7 @@
 package com.example.board.auth.oauth;
 
 import java.io.IOException;
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -63,8 +63,12 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 
 	private final UserRepository users;
 
+	/** 연결 플래그(LinkIntent) 만료 판정 시각 (TASK-23#6). */
+	private final Clock clock;
+
 	public OAuth2LoginSuccessHandler(List<OAuth2UserInfoMapper> mappers, IdentityResolver resolver,
-			SessionLogin sessionLogin, OAuth2Redirects redirects, UserRepository users) {
+			SessionLogin sessionLogin, OAuth2Redirects redirects, UserRepository users, Clock clock) {
+		this.clock = clock;
 		this.mappers = mappers.stream()
 			.collect(Collectors.toUnmodifiableMap(OAuth2UserInfoMapper::registrationId, Function.identity()));
 		this.resolver = resolver;
@@ -101,7 +105,7 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 	/** 연결 모드 처리 후 돌려보낼 URL. */
 	private String link(LinkIntent intent, String registrationId, OAuth2UserInfo info, HttpServletRequest request) {
 		AuthUser current = sessionUser(request);
-		if (!intent.isValidFor(current, registrationId, Instant.now())) {
+		if (!intent.isValidFor(current, registrationId, clock.instant())) {
 			return redirects.linkFailed(LINK_EXPIRED);
 		}
 		if (current.stepUpRequired()) {

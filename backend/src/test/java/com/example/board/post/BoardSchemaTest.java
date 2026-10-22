@@ -3,6 +3,7 @@ package com.example.board.post;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -111,7 +112,7 @@ class BoardSchemaTest {
 		String tagName = "j" + UUID.randomUUID().toString().substring(0, 8);
 		Long id = tx.execute(status -> {
 			Tag tag = tags.save(Tag.named(tagName));
-			Post post = Post.write(author, categories.findBySlug("free").orElseThrow(), "제목", "본문");
+			Post post = Post.write(author, categories.findBySlug("free").orElseThrow(), "제목", "본문", Instant.now());
 			post.replaceTags(List.of(tag));
 			return posts.saveAndFlush(post).getId();
 		});

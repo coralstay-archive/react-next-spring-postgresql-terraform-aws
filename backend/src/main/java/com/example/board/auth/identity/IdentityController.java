@@ -1,7 +1,7 @@
 package com.example.board.auth.identity;
 
 import java.net.URI;
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
 
@@ -37,8 +37,12 @@ public class IdentityController {
 
 	private final IdentityService identities;
 
+	/** 연결 플래그(LinkIntent) 만료 시각 (TASK-23#6). */
+	private final Clock clock;
+
 	public IdentityController(OAuth2ClientRegistrations registrations, OAuth2Properties properties, PublicUrls urls,
-			IdentityService identities) {
+			IdentityService identities, Clock clock) {
+		this.clock = clock;
 		this.registrations = registrations;
 		this.properties = properties;
 		this.urls = urls;
@@ -80,7 +84,7 @@ public class IdentityController {
 			throw new ApiException(HttpStatus.NOT_FOUND, "unknown_provider", "지원하지 않는 로그인 수단입니다");
 		}
 		LinkIntent.start(request,
-				new LinkIntent(user.id(), registrationId, Instant.now().plus(properties.linkIntentTtl())));
+				new LinkIntent(user.id(), registrationId, clock.instant().plus(properties.linkIntentTtl())));
 		URI authorization = URI.create(urls.url("/api/oauth2/authorization/" + registrationId + "?link=true"));
 		return ResponseEntity.status(HttpStatus.FOUND).location(authorization).build();
 	}

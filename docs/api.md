@@ -13,17 +13,21 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 
 | 상태 · `error` | 언제 |
 |---|---|
-| 400 `validation` | 본문 필드 검증 실패. 쿼리·경로 파라미터 오류(필수 파라미터 누락, 형식 오류 `?page=abc`·`/posts/abc`, 없는 enum 값, 범위 밖 `page`·`size`, 지원하지 않는 `?token=`)도 모두 이 코드이고 `fields`의 키는 파라미터 이름이다. enum 파라미터(예: `status`)는 앞뒤 공백을 무시하고 대소문자를 가리지 않는다. 본문 문자열·쿼리 파라미터에 제어 문자(U+0000–U+001F 중 탭·LF·CR 제외, U+007F–U+009F)가 있을 때도 같다. DB가 데이터 오류(SQLState 22xxx)로 거부한 값도 400 `validation` |
+| 400 `validation` | 본문 필드 검증 실패. 쿼리·경로 파라미터 오류(필수 파라미터 누락, 형식 오류 `?page=abc`·`/posts/abc`, 없는 enum 값, 범위 밖 `page`·`size`, `page × size`(OFFSET)가 10,000을 넘는 깊은 페이지(TASK-23#5, 글·댓글·관리자 목록 모두), 지원하지 않는 `?token=`)도 모두 이 코드이고 `fields`의 키는 파라미터 이름이다. enum 파라미터(예: `status`)는 앞뒤 공백을 무시하고 대소문자를 가리지 않는다. 본문 문자열·쿼리 파라미터에 제어 문자(U+0000–U+001F 중 탭·LF·CR 제외, U+007F–U+009F)가 있을 때도 같다. DB가 데이터 오류(SQLState 22xxx)로 거부한 값도 400 `validation` |
 | 400 `validation` (본문) | 요청 본문의 알 수 없는 필드(오타 PATCH가 조용히 무시되지 않는다), 필드 타입 오류. `fields`의 키는 본문 경로다(예: `titel`, `sortOrder`, `attachmentIds[1]`) |
 | 400 `bad_request` | 본문이 JSON 문법에 맞지 않거나 비었다(특정 필드 탓이 아님). 요청 조합이 맞지 않는다(예: Bearer 요청의 세션 로그인, `link=true`와 `token` 동시 사용) |
-| 409 `conflict` | 앞단 검사를 지나 DB 유니크(23505)·FK(23503) 제약에 걸렸고 엔드포인트 고유 코드(예: `email_taken`, `slug_taken`)가 없을 때. NOT NULL(23502)·CHECK(23514) 위반은 앞단 검증이 놓친 서버 버그로 보고 500 `internal_error` |
+| 409 `conflict` | 앞단 검사를 지나 DB 유니크(23505)·FK(23503) 제약에 걸렸고 엔드포인트 고유 코드(예: `email_taken`, `slug_taken`)가 없을 때. NOT NULL(23502)·CHECK(23514) 위반은 앞단 검증이 놓친 서버 버그로 보고 500 `internal_error`. 글을 읽은 뒤 다른 요청이 같은 글을 먼저 바꿔 커밋했을 때(낙관적 잠금, 아래 게시판 동시 수정)도 409 `conflict` |
 | 401 `unauthorized` · 403 `forbidden`·`csrf`·`suspended`·`step_up_required` | 보안 체인(아래 인증·인가 모델) |
 | 404 `not_found` | 없는 경로(인증된 요청. 익명은 먼저 401) |
 | 405 `method_not_allowed` | 경로는 있지만 메서드가 다르다. `Allow` 헤더가 붙는다 |
 | 406 `not_acceptable` | `Accept`가 JSON을 받지 않는다(본문은 그래도 JSON) |
+| 413 `payload_too_large` | 요청 본문이 64KB(`app.request.max-body-size`)를 넘었다(TASK-23#2). `Content-Length`가 넘으면 본문을 읽지 않고, 길이를 모르는(chunked) 본문은 읽다가 넘는 순간 끊는다. form 본문(`application/x-www-form-urlencoded`, chunked 포함)도 같은 상한이다(컨테이너 `server.tomcat.max-http-form-post-size=64KB`). multipart 는 받지 않는다(파싱하지 않음 — 415). 가장 큰 정상 글(한글 제목 100자 + 본문 20000자 ≈ 60KB)은 들어간다. 첨부 이미지는 S3로 바로 올리므로(아래 TASK-11) 해당하지 않는다. 본문 문자열을 `\uXXXX`로 이스케이프하면 글자당 6바이트라 한도에 먼저 걸릴 수 있다(브라우저 `JSON.stringify`는 이스케이프하지 않는다) |
 | 415 `unsupported_media_type` | 본문이 `application/json`이 아니다 |
+| 409 `lock_timeout` | 다른 요청이 같은 행을 잠그고 있어 `lock_timeout`(기본 5s)을 넘겼거나 교착(40P01)으로 취소됐다(TASK-23#1). 잠시 뒤 다시 시도하면 된다 |
 | 429 `rate_limited` | 요청 한도 초과(아래 레이트리밋). `Retry-After` 헤더(초)가 붙는다 |
 | 500 `internal_error` | 처리되지 않은 서버 오류 |
+| 503 `db_unavailable` | DB 에 닿지 못했다: 커넥션 풀 대기 초과(기본 5s), 응답 없는 DB 의 소켓 타임아웃(기본 10s), 연결 오류(SQLState 08xxx·57P01~03·53xxx). 세션 조회처럼 필터 단계에서 난 경우도 같다. DB 장애 중에도 응답은 30초 안에 이 JSON 으로 끝난다(TASK-23 B2) |
+| 503 `db_timeout` | 쿼리 하나가 `statement_timeout`(기본 5s)을 넘겨 DB 가 취소했거나(57014), 트랜잭션 하나(문장 여러 개의 합)가 `transaction_timeout`(기본 10s)을 넘겨 DB 가 세션을 끝냈다(FATAL 25P04 — 뒤이은 롤백이 끊긴 커넥션에서 실패해도 이 코드다. 그 커넥션은 풀에서 버린다). DB 는 살아 있지만 과부하일 때다. 잠시 뒤 다시 시도. 상한은 트랜잭션마다다 — 한 요청이 트랜잭션 여러 개나 autocommit 문장 여러 개를 쓰면 이론상 합이 더 길 수 있다 |
 | 그 밖의 상태 | 필터·컨테이너에서 난 오류(`/api/error`)도 같은 표를 따른다: 409 `conflict`, 413 `payload_too_large`, 429 `rate_limited`, 503 `service_unavailable`. 표에 없는 상태는 `http_<상태>`(예: 502 `http_502`) |
 
 ### 레이트리밋 (TASK-22)
@@ -42,7 +46,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | `POST /api/auth/phone/otp` | 번호·IP | 아래 휴대폰 OTP 절 | 발송(`otp_challenges`) |
 
 - 고정 시간 잠금이 아니라 슬라이딩 창이다. 예: 로그인 "15분 창 안 실패 5회"에서 t0에 1번·t0+14:50에 4번 틀리면 약 10초(`Retry-After`) 막히고, t0 실패가 창 밖으로 나가면 한 번 더 시도할 수 있으며, 그것도 틀리면 다음으로 오래된 실패(t0+14:50)가 나갈 때까지 다시 막힌다.
-- "세고 → 넣기"는 (한도, 키)별 트랜잭션 advisory lock으로 직렬화하므로 동시 요청으로 넘길 수 없다. 실패만 세는 로그인·step-up은 비밀번호 검사 전에 자리를 먼저 잡아 두고(바로 커밋) 성공하면 지운다 — 검사 중인 요청까지 센다.
+- "세고 → 넣기"는 (한도, 키)별 트랜잭션 advisory lock으로 직렬화하므로 동시 요청으로 넘길 수 없다. 이 잠금 대기에도 `lock_timeout`(기본 5s)이 걸린다 — 같은 키의 요청이 잠금을 그보다 오래 쥐고 있으면(DB 과부하 등) 레이트리밋 대상 요청은 429 대신 409 `lock_timeout`을 받을 수 있다(TASK-23#1). 잠시 뒤 다시 시도하면 된다. 실패만 세는 로그인·step-up은 비밀번호 검사 전에 자리를 먼저 잡아 두고(바로 커밋) 성공하면 지운다 — 검사 중인 요청까지 센다.
 - 실패만 세는 쪽은 처리 중인 시도도 세므로, 한 NAT 뒤에서 로그인이 동시에 많이 몰리면(맞는 비밀번호여도) IP 한도에 걸려 잠깐 429를 받을 수 있다. 성공한 시도는 끝나는 대로 지워져 곧 풀린다.
 - 시각은 DB가 아니라 앱 서버의 시계(`Clock`)로 기록·비교한다. 인스턴스끼리 시계가 어긋나면 그 차이만큼 덜 셀 수 있다(NTP 동기화 전제 — 초 단위 오차는 분·시간 창에서 무시할 수 있다).
 - 클라이언트 IP는 휴대폰 OTP와 같은 규칙(`CLIENT_IP_HEADER`)이다.
@@ -206,7 +210,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 
 | 요청 | 설명 |
 |---|---|
-| `GET /api/posts?category=<slug>&tag=<name>&q=<검색어>&page=0&size=20&sort=latest` | `{items:[{id, title, excerpt, author:{id, nickname}, category:{id, slug, name}\|null, tags, createdAt, updatedAt, deleted, hidden, likeCount, viewCount}], page, size, totalElements, totalPages}`. 오프셋 페이징. `size` 1~50(기본 20), `page` ≥ 0. `sort`는 `latest`(기본, `created_at`·`id` 내림차순)와 `popular`(TASK-9: `like_count` 내림차순, 같으면 최신순)만 받고 대소문자는 가리지 않는다. 범위를 벗어나거나 형식이 틀리면 400. `tag`는 태그와 같은 규칙으로 정규화한다. `excerpt`는 공백을 접은 본문 앞 200자이고, 잘렸으면 끝에 `…`를 붙인다 |
+| `GET /api/posts?category=<slug>&tag=<name>&q=<검색어>&page=0&size=20&sort=latest` | `{items:[{id, title, excerpt, author:{id, nickname}, category:{id, slug, name}\|null, tags, createdAt, updatedAt, deleted, hidden, likeCount, viewCount}], page, size, totalElements, totalPages}`. 오프셋 페이징. `size` 1~50(기본 20), `page` ≥ 0, `page × size` ≤ 10,000(넘으면 400 `validation` + `fields.page`, TASK-23#5 — 더 깊은 페이지는 검색·필터로 좁힌다). `sort`는 `latest`(기본, `created_at`·`id` 내림차순)와 `popular`(TASK-9: `like_count` 내림차순, 같으면 최신순)만 받고 대소문자는 가리지 않는다. 범위를 벗어나거나 형식이 틀리면 400. `tag`는 태그와 같은 규칙으로 정규화한다. `excerpt`는 공백을 접은 본문 앞 200자이고, 잘렸으면 끝에 `…`를 붙인다 |
 | `GET /api/posts/{id}` | `{id, title, content, author, category, tags, createdAt, updatedAt, editable, deleted, hidden, likeCount, likedByMe, viewCount, attachments}`. `attachments`는 붙은 이미지 `[{id, url, contentType, size, status}]`(올린 순, 아래 TASK-11). `editable`은 보는 사람이 작성자나 ADMIN이고 글이 삭제되지 않았을 때 true. `likedByMe`는 보는 사람이 좋아요를 눌렀는지(익명은 false). 조회수를 올린다(아래 TASK-9). 없으면 404 `post_not_found` |
 | `POST /api/posts` `{title, content, categorySlug?, tags?, attachmentIds?}` | 201 + `Location` + 상세. `attachmentIds`(최대 10)는 본인이 올려 확정한 첨부(아래 TASK-11). 제목은 1~100자, 본문은 1~20000자이고 둘 다 공백만으로는 쓸 수 없다(어기면 400 `validation`). 없는 카테고리는 400 `unknown_category`. 사용자별 1분 3개·1시간 30개를 넘으면 429 `rate_limited` + `Retry-After`(TASK-22#2, ADMIN 포함) |
 | `PATCH /api/posts/{id}` | 보낸 필드만 바꾼다(빠진 필드나 null은 그대로 둔다). `categorySlug:""`는 카테고리를 빼고, `tags:[]`는 태그를 모두 지운다. `attachmentIds`는 첨부 목록을 통째로 바꾸고(빠진 첨부는 연결 해제), `[]`는 모두 뗀다. 200 + 상세 |
@@ -217,6 +221,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 - **수정·삭제 권한(B1)**: 작성자와 ADMIN만 할 수 있다. `@PreAuthorize("@ownership.canModify(authentication, @postService.ownerOf(#id, authentication))")`로 검사하며, 글이 없거나 이미 삭제됐으면 404를 먼저 낸다. 숨긴 글은 ADMIN이 아니면 없는 글처럼 404다. 그다음 남의 글이면 403 `forbidden`이다. 삭제된 글은 ADMIN도 수정할 수 없다(복구는 TASK-12).
 - **삭제·숨김 글(B2)**: ADMIN이 아니면 목록에 나오지 않고 상세는 404다. ADMIN은 상세에서 `deleted`·`hidden` 표시와 함께 볼 수 있고, 목록은 `?includeHidden=true`를 붙였을 때만 포함한다(ADMIN이 아니면 이 파라미터는 무시한다).
 - **태그(B3)**: 이름은 NFC로 정규화한 뒤 앞뒤 공백을 지우고, 안쪽 공백을 한 칸으로 줄이고, 소문자로 바꾼다. 30자를 넘거나 비면 400 `invalid_tag`다. 한 글 안의 중복은 하나로 합치며, 합친 뒤 5개를 넘으면 400 `too_many_tags`다(입력 배열은 20개까지 받는다). 태그는 `INSERT ... ON CONFLICT (name) DO NOTHING`으로 넣은 뒤 다시 읽어서 재사용하므로, 같은 새 태그를 동시에 써도 행은 하나만 생긴다.
+- **동시 수정(TASK-23#3, B1)**: 글에는 낙관적 잠금 버전(`posts.version`)이 있다. 작성자 수정·삭제와 관리자 숨김·숨김 해제·복구가 동시에 겹치면 늦게 커밋하는 쪽이 409 `conflict`이고 아무것도 바뀌지 않는다. 그래서 먼저 커밋된 숨김·삭제가 늦은 수정에 덮여 되살아나지 않는다. 클라이언트는 버전을 보내지 않는다(`If-Match`·`version` 필드 없음, 기존 요청 그대로) — 서버 트랜잭션끼리 겹친 경쟁만 잡고, 409를 받으면 다시 읽고 시도한다. 오래 열어 둔 편집 화면의 덮어쓰기(읽은 뒤 몇 분 지나 저장)는 잡지 않는다(후속). 좋아요·조회수 카운터는 SQL로 ±1 하므로 버전을 올리지 않는다(좋아요가 수정을 409로 만들지 않는다).
 - **ADMIN 전용 카테고리**: `categories.admin_only=true`인 카테고리(공지)에 글을 쓰거나 글을 옮기는 것은 ADMIN만 할 수 있다. USER는 403 `category_admin_only`를 받는다.
 
 ### 댓글 · 좋아요 · 조회수 (TASK-9)
@@ -232,6 +237,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | `DELETE /api/posts/{id}/like` | 멱등. 200 `{liked:false, likeCount}`. 삭제·숨김·없는 글이면 좋아요·취소 모두 404 `post_not_found` |
 
 - **삭제된 댓글 표시**: 목록에서 빼지 않고 자리에 남긴다. `deleted:true`이고 `content`·`author`는 null, `editable`은 false다. 프론트는 "삭제된 댓글입니다"로 보여 준다. 그래서 페이지가 밀리지 않고 대화 순서가 유지된다. 댓글 수정 API는 없다.
+- **좋아요와 숨김·삭제(TASK-23#4)**: 좋아요·취소는 글이 보이는지 확인할 때 글 행을 잠근다(`FOR NO KEY UPDATE`). 확인 뒤의 숨김·삭제는 좋아요가 끝날 때까지 기다리고, 먼저 커밋된 숨김·삭제는 좋아요가 보고 404 `post_not_found`다. 글 행이 없어도 404다. 댓글 작성처럼 `FOR SHARE`를 쓰지 않는 이유: 좋아요는 이어서 같은 행의 `like_count`를 UPDATE 하므로, 공유 잠금을 쥔 동시 좋아요끼리 교착(40P01)이 난다. 같은 글의 좋아요는 이 잠금에서 줄을 선다(어차피 카운터 UPDATE에서 줄 선다).
 - **좋아요 정합성(B1)**: `post_likes`의 PK `(post_id, user_id)`로 사용자당 글 하나에 1회만 누를 수 있다. `posts.like_count`는 `INSERT ... ON CONFLICT DO NOTHING`이나 `DELETE`가 실제로 바꾼 행이 1개일 때만 같은 트랜잭션에서 ±1 한다. 그래서 같은 요청이 동시에 와도 카운터는 행 수와 같다. 엔티티는 카운터를 읽기 전용으로 매핑하므로 글 수정이 카운터를 덮어쓰지 않는다.
 - **조회수(B2)**: `GET /api/posts/{id}`가 보이는 글(삭제·숨김이 아닌 글)을 돌려줄 때 센다. 같은 방문자는 30분에 한 번만 센다. 방문자 키는 로그인 사용자면 `u:<user id>`(기기·세션과 상관없음)이다. 익명이면 `VID` 쿠키(128비트 랜덤, HttpOnly, SameSite=Lax, Path=/, 30일, `COOKIE_SECURE`를 따름)의 SHA-256인 `s:<hex>`이며, 익명에게 HTTP 세션은 만들지 않는다. `post_views (post_id, viewer_key, viewed_at)`에 `INSERT ... ON CONFLICT DO UPDATE ... WHERE viewed_at <= now-30m`를 실행해서 바뀐 행이 1개일 때만 `view_count + 1` 한다. 상세 읽기 트랜잭션이 끝난 뒤 별도 트랜잭션에서 실행한다. 응답의 `viewCount`에는 이번 조회가 들어 있다.
   - 한계: 쿠키를 받지 않는 클라이언트(봇 등)는 요청할 때마다 새 방문자로 센다. `post_views`는 계속 커지므로 30분이 지난 행을 지우는 정리 작업이 필요하다(후속 작업, `post_views_viewed_at_ix` 인덱스가 있다).
@@ -289,7 +295,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | `GET /api/admin/users?q&status&page&size` | `{items:[{id, nickname, email, phone, role, status, providers[], createdAt}], page, size, totalElements, totalPages}` 최근 가입순. `q`는 닉네임·이메일 부분 일치(대소문자 무시) 또는 전화번호 부분 일치(숫자만 비교, `010-1234-5678`처럼 앞자리 0인 국내 표기도 찾는다). `status`=`ACTIVE`\|`SUSPENDED`(대소문자 무시), `size` 1~100(기본 20) |
 | `POST /api/admin/users/{id}/suspend` `{reason?}` | 200 사용자 한 줄(`status:"SUSPENDED"`). 멱등 |
 | `POST /api/admin/users/{id}/unsuspend` `{reason?}` | 200 사용자 한 줄(`status:"ACTIVE"`). 멱등. 끊긴 세션·토큰은 되살리지 않는다(다시 로그인) |
-| `POST /api/admin/posts/{id}/hide` · `/unhide` · `/restore` `{reason?}` | 200 `{id, hidden, deleted, hiddenAt, deletedAt}`. 멱등(다시 숨겨도 처음 숨긴 시각 유지). `restore`는 `deleted_at`만 지우고 숨김은 그대로 둔다 |
+| `POST /api/admin/posts/{id}/hide` · `/unhide` · `/restore` `{reason?}` | 200 `{id, hidden, deleted, hiddenAt, deletedAt}`. 멱등(다시 숨겨도 처음 숨긴 시각 유지). `restore`는 `deleted_at`만 지우고 숨김은 그대로 둔다. 작성자 수정·삭제와 겹치면 늦은 쪽이 409 `conflict`(위 게시판 동시 수정, TASK-23#3) |
 | `POST /api/admin/categories` `{slug, name, sortOrder?, adminOnly?}` | 201 `{id, slug, name, sortOrder, adminOnly}`. `sortOrder` 생략 시 맨 뒤(최대 + 1), `adminOnly` 생략 시 false |
 | `PATCH /api/admin/categories/{id}` `{slug?, name?, sortOrder?, adminOnly?}` | 200 같은 모양. 보낸 필드만 바꾼다 |
 | `DELETE /api/admin/categories/{id}` | 204. 그 카테고리의 글은 남고 카테고리 없음이 된다(FK `ON DELETE SET NULL`) |

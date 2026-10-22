@@ -5,19 +5,22 @@ import java.util.Objects;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+
+import com.example.board.common.ClockEntityListener;
+import com.example.board.common.Timestamped;
 
 /** 통합 계정 (decision-4). email/phone 은 표시·연락용이며 로그인 키가 아니다. */
 @Entity
+@EntityListeners(ClockEntityListener.class)
 @Table(name = "users")
-public class User {
+public class User implements Timestamped {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -57,16 +60,15 @@ public class User {
 		return new User(nickname);
 	}
 
-	@PrePersist
-	void onCreate() {
-		Instant now = Instant.now();
+	@Override
+	public void onCreate(Instant now) {
 		this.createdAt = now;
 		this.updatedAt = now;
 	}
 
-	@PreUpdate
-	void onUpdate() {
-		this.updatedAt = Instant.now();
+	@Override
+	public void onUpdate(Instant now) {
+		this.updatedAt = now;
 	}
 
 	public void changeNickname(String nickname) {

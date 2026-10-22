@@ -1,5 +1,6 @@
 package com.example.board.auth.oauth;
 
+import java.time.Clock;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -34,8 +35,8 @@ public class OAuth2LoginConfig {
 
 	@Bean
 	OAuth2LoginSuccessHandler oauth2LoginSuccessHandler(List<OAuth2UserInfoMapper> mappers, IdentityResolver resolver,
-			SessionLogin sessionLogin, OAuth2Redirects redirects, UserRepository users) {
-		return new OAuth2LoginSuccessHandler(mappers, resolver, sessionLogin, redirects, users);
+			SessionLogin sessionLogin, OAuth2Redirects redirects, UserRepository users, Clock clock) {
+		return new OAuth2LoginSuccessHandler(mappers, resolver, sessionLogin, redirects, users, clock);
 	}
 
 	@Bean
