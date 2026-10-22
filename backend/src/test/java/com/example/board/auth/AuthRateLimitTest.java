@@ -140,8 +140,9 @@ class AuthRateLimitTest {
 
 		clock.advance(Duration.ofSeconds(Long.parseLong(blocked.headers().firstValue("Retry-After").orElseThrow())));
 		assertThat(auth.sessionLogin(email, WRONG).statusCode()).as("t0 실패가 창 밖으로 나가 한 번 더").isEqualTo(401);
-		// 남은 4번(t0+14:50)과 방금 실패로 다시 5번 — 이번엔 t0+14:50 실패가 나갈 때까지(약 14분 50초)
-		assertRateLimited(auth.sessionLogin(email, AuthClient.PASSWORD), 870, 890);
+		// 남은 4번(t0+14:50)과 방금 실패로 다시 5번 — 이번엔 t0+14:50 실패가 나갈 때까지(약 14분 50초).
+		// MutableClock 은 실제 시간과 함께 흐르고 Retry-After 는 올림이라 부하에 따라 몇 초 흔들린다 — 상한은 창 길이(900초)
+		assertRateLimited(auth.sessionLogin(email, AuthClient.PASSWORD), 870, 900);
 	}
 
 	@Test
