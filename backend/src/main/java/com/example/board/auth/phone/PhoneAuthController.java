@@ -83,6 +83,9 @@ public class PhoneAuthController {
 	 *
 	 * <p>B4 재활용 번호 보호: 로그인한 계정에 PHONE 말고 다른 수단(LOCAL·소셜·Cognito)도 있으면 제한 세션·토큰
 	 * ({@code stepUpRequired})이다. 제한 세션은 연결 모드를 쓸 수 없다(403 step_up_required).
+	 *
+	 * <p>BE-22 (TASK-25#5): 코드가 맞아 챌린지를 소모한 뒤 계정 처리(가입·연결·세션/토큰 발급)에서 예외가 나면 소모를 되돌리고 원래 오류
+	 * 응답을 그대로 낸다({@link PhoneOtpService#release}). 사용자는 같은 인증번호로 다시 확인할 수 있다.
 	 */
 	@PostMapping("/auth/phone/verify")
 	public Object verify(@Valid @RequestBody PhoneVerifyRequest body,
@@ -98,7 +101,17 @@ public class PhoneAuthController {
 		if (token == null && BearerRequests.isBearer(request)) {
 			throw badRequest("Bearer 요청은 ?token=jwt 로 로그인하세요");
 		}
-		String phone = verifiedPhone(body);
+		Verified verified = verifiedPhone(body);
+		try {
+			return login(verified.phone(), token, request, response);
+		}
+		catch (RuntimeException ex) {
+			otp.release(verified.challengeId(), ex);
+			throw ex;
+		}
+	}
+
+	private Object login(String phone, String token, HttpServletRequest request, HttpServletResponse response) {
 		User user = phoneIdentities.resolveForLogin(phone);
 		if (user.getStatus() != UserStatus.ACTIVE) {
 			throw AuthErrors.suspendedLogin();
@@ -128,17 +141,29 @@ public class PhoneAuthController {
 			// 제한 세션이 새 수단을 붙여 그 수단으로 step-up 하는 우회를 막는다 (B4).
 			throw StepUpRequiredException.apiException();
 		}
-		String phone = verifiedPhone(body);
-		phoneIdentities.link(principal.id(), phone);
-		User user = users.findById(principal.id())
-			.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "인증이 필요합니다"));
-		return summary(user);
+		Verified verified = verifiedPhone(body);
+		try {
+			phoneIdentities.link(principal.id(), verified.phone());
+			User user = users.findById(principal.id())
+				.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "인증이 필요합니다"));
+			return summary(user);
+		}
+		catch (RuntimeException ex) {
+			otp.release(verified.challengeId(), ex);
+			throw ex;
+		}
 	}
 
-	private String verifiedPhone(PhoneVerifyRequest body) {
-		Optional<String> phone = parse(body.challengeId()).flatMap(id -> otp.verify(id, body.code()));
-		return phone.orElseThrow(
-				() -> new ApiException(HttpStatus.UNAUTHORIZED, INVALID_OTP, "인증번호가 올바르지 않거나 만료되었습니다"));
+	private Verified verifiedPhone(PhoneVerifyRequest body) {
+		Optional<UUID> challengeId = parse(body.challengeId());
+		Optional<String> phone = challengeId.flatMap(id -> otp.verify(id, body.code()));
+		return phone.map(value -> new Verified(challengeId.get(), value))
+			.orElseThrow(
+					() -> new ApiException(HttpStatus.UNAUTHORIZED, INVALID_OTP, "인증번호가 올바르지 않거나 만료되었습니다"));
+	}
+
+	/** 검증에 성공해 소모된 챌린지와 그 번호(E.164). */
+	private record Verified(UUID challengeId, String phone) {
 	}
 
 	private static Optional<UUID> parse(String challengeId) {

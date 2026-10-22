@@ -7,6 +7,7 @@ import jakarta.persistence.LockModeType;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 public interface OtpChallengeRepository extends JpaRepository<OtpChallenge, UUID> {
@@ -18,5 +19,10 @@ public interface OtpChallengeRepository extends JpaRepository<OtpChallenge, UUID
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select c from OtpChallenge c where c.id = :id")
 	Optional<OtpChallenge> findForUpdateById(UUID id);
+
+	/** 소모를 되돌린다 (TASK-25#5 BE-22). 소모된 챌린지만 바꾸고, 바꾼 행 수를 돌려준다. */
+	@Modifying
+	@Query("update OtpChallenge c set c.consumedAt = null where c.id = :id and c.consumedAt is not null")
+	int release(UUID id);
 
 }
