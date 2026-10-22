@@ -1,10 +1,10 @@
 ---
 id: TASK-24
 title: '백엔드: 인증 경계 정리'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-22 06:19'
+updated_date: '2026-10-22 06:44'
 labels:
   - backend
   - auth
@@ -35,11 +35,11 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 BE-15 refresh·logout·공개 GET에서는 만료된 Bearer 헤더를 무시
-- [ ] #2 BE-16 역할도 요청마다 DB 상태와 대조(또는 역할 변경 시 세션 삭제)
-- [ ] #3 BE-17 로그인 시 사용자 행 FOR SHARE 또는 세션 저장 후 상태 재확인
-- [ ] #4 BE-18 로그인 계열 엔드포인트를 Suspended 필터 예외에 추가
-- [ ] #5 BE-11 세션 역직렬화 실패는 세션 무효(401)로 처리
+- [x] #1 BE-15 refresh·logout·공개 GET에서는 만료된 Bearer 헤더를 무시
+- [x] #2 BE-16 역할도 요청마다 DB 상태와 대조(또는 역할 변경 시 세션 삭제)
+- [x] #3 BE-17 로그인 시 사용자 행 FOR SHARE 또는 세션 저장 후 상태 재확인
+- [x] #4 BE-18 로그인 계열 엔드포인트를 Suspended 필터 예외에 추가
+- [x] #5 BE-11 세션 역직렬화 실패는 세션 무효(401)로 처리
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -74,6 +74,8 @@ documentation:
 - 문서: docs/api.md 인증·인가 모델(만료 Bearer 무시 경로, 역할·상태 요청마다 DB, 로그인·정지 경쟁, 정지 필터 예외, 깨진 세션), 관리자 절의 "역할은 발급 시점 값" 문장 수정. 설정 변경 없음(README 그대로).
 - 각 AC 는 red 실행으로 실패를 확인한 뒤 green 커밋(red 증거를 메시지에), 필요하면 refactor 커밋. 표식 TASK-24#n, #B1·#B2.
 - 범위 밖으로 남길 것: refresh 로테이션(rotate)의 같은 경쟁(정지와 동시 로테이션), 로그인·가입 등 다른 엔드포인트의 만료 Bearer.
+
+정정(리뷰 후): 위의 '범위 밖: refresh 로테이션 경쟁'은 유저 결정으로 이 태스크(AC#3)에서 고쳤다 — a46efec.
 <!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
@@ -81,3 +83,17 @@ documentation:
 <!-- SECTION:NOTES:BEGIN -->
 독립 리뷰(2026-10-22) 반영 결정: #4 정지 필터 예외의 link 판정이 Spring boolean 변환(1·on·yes·퍼센트 인코딩)과 어긋나 정지 계정이 휴대폰을 연결할 수 있던 구멍을 고친다(디코딩된 값으로 '없거나 false일 때만 예외' + link()에서 ACTIVE 확인). #3 refresh 로테이션도 로그인과 같은 정지 경쟁이 있어 이 태스크에서 같이 고친다(유저 결정, AC#3 성격). 유지 결정: #5 깨진 세션은 401 unauthorized(새 코드 없음), 세션 로그인 중 정지 경쟁은 200 응답 후 세션 삭제로 둔다. 그 밖에 세션 경쟁 테스트의 cleanup-cron 간섭 제거, 재확인 DB 오류 시 WARN + 세션 삭제 시도.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+인증 경계를 정리했다.
+- AC#1 BE-15: refresh·logout·공개 GET에서는 만료만 된 Bearer(서명·발급자·sub·typ 정상)를 없는 것으로 본다. 보호된 API와 서명이 틀린 토큰은 401 그대로. B1: 만료 토큰으로 로그아웃해도 그 주인의 refresh family는 폐기된다.
+- AC#2 BE-16: CurrentUserFilter가 요청마다 DB 최신 role·status로 principal을 바꾼다(세션에는 쓰지 않음). B2: 강등된 ADMIN은 다음 요청부터 403. 지워진 계정은 401.
+- AC#3 BE-17: JWT 로그인과 refresh 로테이션은 사용자 행 FOR SHARE로 status를 재확인한다. 세션 로그인은 세션 저장 뒤 재확인해서 정지됐으면 세션을 모두 지운다. 재확인 DB 오류 시에도 세션 삭제를 시도한다. 응답이 200으로 나갈 수 있는 세션 경쟁은 유지(유저 결정).
+- AC#4 BE-18: 로그인 계열(로그인·가입·refresh·OTP)을 정지 필터 예외에 넣었다. 휴대폰 연결(link)은 디코딩된 값으로 판정해 예외에서 빼고, 컨트롤러에서도 ACTIVE를 확인한다.
+- AC#5 BE-11: 역직렬화가 안 되는 세션은 지우고 익명으로 처리한다(보호된 API 401 unauthorized, 새 코드 없음 — 유저 결정).
+독립 리뷰 반영: 정지 계정의 휴대폰 연결 구멍(link=1 등), refresh 로테이션 경쟁, 경쟁 테스트 안정성, 재확인 오류 처리.
+검증: make test 통과(backend 764, repo 222, deploy 135, terraform 전 모듈, frontend 160).
+범위 밖으로 남긴 것: 공개 POST(로그인·가입 등)에 만료 Bearer를 붙이면 여전히 401. 정지된 ADMIN의 관리자 GET 통과는 기존 동작.
+<!-- SECTION:FINAL_SUMMARY:END -->
