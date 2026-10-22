@@ -125,6 +125,16 @@ public class SecurityConfig {
 		return registration;
 	}
 
+	/**
+	 * 역직렬화할 수 없는 세션 무효화 (TASK-24#5). Spring Session 필터가 감싼 세션을 봐야 하므로 그 바로 뒤, 보안 체인보다 앞에 둔다.
+	 */
+	@Bean
+	FilterRegistrationBean<CorruptSessionFilter> corruptSessionFilter() {
+		FilterRegistrationBean<CorruptSessionFilter> registration = new FilterRegistrationBean<>(new CorruptSessionFilter());
+		registration.setOrder(SessionRepositoryFilter.DEFAULT_ORDER + 1);
+		return registration;
+	}
+
 	@Bean
 	SecurityContextRepository securityContextRepository() {
 		return new SessionUnlessBearerSecurityContextRepository();
