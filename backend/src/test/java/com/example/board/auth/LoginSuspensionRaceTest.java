@@ -20,6 +20,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import com.example.board.admin.AdminUserService;
+import com.example.board.auth.token.TokenService;
 import com.example.board.support.Api;
 import com.example.board.support.AuthClient;
 import com.example.board.support.AuthFixtures;
@@ -133,6 +134,43 @@ class LoginSuspensionRaceTest {
 
 		assertThat(sessionsOf(id)).isZero();
 		assertThat(api.get("/auth/me").cookie(session).send().statusCode()).isEqualTo(401);
+	}
+
+
+	@Test
+	@DisplayName("TASK-24#3 refresh 로테이션 도중 정지가 끼어들어도 살아 있는 refresh 가 남지 않는다(로테이션도 사용자 행 FOR SHARE 를 먼저 잡는다)")
+	void refreshRotationRacingSuspension() throws Exception {
+		String email = auth.signedUp();
+		long id = userId(email);
+		String refreshToken = auth.tokens(email).get("refreshToken").asString();
+		ExecutorService two = Executors.newFixedThreadPool(2);
+		Future<HttpResponse<String>> rotation;
+		try (RowLock suspension = RowLock.hold(dataSource, "select id from users where id = ? for no key update", id)) {
+			// 정지 트랜잭션(AdminUserService.suspend: 사용자 행 PESSIMISTIC_WRITE = FOR NO KEY UPDATE → status 변경 → refresh 전부 폐기)을
+			// 커밋하지 않고 쥔다.
+			suspension.execute("update users set status = 'SUSPENDED' where id = ?", id);
+			Future<?> revokeAll;
+			try (RowLock tokenRow = RowLock.hold(dataSource,
+					"select id from refresh_tokens where token_hash = ? for update", TokenService.hash(refreshToken))) {
+				// 로테이션을 먼저 출발시키고(고치기 전: 토큰 행 앞에서, 고친 뒤: 사용자 행 앞에서 기다린다),
+				rotation = two.submit(() -> auth.refresh(refreshToken));
+				suspension.awaitWaiters(1, "users|refresh_tokens");
+				// 정지의 "refresh 전부 폐기" 문장이 로테이션의 새 토큰 커밋보다 먼저 시작되게 한다(토큰 행 앞에서 기다린다).
+				revokeAll = two.submit(() -> suspension
+					.execute("update refresh_tokens set revoked_at = now() where user_id = ? and revoked_at is null", id));
+				suspension.awaitWaiters(2, "users|refresh_tokens");
+			}
+			revokeAll.get(30, TimeUnit.SECONDS);
+			suspension.commit();
+		}
+		finally {
+			two.shutdown();
+		}
+		HttpResponse<String> response = rotation.get(30, TimeUnit.SECONDS);
+
+		assertThat(liveRefreshTokens(id)).as(response.body()).isZero();
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(401);
+		assertThat(AuthClient.json(response).get("error").asString()).isEqualTo("invalid_refresh_token");
 	}
 
 }

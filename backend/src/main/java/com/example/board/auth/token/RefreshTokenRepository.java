@@ -23,6 +23,13 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
 	@Query("select t from RefreshToken t where t.tokenHash = :tokenHash")
 	Optional<RefreshToken> findForUpdateByTokenHash(String tokenHash);
 
+	/**
+	 * 잠그지 않고 토큰 주인만 읽는다 (TASK-24#3: 로테이션이 토큰 행보다 사용자 행을 먼저 잠그려고). 엔티티를 영속성 컨텍스트에 올리지 않아
+	 * 뒤의 {@link #findForUpdateByTokenHash} 가 최신 행을 읽는다.
+	 */
+	@Query("select t.userId from RefreshToken t where t.tokenHash = :tokenHash")
+	Optional<Long> findUserIdByTokenHash(String tokenHash);
+
 	/** family 의 아직 살아 있는 토큰을 모두 폐기한다. 바뀐 행 수를 돌려준다. */
 	@Modifying(flushAutomatically = true, clearAutomatically = true)
 	@Query("update RefreshToken t set t.revokedAt = :now where t.familyId = :familyId and t.revokedAt is null")
