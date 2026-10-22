@@ -12,6 +12,7 @@ import com.example.board.security.ProductionMode;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.pinpointsmsvoicev2.PinpointSmsVoiceV2Client;
+import software.amazon.awssdk.services.pinpointsmsvoicev2.PinpointSmsVoiceV2ClientBuilder;
 
 /** {@code app.sms.provider} 로 {@link SmsSender} 구현을 고른다 (TASK-7#1). AWS 클라이언트는 aws 일 때만 만든다. */
 @Configuration(proxyBeanMethods = false)
@@ -33,10 +34,24 @@ public class SmsConfiguration {
 	@Bean(destroyMethod = "close")
 	@ConditionalOnProperty(name = "app.sms.provider", havingValue = "aws")
 	PinpointSmsVoiceV2Client pinpointSmsVoiceV2Client(SmsProperties properties) {
+		return clientBuilder(properties.aws()).build();
+	}
+
+	/**
+	 * 타임아웃(TASK-25#4, BE-24): SDK 기본은 호출 전체·시도별 상한이 없고 URLConnection 소켓 타임아웃 30초 × 재시도라 한 발송 요청이
+	 * 1분 넘게 요청 스레드를 잡을 수 있다. 호출 전체({@code apiCallTimeout})·시도별({@code apiCallAttemptTimeout}) 상한을 건다. 넘으면
+	 * {@code ApiCallTimeoutException}·{@code ApiCallAttemptTimeoutException}(SdkException) → {@link SmsDeliveryException} → 503
+	 * {@code sms_unavailable}. 연결·소켓 타임아웃도 시도별 상한 안으로 맞춘다.
+	 */
+	static PinpointSmsVoiceV2ClientBuilder clientBuilder(SmsProperties.Aws aws) {
 		return PinpointSmsVoiceV2Client.builder()
-			.region(Region.of(properties.aws().region()))
-			.httpClient(UrlConnectionHttpClient.create())
-			.build();
+			.region(Region.of(aws.region()))
+			.httpClient(UrlConnectionHttpClient.builder()
+				.connectionTimeout(aws.apiCallAttemptTimeout())
+				.socketTimeout(aws.apiCallAttemptTimeout())
+				.build())
+			.overrideConfiguration(override -> override.apiCallTimeout(aws.apiCallTimeout())
+				.apiCallAttemptTimeout(aws.apiCallAttemptTimeout()));
 	}
 
 	@Bean

@@ -123,7 +123,7 @@ class SmsSenderTest {
 	@DisplayName("TASK-7#1 End User Messaging: SendTextMessage(목적지, 본문, TRANSACTIONAL, origination identity)를 호출한다")
 	void endUserMessagingRequest() {
 		FakeSmsClient client = new FakeSmsClient();
-		SmsProperties.Aws aws = new SmsProperties.Aws("ap-northeast-2", "+15555550100", "otp-config");
+		SmsProperties.Aws aws = new SmsProperties.Aws("ap-northeast-2", "+15555550100", "otp-config", null, null);
 		new EndUserMessagingSmsSender(client, aws).send("+821012345678", "인증번호 123456");
 
 		assertThat(client.requests).singleElement().satisfies(request -> {
@@ -139,7 +139,7 @@ class SmsSenderTest {
 	@DisplayName("TASK-7#1 End User Messaging: origination identity·configuration set 이 비어 있으면 요청에 넣지 않는다(계정 기본값)")
 	void endUserMessagingOptionalFields() {
 		FakeSmsClient client = new FakeSmsClient();
-		new EndUserMessagingSmsSender(client, new SmsProperties.Aws("us-east-1", "", null)).send("+821012345678", "x");
+		new EndUserMessagingSmsSender(client, new SmsProperties.Aws("us-east-1", "", null, null, null)).send("+821012345678", "x");
 
 		assertThat(client.requests).singleElement().satisfies(request -> {
 			assertThat(request.originationIdentity()).isNull();
@@ -154,7 +154,7 @@ class SmsSenderTest {
 		FakeSmsClient client = new FakeSmsClient();
 		client.failure = AwsServiceException.builder().message("throttled").build();
 		EndUserMessagingSmsSender sender = new EndUserMessagingSmsSender(client,
-				new SmsProperties.Aws("us-east-1", null, null));
+				new SmsProperties.Aws("us-east-1", null, null, null, null));
 
 		assertThatThrownBy(() -> sender.send("+821012345678", "인증번호 123456"))
 			.isInstanceOf(SmsDeliveryException.class)

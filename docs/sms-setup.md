@@ -23,6 +23,7 @@
 | `SMS_AWS_REGION` | `us-east-1` | Terraform `app_env`가 넣는다 |
 | `SMS_ORIGINATION_IDENTITY` | 발신 번호(E.164), sender ID, phone pool ID·ARN, 또는 비움 | 비우면 요청에 넣지 않는다. 그러면 AWS가 계정의 identity나 공용 경로를 고른다 — 한국행에서 허용되는지 **(확인 필요)** |
 | `SMS_CONFIGURATION_SET` | configuration set 이름(선택) | 전송 이벤트(성공·실패)를 CloudWatch·Firehose 등으로 남길 때 |
+| `SMS_API_CALL_TIMEOUT` / `SMS_API_CALL_ATTEMPT_TIMEOUT` | `10s` / `4s`(선택) | SendTextMessage 호출 전체(재시도 포함)·시도별 상한(TASK-25#4). 넘으면 503 `sms_unavailable` |
 | `SMS_DEFAULT_REGION` | `KR` | `+` 없이 들어온 번호를 E.164로 바꿀 때 쓰는 지역 |
 | `SMS_ALLOWED_REGIONS` | `KR` | SMS를 보낼 수 있는 번호의 지역(쉼표로 여럿). 이 지역의 휴대폰만 보내고 그 밖(다른 나라·유선·070 등)은 발송 전 400 `phone_not_allowed` — 고가 국제 번호로 비용을 빼 가는 SMS pumping 방지(TASK-22#4). End User Messaging의 국가별 발송 허용(protect configuration)과 같이 맞춘다 |
 

@@ -384,6 +384,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `SMS_AWS_REGION` | | | terraform(`us-east-1`) | `us-east-1` |
 | `SMS_ORIGINATION_IDENTITY` | | | 입력 | 발신 번호·sender ID·pool. 비우면 계정 기본 |
 | `SMS_CONFIGURATION_SET` | | | 입력(선택) | 전송 이벤트 기록 |
+| `SMS_API_CALL_TIMEOUT` / `SMS_API_CALL_ATTEMPT_TIMEOUT` | | | 입력(선택) | `10s` / `4s` (`app.sms.aws.api-call-timeout`·`api-call-attempt-timeout`, TASK-25#4). End User Messaging SendTextMessage 호출 전체(재시도 포함)·HTTP 시도 하나의 상한. 넘으면 503 `sms_unavailable`. 0·음수이거나 시도별 > 전체면 기동 실패. 타임아웃 난 시도를 SDK 가 재시도하므로 드물게 같은 SMS 가 두 번 갈 수 있다 |
 | `SMS_DEFAULT_REGION` | | | 입력(선택) | `KR`. `+` 없이 들어온 번호의 지역 |
 | `SMS_ALLOWED_REGIONS` | | | 입력(선택) | `KR`(`app.sms.allowed-regions`). SMS를 보낼 수 있는 번호의 지역(쉼표로 여럿, ISO 3166-1). 이 지역의 휴대폰(MOBILE·FIXED_LINE_OR_MOBILE)만, 그 밖은 400 `phone_not_allowed`. 모르는 코드면 기동 실패 (TASK-22#4) |
 | `OTP_PHONE_DAILY_LIMIT` / `OTP_IP_HOURLY_LIMIT` | | | 입력(선택) | `10` / `20`. 같은 번호 24시간 N회, 같은 IP 1시간 M회(같은 번호 60초 1회는 고정) |
