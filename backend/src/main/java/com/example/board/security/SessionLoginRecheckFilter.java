@@ -26,6 +26,8 @@ import com.example.board.user.UserStatus;
  * 요청이 세션 로그인을 했는지 보고 status 를 다시 읽는다. 어떤 끼어듦이든 세션이 남지 않는다: 재확인이 ACTIVE 를 봤다면 정지는 아직
  * 커밋 전이고, 정지의 세션 삭제는 그 뒤에 일어나 이미 저장된 이 세션을 찾는다. 재확인이 정지를 보면 여기서 지운다.
  *
+ * <p>재확인 자체가 실패하면(DB 오류) 세션이 남지 않는 쪽으로 그 사용자의 세션 삭제를 시도하고, 체인이 던진 원래 예외는 가리지 않는다.
+ *
  * <p>로그인 응답 자체는 200 일 수 있지만 그 세션은 다음 요청부터 없다(익명, 보호된 API 401). LOCAL·OTP·소셜·step-up 세션 로그인이 모두
  * {@link SessionLogin} 을 거치므로 같이 적용된다.
  */
@@ -48,13 +50,54 @@ public class SessionLoginRecheckFilter extends OncePerRequestFilter {
 		try {
 			chain.doFilter(request, response);
 		}
-		finally {
-			if (request.getAttribute(SessionLogin.LOGGED_IN_USER_ID) instanceof Long userId
-					&& !users.findStatusById(userId).map(UserStatus.ACTIVE::equals).orElse(false)) {
-				int deleted = sessions.deleteAll(userId);
-				log.info("로그인과 동시에 정지된 사용자의 세션 삭제: user=" + userId + " 세션=" + deleted);
+		catch (ServletException | IOException | RuntimeException | Error ex) {
+			// 원래 예외를 가리지 않는다: 재확인 쪽 실패는 suppressed 로만 붙인다.
+			RuntimeException recheckFailure = recheck(request);
+			if (recheckFailure != null) {
+				ex.addSuppressed(recheckFailure);
+			}
+			throw ex;
+		}
+		recheck(request);
+	}
+
+	/**
+	 * 이번 요청이 세션 로그인을 했으면 status 를 다시 보고, ACTIVE 가 아니면 세션을 지운다. 재확인(DB 조회)이 실패하면 세션이 남지 않는
+	 * 쪽으로: WARN 로그(사용자 id·예외 종류만) 후 그 사용자의 세션 삭제를 시도한다. 던지지 않고 실패를 돌려준다(응답은 이미 나갔을 수 있다).
+	 */
+	private RuntimeException recheck(HttpServletRequest request) {
+		if (!(request.getAttribute(SessionLogin.LOGGED_IN_USER_ID) instanceof Long userId)) {
+			return null;
+		}
+		boolean active;
+		RuntimeException failure = null;
+		try {
+			active = users.findStatusById(userId).map(UserStatus.ACTIVE::equals).orElse(false);
+		}
+		catch (RuntimeException ex) {
+			log.warn("세션 로그인 뒤 status 재확인 실패 — 세션 삭제를 시도한다: user=" + userId + " 오류="
+					+ ex.getClass().getSimpleName());
+			active = false;
+			failure = ex;
+		}
+		if (active) {
+			return null;
+		}
+		try {
+			int deleted = sessions.deleteAll(userId);
+			log.info("로그인과 동시에 정지됐거나 재확인할 수 없는 사용자의 세션 삭제: user=" + userId + " 세션=" + deleted);
+		}
+		catch (RuntimeException ex) {
+			log.error("세션 로그인 뒤 세션 삭제 실패 — 세션이 남았을 수 있다: user=" + userId + " 오류="
+					+ ex.getClass().getSimpleName());
+			if (failure == null) {
+				failure = ex;
+			}
+			else {
+				failure.addSuppressed(ex);
 			}
 		}
+		return failure;
 	}
 
 }
