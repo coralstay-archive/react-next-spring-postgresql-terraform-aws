@@ -41,7 +41,9 @@ import com.example.board.support.RowLock;
 @IntegrationTest
 @TestPropertySource(properties = { "app.db.lock-timeout=" + RowLock.LOCK_TIMEOUT, "app.db.statement-timeout=" + RowLock.LOCK_TIMEOUT,
 		"app.db.transaction-timeout=" + RowLock.TRANSACTION_TIMEOUT,
-		"spring.datasource.hikari.data-source-properties.socketTimeout=" + RowLock.SOCKET_TIMEOUT_SECONDS })
+		"spring.datasource.hikari.data-source-properties.socketTimeout=" + RowLock.SOCKET_TIMEOUT_SECONDS,
+		// 만료 세션 정리 크론(매분 0초, DELETE FROM SPRING_SESSION ...)이 spring_session 잠금 대기자로 잡히지 않게 끈다.
+		"spring.session.jdbc.cleanup-cron=-" })
 class LoginSuspensionRaceTest {
 
 	@LocalServerPort
@@ -125,7 +127,8 @@ class LoginSuspensionRaceTest {
 				.csrf(csrf)
 				.json(AuthClient.loginBody(email, AuthClient.PASSWORD))
 				.send());
-			sessionTable.awaitWaiters(1, "spring_session");
+			// 로그인 요청의 세션 저장(INSERT INTO SPRING_SESSION ...)만 센다.
+			sessionTable.awaitWaiters(1, "insert\\s+into\\s+spring_session");
 			// 로그인은 status 확인을 마치고 세션 저장에서 기다린다. 그 사이 정지(커밋 → 세션 삭제)가 끝까지 실행된다.
 			adminUsers.suspend(admin, id, "TASK-24#3 race");
 		}
