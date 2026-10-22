@@ -1,10 +1,10 @@
 ---
 id: TASK-26
 title: '백엔드: 첨부 정합성'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-22 11:11'
 labels:
   - backend
   - attachments
