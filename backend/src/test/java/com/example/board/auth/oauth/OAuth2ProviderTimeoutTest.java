@@ -31,10 +31,13 @@ class OAuth2ProviderTimeoutTest {
 
 	static final String LOGIN_ERROR = OAuthFlow.PUBLIC_BASE_URL + "/auth/callback/?error=";
 
-	static final int DELAY_MILLIS = 12_000;
+	static final int DELAY_MILLIS = 8_000;
 
-	/** 읽기 타임아웃 3s (JWKS 는 재시도 1회까지 감안) 보다 넉넉하고 지연보다 확실히 짧게. */
-	static final Duration BOUND = Duration.ofMillis(DELAY_MILLIS - 3_000);
+	/**
+	 * 지연보다 짧으면 타임아웃이 끊은 것이다(타임아웃이 없으면 지연이 끝나는 8s 이후에야 응답). 읽기 타임아웃 3s 로 실측 3~3.6s 라 부하가 있어도
+	 * 여유가 있다. 지연은 12s 에서 줄였다(지연 응답이 WireMock 스레드를 붙잡는 시간도 함께 준다).
+	 */
+	static final Duration BOUND = Duration.ofMillis(DELAY_MILLIS - 1_000);
 
 	@LocalServerPort
 	int port;
