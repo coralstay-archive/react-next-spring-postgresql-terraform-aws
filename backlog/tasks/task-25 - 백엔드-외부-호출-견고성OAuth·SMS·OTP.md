@@ -1,10 +1,10 @@
 ---
 id: TASK-25
 title: '백엔드: 외부 호출 견고성(OAuth·SMS·OTP)'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-22 06:48'
 labels:
   - backend
   - auth
