@@ -12,6 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.example.board.auth.AuthUser;
 import com.example.board.common.ApiException;
+import com.example.board.common.RateLimitProperties;
+import com.example.board.common.RateLimiter;
 import com.example.board.common.PageResponse;
 import com.example.board.post.Post;
 import com.example.board.post.PostRepository;
@@ -36,6 +38,9 @@ public class CommentService {
 
 	public static final String NOT_FOUND = "comment_not_found";
 
+	/** 레이트리밋 bucket (TASK-22#2). */
+	static final String COMMENT = "comment";
+
 	private static final Sort OLDEST_FIRST = Sort.by(Sort.Order.asc("createdAt"), Sort.Order.asc("id"));
 
 	private final CommentRepository comments;
@@ -46,7 +51,14 @@ public class CommentService {
 
 	private final Clock clock;
 
-	public CommentService(CommentRepository comments, PostRepository posts, UserRepository users, Clock clock) {
+	private final RateLimiter rateLimiter;
+
+	private final RateLimitProperties rateLimits;
+
+	public CommentService(CommentRepository comments, PostRepository posts, UserRepository users, Clock clock,
+			RateLimiter rateLimiter, RateLimitProperties rateLimits) {
+		this.rateLimiter = rateLimiter;
+		this.rateLimits = rateLimits;
 		this.comments = comments;
 		this.posts = posts;
 		this.users = users;
@@ -60,8 +72,10 @@ public class CommentService {
 		return PageResponse.of(result, comment -> CommentResponse.of(comment, postId, canModify(comment, viewer)));
 	}
 
+	/** 작성. 사용자별 1분 한도를 넘으면 429 (TASK-22#2, ADMIN 도 예외 없음, 롤백된 작성은 세지 않는다). */
 	@Transactional
 	public CommentResponse create(Long postId, AuthUser writer, CommentRequest request) {
+		rateLimiter.hit(new RateLimiter.Rule(COMMENT, String.valueOf(writer.id()), rateLimits.comment()));
 		// B3: 삭제·숨김 글에는 쓸 수 없다(ADMIN 포함).
 		Post post = posts.findForShareById(postId).filter(Post::isVisible).orElseThrow(PostService::notFound);
 		User author = users.findById(writer.id())

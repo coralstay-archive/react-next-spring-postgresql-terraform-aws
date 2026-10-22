@@ -22,8 +22,31 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | 405 `method_not_allowed` | 경로는 있지만 메서드가 다르다. `Allow` 헤더가 붙는다 |
 | 406 `not_acceptable` | `Accept`가 JSON을 받지 않는다(본문은 그래도 JSON) |
 | 415 `unsupported_media_type` | 본문이 `application/json`이 아니다 |
+| 429 `rate_limited` | 요청 한도 초과(아래 레이트리밋). `Retry-After` 헤더(초)가 붙는다 |
 | 500 `internal_error` | 처리되지 않은 서버 오류 |
 | 그 밖의 상태 | 필터·컨테이너에서 난 오류(`/api/error`)도 같은 표를 따른다: 409 `conflict`, 413 `payload_too_large`, 429 `rate_limited`, 503 `service_unavailable`. 표에 없는 상태는 `http_<상태>`(예: 502 `http_502`) |
+
+### 레이트리밋 (TASK-22)
+
+한도는 모두 DB(`rate_limit_events`) 기준 슬라이딩 창이라 인스턴스가 여러 개여도 같다. 넘으면 429 `rate_limited` + `Retry-After`(초: 창 안의 이벤트가 하나 빠져 한도 아래로 내려갈 때까지). 키(이메일·IP·사용자 id)는 SHA-256 해시로만 저장한다. 설정은 `app.rate-limit.*`(README 설정 표). ADMIN도 예외가 아니다(계정 탈취·스크립트 실수도 같은 한도로 막는다).
+
+| 대상 | 키 | 기본 한도 | 세는 것 |
+|---|---|---|---|
+| `POST /api/auth/login` | (계정(정규화 이메일), 클라이언트 IP) | 15분 창 안 실패 5회 | 실패(`invalid_credentials`)만. 한도에 이르면 비밀번호를 검사하지 않고 429 — 계정이 있든 없든 같은 응답(B2). 성공은 세지 않지만 이미 센 실패를 지우지도 않는다. 키에 IP를 묶어 다른 IP의 공격자가 피해자 계정을 잠그지 못한다(그 IP만 막힌다). 여러 IP로 나눈 추측은 아래 IP 한도가 막는다 |
+| `POST /api/auth/login` | 클라이언트 IP | 1시간 30회 | 실패만 |
+| `POST /api/auth/signup` | 클라이언트 IP | 1시간 10회 | 시도(201·409 모두) |
+| `POST /api/auth/step-up/local` | 사용자 | 15분 창 안 실패 5회 | 실패만. 제한 세션·토큰을 바꿔도 같은 사용자다(B1) |
+| `POST /api/posts` | 사용자 | 1분 3회, 1시간 30회 | 성공한 작성(검증 오류 등으로 실패한 요청은 세지 않는다) |
+| `POST /api/posts/{id}/comments` | 사용자 | 1분 10회 | 성공한 작성 |
+| `POST /api/attachments/presign` | 사용자 | 1시간 60회 | 성공한 presign. 미확정(PENDING) 첨부가 20개면 409 `too_many_pending_attachments`(시간이 아니라 confirm·정리로 풀리므로 `Retry-After` 없음) |
+| `POST /api/auth/phone/otp` | 번호·IP | 아래 휴대폰 OTP 절 | 발송(`otp_challenges`) |
+
+- 고정 시간 잠금이 아니라 슬라이딩 창이다. 예: 로그인 "15분 창 안 실패 5회"에서 t0에 1번·t0+14:50에 4번 틀리면 약 10초(`Retry-After`) 막히고, t0 실패가 창 밖으로 나가면 한 번 더 시도할 수 있으며, 그것도 틀리면 다음으로 오래된 실패(t0+14:50)가 나갈 때까지 다시 막힌다.
+- "세고 → 넣기"는 (한도, 키)별 트랜잭션 advisory lock으로 직렬화하므로 동시 요청으로 넘길 수 없다. 실패만 세는 로그인·step-up은 비밀번호 검사 전에 자리를 먼저 잡아 두고(바로 커밋) 성공하면 지운다 — 검사 중인 요청까지 센다.
+- 실패만 세는 쪽은 처리 중인 시도도 세므로, 한 NAT 뒤에서 로그인이 동시에 많이 몰리면(맞는 비밀번호여도) IP 한도에 걸려 잠깐 429를 받을 수 있다. 성공한 시도는 끝나는 대로 지워져 곧 풀린다.
+- 시각은 DB가 아니라 앱 서버의 시계(`Clock`)로 기록·비교한다. 인스턴스끼리 시계가 어긋나면 그 차이만큼 덜 셀 수 있다(NTP 동기화 전제 — 초 단위 오차는 분·시간 창에서 무시할 수 있다).
+- 클라이언트 IP는 휴대폰 OTP와 같은 규칙(`CLIENT_IP_HEADER`)이다.
+- 오래된 행 정리(가장 긴 창 1시간보다 오래된 행)는 TASK-27 정리 잡에서 한다.
 
 엔드포인트별 고유 코드(예: `email_taken`, `post_not_found`)는 각 절에 있다. 다른 예외에 감싸여 올라온 고유 코드도 500으로 바뀌지 않고 그 코드로 나간다. 응답에 되돌려 주는 파라미터·필드 이름은 100자까지만 담는다.
 
@@ -56,6 +79,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | `GET /api/auth/me` | 현재 사용자 `{id, nickname, email, role, status, providers, stepUpRequired, stepUpProviders}` (DB 최신 값). 익명은 401. `stepUpRequired`면 이 세션·토큰은 제한 상태이고 `stepUpProviders`는 다시 인증할 수 있는 수단 |
 
 - 로그인 실패는 이유와 상관없이 같은 401(`invalid_credentials`)이다. 정지 계정은 비밀번호가 맞을 때만 403(`suspended`).
+- 레이트리밋(TASK-22): 로그인 실패는 (계정, IP)별 15분 창 안 5회(슬라이딩 창)·IP별 1시간 30회, 가입은 IP별 1시간 10회. 넘으면 429 `rate_limited` + `Retry-After`(위 레이트리밋 표).
 - refresh 토큰은 256비트 랜덤 값이고 DB에는 SHA-256 해시만 둔다. access 토큰은 상태가 없어 로그아웃 뒤에도 만료(15분)까지 유효하다.
 
 ### 휴대폰 OTP 로그인 (TASK-7)
@@ -68,9 +92,12 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | `POST /api/auth/phone/verify` `{challengeId, code}` | 맞으면 (PHONE, 번호) 계정으로 로그인, 없으면 새 계정(+ `users.phone`). 세션 로그인(세션 ID 교체 + 쿠키), 200 + 사용자 요약. CSRF 필요 |
 | `POST /api/auth/phone/verify?token=jwt` | 세션 없이 access+refresh. CSRF 면제(`login?token=jwt`와 같은 이유) |
 | `POST /api/auth/phone/verify?link=true` | (로그인 필요, 세션·Bearer) 현재 계정에 PHONE 연결 + 비어 있으면 `users.phone`, 200 + 사용자 요약. 다른 계정의 번호면 409 `identity_in_use`. 세션이면 CSRF 필요(`token`과 같이 쓸 수 없다) |
-| `POST /api/auth/step-up/local` `{password[, refreshToken]}` | (로그인 필요) 제한 세션·토큰을 비밀번호로 풀기. 세션: 세션 ID를 바꾼 제한 없는 세션. Bearer: 제한 없는 새 토큰(본문 refreshToken의 family 폐기). 틀리면 401 `invalid_credentials`, LOCAL이 없으면 400 `step_up_unavailable` |
+| `POST /api/auth/step-up/local` `{password[, refreshToken]}` | (로그인 필요) 제한 세션·토큰을 비밀번호로 풀기. 세션: 세션 ID를 바꾼 제한 없는 세션. Bearer: 제한 없는 새 토큰(본문 refreshToken의 family 폐기). 틀리면 401 `invalid_credentials`, LOCAL이 없으면 400 `step_up_unavailable`. 사용자별 15분 창 안 실패 5회(슬라이딩 창)에 이르면 429 `rate_limited`(B1, 비밀번호 추측 차단) |
 
 - 번호는 libphonenumber로 E.164로 정규화한다(`+` 없으면 `SMS_DEFAULT_REGION`=KR). 형식이 틀리면 400 `invalid_phone`.
+- **발송 대상**(TASK-22#4, SMS pumping 방지): 허용 지역(`SMS_ALLOWED_REGIONS`, 기본 `KR`, 쉼표로 여럿)의 휴대폰(libphonenumber 유형
+  MOBILE·FIXED_LINE_OR_MOBILE)만. 다른 나라 번호, 유선·인터넷전화(070)·대표번호·수신자부담 번호는 400 `phone_not_allowed`. 발송 한도보다
+  먼저 검사하므로 거절된 번호는 챌린지·SMS를 만들지 않고 한도도 소모하지 않는다(B3).
 - 인증번호는 SecureRandom 6자리이고 DB(`otp_challenges`)에는 HMAC-SHA256(`OTP_HASH_KEY`, 챌린지 id·번호·코드)만 둔다.
   **3분** 뒤 만료되고, 한 번 성공하면 소멸한다(재사용 불가). 틀린 시도가 **5번**이 되면 챌린지를 폐기한다(그 뒤에는 맞는 코드도 실패).
   시도 횟수는 챌린지 행을 잠그고(FOR UPDATE) 세므로 동시 요청에도 정확하다.
@@ -181,7 +208,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 |---|---|
 | `GET /api/posts?category=<slug>&tag=<name>&q=<검색어>&page=0&size=20&sort=latest` | `{items:[{id, title, excerpt, author:{id, nickname}, category:{id, slug, name}\|null, tags, createdAt, updatedAt, deleted, hidden, likeCount, viewCount}], page, size, totalElements, totalPages}`. 오프셋 페이징. `size` 1~50(기본 20), `page` ≥ 0. `sort`는 `latest`(기본, `created_at`·`id` 내림차순)와 `popular`(TASK-9: `like_count` 내림차순, 같으면 최신순)만 받고 대소문자는 가리지 않는다. 범위를 벗어나거나 형식이 틀리면 400. `tag`는 태그와 같은 규칙으로 정규화한다. `excerpt`는 공백을 접은 본문 앞 200자이고, 잘렸으면 끝에 `…`를 붙인다 |
 | `GET /api/posts/{id}` | `{id, title, content, author, category, tags, createdAt, updatedAt, editable, deleted, hidden, likeCount, likedByMe, viewCount, attachments}`. `attachments`는 붙은 이미지 `[{id, url, contentType, size, status}]`(올린 순, 아래 TASK-11). `editable`은 보는 사람이 작성자나 ADMIN이고 글이 삭제되지 않았을 때 true. `likedByMe`는 보는 사람이 좋아요를 눌렀는지(익명은 false). 조회수를 올린다(아래 TASK-9). 없으면 404 `post_not_found` |
-| `POST /api/posts` `{title, content, categorySlug?, tags?, attachmentIds?}` | 201 + `Location` + 상세. `attachmentIds`(최대 10)는 본인이 올려 확정한 첨부(아래 TASK-11). 제목은 1~100자, 본문은 1~20000자이고 둘 다 공백만으로는 쓸 수 없다(어기면 400 `validation`). 없는 카테고리는 400 `unknown_category` |
+| `POST /api/posts` `{title, content, categorySlug?, tags?, attachmentIds?}` | 201 + `Location` + 상세. `attachmentIds`(최대 10)는 본인이 올려 확정한 첨부(아래 TASK-11). 제목은 1~100자, 본문은 1~20000자이고 둘 다 공백만으로는 쓸 수 없다(어기면 400 `validation`). 없는 카테고리는 400 `unknown_category`. 사용자별 1분 3개·1시간 30개를 넘으면 429 `rate_limited` + `Retry-After`(TASK-22#2, ADMIN 포함) |
 | `PATCH /api/posts/{id}` | 보낸 필드만 바꾼다(빠진 필드나 null은 그대로 둔다). `categorySlug:""`는 카테고리를 빼고, `tags:[]`는 태그를 모두 지운다. `attachmentIds`는 첨부 목록을 통째로 바꾸고(빠진 첨부는 연결 해제), `[]`는 모두 뗀다. 200 + 상세 |
 | `DELETE /api/posts/{id}` | soft delete(`deleted_at`). 204 |
 | `GET /api/categories` | `[{id, slug, name, sortOrder, adminOnly}]`(sort_order 순). 기본 카테고리는 `notice`(공지, ADMIN 전용)와 `free`(자유게시판) |
@@ -199,7 +226,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | 요청 | 설명 |
 |---|---|
 | `GET /api/posts/{id}/comments?page=0&size=20` | `{items:[{id, postId, content, author:{id, nickname}, createdAt, updatedAt, deleted, editable}], page, size, totalElements, totalPages}`. 오래된 순(`created_at`·`id` 오름차순). `size` 1~100(기본 20). 글이 없거나 보는 사람에게 보이지 않으면(삭제·숨김, ADMIN 제외) 404 `post_not_found` |
-| `POST /api/posts/{id}/comments` `{content}` | 201 + `Location: /api/comments/{id}` + 댓글. 본문 1~2000자, 공백만은 400 `validation`. 삭제·숨김 글에는 ADMIN도 쓸 수 없다(404 `post_not_found`, B3) |
+| `POST /api/posts/{id}/comments` `{content}` | 201 + `Location: /api/comments/{id}` + 댓글. 본문 1~2000자, 공백만은 400 `validation`. 삭제·숨김 글에는 ADMIN도 쓸 수 없다(404 `post_not_found`, B3). 사용자별 1분 10개를 넘으면 429 `rate_limited`(TASK-22#2) |
 | `DELETE /api/comments/{id}` | 작성자 또는 ADMIN. soft delete, 204. 없거나 이미 삭제됐거나 글이 보이지 않으면 404 `comment_not_found`, 남의 댓글이면 403 `forbidden` |
 | `POST /api/posts/{id}/like` | 멱등. 200 `{liked:true, likeCount}`. 이미 눌렀어도 200이고 수는 그대로다 |
 | `DELETE /api/posts/{id}/like` | 멱등. 200 `{liked:false, likeCount}`. 삭제·숨김·없는 글이면 좋아요·취소 모두 404 `post_not_found` |
@@ -234,6 +261,8 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 |---|---|
 | 400 `attachment_type_not_allowed` | presign: `image/png`·`image/jpeg`·`image/webp`·`image/gif`가 아니다(대소문자·앞뒤 공백은 무시, `;charset` 같은 파라미터가 붙으면 거부) (B1) |
 | 400 `attachment_too_large` | presign: `size` > 5MB(5242880바이트) (B1) |
+| 409 `too_many_pending_attachments` | presign: 미확정(PENDING) 첨부가 이미 20개(`app.rate-limit.max-pending-attachments`). confirm하거나 정리(24시간)되면 풀린다 (TASK-22#3) |
+| 429 `rate_limited` | presign: 사용자별 1시간 60회 초과. `Retry-After`(초) (TASK-22#3) |
 | 400 `validation` | `contentType`·`size` 누락, `size` ≤ 0, `filename` 255자 초과, `attachmentIds` 10개 초과·null 원소 |
 | 503 `uploads_unavailable` | 버킷이 설정되지 않았다(`UPLOADS_BUCKET` 비어 있음) |
 | 404 `attachment_not_found` | confirm: 없는 첨부(또는 정리됨) |

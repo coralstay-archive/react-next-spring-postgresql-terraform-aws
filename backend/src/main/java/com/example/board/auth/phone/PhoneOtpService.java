@@ -69,11 +69,12 @@ public class PhoneOtpService {
 	}
 
 	/**
-	 * 번호를 정규화하고 챌린지를 만들어 SMS 를 보낸다. 잘못된 번호는 400 invalid_phone, 발송 한도 초과는 429 rate_limited
+	 * 번호를 정규화하고 챌린지를 만들어 SMS 를 보낸다. 잘못된 번호는 400 invalid_phone, 허용 국가의 휴대폰이 아니면 400
+	 * phone_not_allowed(TASK-22#4 — 발송 한도보다 먼저 검사해 한도를 소모하지 않는다), 발송 한도 초과는 429 rate_limited
 	 * ({@link OtpRateLimiter}), 발송 실패는 503.
 	 */
 	public OtpChallengeResponse send(String rawPhone, String clientIp) {
-		String phone = phones.normalize(rawPhone);
+		String phone = phones.sendable(rawPhone);
 		String code = codes.generate();
 		UUID id = UUID.randomUUID();
 		tx.executeWithoutResult(status -> {

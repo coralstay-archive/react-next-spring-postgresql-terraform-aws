@@ -41,7 +41,7 @@ public class SmsConfiguration {
 
 	@Bean
 	PhoneNumbers phoneNumbers(SmsProperties properties) {
-		return new PhoneNumbers(properties.defaultRegion());
+		return new PhoneNumbers(properties.defaultRegion(), properties.allowedRegions());
 	}
 
 }

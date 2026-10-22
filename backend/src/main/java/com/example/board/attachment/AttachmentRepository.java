@@ -15,6 +15,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
 
+	/** 사용자의 상태별 첨부 수 (TASK-22#3 미확정 개수 한도). */
+	long countByOwnerIdAndStatus(Long ownerId, AttachmentStatus status);
+
 	/** 글에 붙은 첨부(올린 순서). */
 	List<Attachment> findByPostIdOrderByIdAsc(Long postId);
 
