@@ -23,6 +23,13 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 	@Query("select new com.example.board.user.UserRepository$RoleAndStatus(u.role, u.status) from User u where u.id = :id")
 	Optional<RoleAndStatus> findRoleAndStatusById(Long id);
 
+	/**
+	 * 사용자 행을 FOR SHARE 로 잠그고 status 를 읽는다 (TASK-24#3: 로그인의 refresh 저장과 정지 트랜잭션의 FOR UPDATE 가 줄을 서게).
+	 * 계정이 없으면 empty.
+	 */
+	@Query(value = "select status from users where id = :id for share", nativeQuery = true)
+	Optional<String> lockStatusForShare(Long id);
+
 	/** 이 역할의 계정이 하나라도 있는지 (TASK-21#3: 첫 ADMIN 부트스트랩은 ADMIN 이 없을 때만). */
 	boolean existsByRole(Role role);
 

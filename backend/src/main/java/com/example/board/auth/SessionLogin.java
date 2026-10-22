@@ -28,6 +28,12 @@ import com.example.board.user.User;
 @Component
 public class SessionLogin {
 
+	/**
+	 * 이번 요청이 세션 로그인한 사용자 id (요청 속성). 세션이 저장된 뒤 {@code SessionLoginRecheckFilter} 가 status 를 다시 본다
+	 * (TASK-24#3, 로그인·정지 경쟁).
+	 */
+	public static final String LOGGED_IN_USER_ID = SessionLogin.class.getName() + ".LOGGED_IN_USER_ID";
+
 	private final SecurityContextRepository contextRepository;
 
 	private final CsrfTokenRepository csrfTokens;
@@ -55,6 +61,7 @@ public class SessionLogin {
 		context.setAuthentication(AuthUserAuthentication.of(AuthUser.from(user, stepUpRequired)));
 		holder.setContext(context);
 		contextRepository.saveContext(context, request, response);
+		request.setAttribute(LOGGED_IN_USER_ID, user.getId());
 		csrfTokens.saveToken(csrfTokens.generateToken(request), request, response);
 	}
 

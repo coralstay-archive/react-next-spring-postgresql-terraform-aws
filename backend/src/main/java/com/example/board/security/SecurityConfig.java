@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -25,8 +26,10 @@ import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.session.web.http.SessionRepositoryFilter;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import com.example.board.auth.UserSessions;
 import com.example.board.auth.jwt.JwtProperties;
 import com.example.board.auth.jwt.JwtTokenService;
 import com.example.board.auth.oauth.OAuth2LoginCustomizer;
@@ -88,6 +91,19 @@ public class SecurityConfig {
 			Stream.concat(Stream.of(LOGOUT, PathPatternRequestMatcher.pathPattern(HttpMethod.POST, "/auth/token/refresh")),
 					PUBLIC_GETS.stream())
 				.toList());
+
+	/**
+	 * 세션 로그인 뒤 status 재확인 (TASK-24#3). 세션이 저장된 뒤에 돌아야 하므로 Spring Session 필터({@code SessionRepositoryFilter})보다
+	 * 바깥(앞 순서)에 둔다.
+	 */
+	@Bean
+	FilterRegistrationBean<SessionLoginRecheckFilter> sessionLoginRecheckFilter(UserRepository users,
+			UserSessions sessions) {
+		FilterRegistrationBean<SessionLoginRecheckFilter> registration = new FilterRegistrationBean<>(
+				new SessionLoginRecheckFilter(users, sessions));
+		registration.setOrder(SessionRepositoryFilter.DEFAULT_ORDER - 1);
+		return registration;
+	}
 
 	@Bean
 	SecurityContextRepository securityContextRepository() {

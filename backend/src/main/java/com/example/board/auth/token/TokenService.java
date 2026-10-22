@@ -15,6 +15,7 @@ import org.apache.commons.logging.LogFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.board.auth.AuthErrors;
 import com.example.board.auth.AuthUser;
 import com.example.board.auth.jwt.JwtProperties;
 import com.example.board.auth.jwt.JwtTokenService;
@@ -61,9 +62,16 @@ public class TokenService {
 	/**
 	 * 로그인: 새 family 를 시작한다. {@code stepUpRequired} 면 제한 토큰(TASK-7 B4)이고, 이 family 를 로테이션해 받는 토큰도 계속
 	 * 제한이다.
+	 *
+	 * <p>정지와의 경쟁(TASK-24#3, BE-17): 같은 트랜잭션에서 사용자 행을 FOR SHARE 로 잠그고 status 를 다시 본다. 정지 트랜잭션은 같은 행을
+	 * FOR UPDATE 로 잡으므로 둘이 줄을 선다 — 정지가 먼저면 여기서 SUSPENDED 를 보고 403 {@code suspended}(롤백, refresh 행이 남지
+	 * 않는다), 로그인이 먼저면 정지의 "refresh 전부 폐기"가 이 커밋 뒤에 실행돼 새 refresh 도 폐기한다.
 	 */
 	@Transactional
 	public TokenResponse issueForLogin(User user, boolean stepUpRequired) {
+		if (!users.lockStatusForShare(user.getId()).map(UserStatus.ACTIVE.name()::equals).orElse(false)) {
+			throw AuthErrors.suspendedLogin();
+		}
 		return respond(user, store(user.getId(), UUID.randomUUID(), stepUpRequired).raw(), stepUpRequired);
 	}
 

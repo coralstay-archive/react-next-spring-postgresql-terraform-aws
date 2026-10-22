@@ -52,22 +52,38 @@ public final class RowLock implements AutoCloseable {
 		return new RowLock(connection, new JdbcTemplate(dataSource));
 	}
 
+	/** 쥔 트랜잭션 안에서 문장을 하나 더 실행한다(예: 잠근 행 갱신 — 커밋 전이라 다른 트랜잭션에는 보이지 않는다). TASK-24#3. */
+	public RowLock execute(String sql, Object... args) throws SQLException {
+		try (PreparedStatement statement = connection.prepareStatement(sql)) {
+			for (int i = 0; i < args.length; i++) {
+				statement.setObject(i + 1, args[i]);
+			}
+			statement.execute();
+		}
+		return this;
+	}
+
 	/** posts 를 건드리는 문장 중 잠금(Lock)을 기다리는 다른 백엔드가 {@code n} 개가 될 때까지 기다린다. */
 	public void awaitWaiters(int n) throws InterruptedException {
+		awaitWaiters(n, "posts");
+	}
+
+	/** 문장이 정규식 {@code queryPattern}(대소문자 무시)에 맞고 잠금(Lock)을 기다리는 다른 백엔드가 {@code n} 개가 될 때까지 기다린다. */
+	public void awaitWaiters(int n, String queryPattern) throws InterruptedException {
 		Instant deadline = Instant.now().plus(DEADLINE);
-		while (waiters() < n) {
+		while (waiters(queryPattern) < n) {
 			if (Instant.now().isAfter(deadline)) {
-				throw new IllegalStateException("잠금 대기 백엔드가 " + n + "개가 되지 않았다: " + waiters());
+				throw new IllegalStateException("잠금 대기 백엔드가 " + n + "개가 되지 않았다: " + waiters(queryPattern));
 			}
 			Thread.sleep(10);
 		}
 	}
 
-	private int waiters() {
+	private int waiters(String queryPattern) {
 		Integer count = jdbc.queryForObject(
 				"select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'"
-						+ " and pid <> pg_backend_pid() and query ilike '%posts%'",
-				Integer.class);
+						+ " and pid <> pg_backend_pid() and query ~* ?",
+				Integer.class, queryPattern);
 		return count == null ? 0 : count;
 	}
 
