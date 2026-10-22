@@ -117,7 +117,7 @@ public class AuthController {
 		User user = rateLimits.login(body.email(), clientIps.resolve(request),
 				() -> localAccounts.authenticate(body.email(), body.password()));
 		if (user.getStatus() != UserStatus.ACTIVE) {
-			throw suspended();
+			throw AuthErrors.suspendedLogin();
 		}
 		if (token != null) {
 			return tokens.issueForLogin(user);
@@ -173,7 +173,7 @@ public class AuthController {
 		TokenService.Rotation rotation = tokens.rotate(body.refreshToken());
 		return switch (rotation.outcome()) {
 			case ROTATED -> rotation.tokens();
-			case SUSPENDED -> throw suspended();
+			case SUSPENDED -> throw AuthErrors.suspendedLogin();
 			case INVALID -> throw new ApiException(HttpStatus.UNAUTHORIZED, "invalid_refresh_token",
 					"refresh 토큰이 유효하지 않습니다. 다시 로그인하세요");
 		};
@@ -189,10 +189,6 @@ public class AuthController {
 		User user = users.findById(principal.id())
 			.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "인증이 필요합니다"));
 		return UserSummary.of(user, identities.findProvidersByUserId(user.getId()), principal.stepUpRequired());
-	}
-
-	private static ApiException suspended() {
-		return new ApiException(HttpStatus.FORBIDDEN, "suspended", "정지된 계정은 로그인할 수 없습니다");
 	}
 
 	private UserSummary summary(User user) {

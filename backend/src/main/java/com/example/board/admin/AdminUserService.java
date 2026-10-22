@@ -18,12 +18,12 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
-import org.springframework.session.FindByIndexNameSessionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.example.board.auth.AuthUser;
+import com.example.board.auth.UserSessions;
 import com.example.board.auth.token.RefreshTokenRepository;
 import com.example.board.common.ApiException;
 import com.example.board.common.PageResponse;
@@ -66,7 +66,7 @@ public class AdminUserService {
 
 	private final RefreshTokenRepository refreshTokens;
 
-	private final FindByIndexNameSessionRepository<?> sessions;
+	private final UserSessions sessions;
 
 	private final AdminAudit audit;
 
@@ -77,7 +77,7 @@ public class AdminUserService {
 	private final Clock clock;
 
 	public AdminUserService(UserRepository users, UserIdentityRepository identities,
-			RefreshTokenRepository refreshTokens, FindByIndexNameSessionRepository<?> sessions, AdminAudit audit,
+			RefreshTokenRepository refreshTokens, UserSessions sessions, AdminAudit audit,
 			PlatformTransactionManager transactionManager, Clock clock) {
 		this.users = users;
 		this.identities = identities;
@@ -176,7 +176,7 @@ public class AdminUserService {
 			log.info("관리자 정지: admin=" + admin.id() + " user=" + userId + " refresh 폐기=" + revoked);
 			return toResponse(users.saveAndFlush(user));
 		});
-		int deleted = deleteSessions(userId);
+		int deleted = sessions.deleteAll(userId);
 		log.info("정지 사용자 세션 삭제: user=" + userId + " 세션=" + deleted);
 		return response;
 	}
@@ -189,13 +189,6 @@ public class AdminUserService {
 			audit.record(admin.id(), AdminAction.Type.USER_UNSUSPEND, userId, reason);
 			return toResponse(users.saveAndFlush(user));
 		});
-	}
-
-	/** principal name(사용자 id) 인덱스로 그 사용자의 세션을 모두 지운다. 지운 개수를 돌려준다. */
-	int deleteSessions(Long userId) {
-		Set<String> ids = sessions.findByPrincipalName(String.valueOf(userId)).keySet();
-		ids.forEach(sessions::deleteById);
-		return ids.size();
 	}
 
 	private AdminUserResponse toResponse(User user) {

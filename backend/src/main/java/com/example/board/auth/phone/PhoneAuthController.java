@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.board.auth.AuthController;
+import com.example.board.auth.AuthErrors;
 import com.example.board.auth.AuthUser;
 import com.example.board.auth.SessionLogin;
 import com.example.board.auth.UserSummary;
@@ -100,7 +101,7 @@ public class PhoneAuthController {
 		String phone = verifiedPhone(body);
 		User user = phoneIdentities.resolveForLogin(phone);
 		if (user.getStatus() != UserStatus.ACTIVE) {
-			throw new ApiException(HttpStatus.FORBIDDEN, "suspended", "정지된 계정은 로그인할 수 없습니다");
+			throw AuthErrors.suspendedLogin();
 		}
 		// B4 재활용 번호 보호: 다른 수단도 있는 계정이면 기존 수단으로 다시 인증하기 전까지 제한 세션·토큰이다.
 		boolean stepUpRequired = identities.existsByUserIdAndProviderNot(user.getId(), AuthProvider.PHONE);
