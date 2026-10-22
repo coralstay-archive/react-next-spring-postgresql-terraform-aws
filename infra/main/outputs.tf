@@ -102,5 +102,6 @@ output "app_env" {
     COGNITO_CLIENT_ID        = module.cognito.client_id
     COGNITO_DOMAIN           = module.cognito.domain_url
     SMS_AWS_REGION           = var.region
+    SMS_PROVIDER             = "aws" # 운영 모드는 aws 외에는 기동하지 않는다(TASK-21#4)
   }
 }

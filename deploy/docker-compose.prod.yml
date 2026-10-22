@@ -17,6 +17,8 @@ services:
   db:
     image: postgres:18-alpine
     restart: unless-stopped
+    # 서버 로그(CloudWatch db/ 스트림)에 오류 DETAIL·HINT·QUERY·CONTEXT(예: Key (email)=(...) — 개인정보)와 실패한 문장을 남기지 않는다(TASK-21)
+    command: ["postgres", "-c", "log_error_verbosity=terse", "-c", "log_min_error_statement=panic"]
     env_file:
       - path: ${DEPLOY_DIR:-/opt/board}/db.env
         required: true

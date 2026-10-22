@@ -213,6 +213,10 @@ run "outputs" {
     error_message = "app_env: 비밀이 아닌 앱 설정(UPLOADS_REGION 은 us-east-1 을 명시, TASK-11)"
   }
   assert {
+    condition     = output.app_env.SMS_PROVIDER == "aws"
+    error_message = "TASK-21#4 app_env.SMS_PROVIDER 는 aws (운영 모드는 aws 외에 기동하지 않는다. secrets 파일 한 줄에 기대지 않는다)"
+  }
+  assert {
     condition     = !contains(keys(output.app_env), "COGNITO_CLIENT_SECRET")
     error_message = "app_env 에 시크릿을 넣지 않는다(SSM, TASK-17)"
   }

@@ -15,6 +15,9 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 	@Query("select u.status from User u where u.id = :id")
 	Optional<UserStatus> findStatusById(Long id);
 
+	/** 이 역할의 계정이 하나라도 있는지 (TASK-21#3: 첫 ADMIN 부트스트랩은 ADMIN 이 없을 때만). */
+	boolean existsByRole(Role role);
+
 	/** 계정 단위 직렬화용 행 잠금 (예: identity 해제의 "마지막 하나" 판정). */
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select u from User u where u.id = :id")

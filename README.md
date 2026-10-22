@@ -23,8 +23,9 @@ make backend-run                      # 터미널 1: http://localhost:8080/api
 make frontend-dev                     # 터미널 2: http://localhost:3000
 ```
 
-<http://localhost:3000/signup/>에서 가입한다. `.env`의 `ADMIN_EMAIL`을 채우고 그 이메일로 가입하면 관리자가 된다.
-휴대폰 로그인의 인증번호는 백엔드 로그(`[SMS console] ...`)에 찍힌다. 테스트는 `make test`, 브라우저 E2E는 `make e2e`로 돌린다.
+<http://localhost:3000/signup/>에서 가입한다. 관리자가 필요하면 그 이메일로 가입한 뒤 `.env`의 `ADMIN_EMAIL`을 채우고 백엔드를 다시 시작한다
+(가입만으로는 관리자가 되지 않고, ADMIN이 하나도 없을 때 기동하면서 이미 있는 그 LOCAL 계정을 한 번 ADMIN으로 올린다. 승격되면 비운다).
+휴대폰 로그인의 인증번호는 백엔드 로그(`[SMS console] to=+82******5678 message=...`, 번호는 마스킹)에 찍힌다. 테스트는 `make test`, 브라우저 E2E는 `make e2e`로 돌린다.
 
 | 문서 | 내용 |
 |---|---|
@@ -124,7 +125,8 @@ make smoke  # 배포 스모크: SMOKE_BASE_URL=https://<cloudfront> make smoke (
 
 1. PostgreSQL + MinIO: compose 별도 프로젝트 `board-e2e`(포트 55432·59000, `frontend/e2e/docker-compose.e2e.yml`)로 띄워 개발용 컨테이너와 겹치지 않고, 매번 빈 DB로 시작한다.
 2. 백엔드: `bootJar` → `java -jar`(:18080, `SMS_PROVIDER=console`, `ADMIN_EMAIL=admin-e2e@example.com`). 로그는 `frontend/e2e/artifacts/backend.log`이고,
-   휴대폰 OTP 시나리오가 이 로그에서 인증번호를 읽는다(테스트 전용 API 없음).
+   휴대폰 OTP 시나리오가 이 로그에서 인증번호를 읽는다(테스트 전용 API 없음). 관리자는 운영 절차와 같이 `ADMIN_EMAIL`로 API 가입 → 백엔드 재시작으로
+   올려 두고, 시나리오는 그 계정으로 로그인한다.
 3. 프론트: `next dev`(:3100, `/api` → :18080). **같은 `frontend/`의 `next dev`는 하나만 뜬다** — `make frontend-dev`를 먼저 끈다.
 4. `npx playwright test`(chromium) → 결과·스크린샷·trace는 `frontend/e2e/artifacts/`(gitignore). 끝나면 프로세스를 끄고 `compose down -v`.
 
@@ -218,7 +220,8 @@ bootstrap(state 버킷, 계정당 1회) → `envs/prod.backend.hcl` → `envs/pr
 Terraform 은 SSM 파라미터(시크릿)를 만들지 않는다 — 값이 state 에 남지 않게 한다. 인스턴스 role 은 `/board/prod/*`만 읽는다.
 GitHub Actions 는 `ci_role_arn`을 assume 하고, 배포 대상 값(ECR URL·web 버킷·배포 ID·인스턴스 ID)은 리포 variables 로 넣는다(CI 는 state 를 읽지 않는다).
 EC2 의 PostgreSQL 데이터는 `/srv/pgdata`(데이터 EBS)이고 deploy compose 가 컨테이너의 `/var/lib/postgresql`에 바인드한다. 배포 디렉터리는 `/opt/board`.
-컨테이너 로그는 docker 기본 로그 드라이버 `awslogs`(그룹 `/board/prod`)로 CloudWatch 에 간다.
+컨테이너 로그는 docker 기본 로그 드라이버 `awslogs`(그룹 `/board/prod`)로 CloudWatch 에 간다. postgres 는 `log_error_verbosity=terse`·`log_min_error_statement=panic`으로
+오류 DETAIL(키 값 등 개인정보)과 실패한 문장을 서버 로그에 남기지 않는다(TASK-21).
 
 비용은 [비용](#비용-us-east-1-월-대략), 삭제 순서는 [정리](#정리-terraform-destroy)를 본다.
 
@@ -253,7 +256,7 @@ deploy/secrets.example.txt    put-secrets 입력 예시 (실제 입력 deploy/se
 
 ```bash
 make tf-outputs                                             # 0) apply 가 끝났는지 확인
-cp deploy/secrets.example.txt deploy/secrets.local.txt      # 1) ADMIN_EMAIL, OAuth id·secret, SMS_* 를 채운다
+cp deploy/secrets.example.txt deploy/secrets.local.txt      # 1) OAuth id·secret, SMS_* 를 채운다(ADMIN_EMAIL 은 관리자 가입·확인 뒤에만, first-deploy 7)
 make put-secrets PUT_SECRETS_FLAGS=--generate-missing DRY_RUN=1   # 2) 무엇을 넣을지 확인(시크릿은 '****')
 make put-secrets PUT_SECRETS_FLAGS=--generate-missing       #    DB_PASSWORD·JWT_SECRET·OTP_HASH_KEY 는 SSM 에 없을 때만 만든다
 make deploy DRY_RUN=1 && make deploy                        # 3) 커밋된 HEAD 기준(커밋 안 된 변경은 build-backend 가 거부)
@@ -342,6 +345,8 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `ECR 에 이미지가 없다` | `build-backend.sh`와 태그가 다르다(커밋 안 된 변경, 다른 HEAD). `IMAGE_TAG`를 맞춘다 |
 | CI 의 `Not authorized to perform sts:AssumeRoleWithWebIdentity` | `github_repository`·브랜치·environment 미사용, `AWS_DEPLOY_ROLE_ARN` 확인 |
 | `build-backend`가 커밋 안 된 변경을 거부 | 커밋하거나 `ALLOW_DIRTY=1`(태그가 내용과 달라진다) |
+| `운영 모드(...)에서 안전하지 않은 설정이라 기동하지 않는다` | 운영 배포(render-env)는 `PRODUCTION_MODE=true`, 그 밖에는 `PUBLIC_BASE_URL`이 https면 운영 모드다. 메시지 아래 목록의 키(`JWT_SECRET`·`OTP_HASH_KEY` 공개 값, `COOKIE_SECURE`, `DB_PASSWORD`, `CLIENT_IP_HEADER`, `SMS_PROVIDER`)를 `put-secrets`로 고치고 재배포. 판정은 `PRODUCTION_MODE=auto\|true\|false`로 강제할 수 있다 |
+| `CREATE EXTENSION pg_trgm 이 실패해 기동하지 못했다` | V8 마이그레이션에 DB CREATE 권한이 필요하다. [first-deploy: pg_trgm 권한](docs/first-deploy.md#postgresql-확장pg_trgm-권한) |
 
 ## 시크릿·환경변수 목록
 
@@ -356,13 +361,15 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 |---|:-:|:-:|---|---|
 | `DB_PASSWORD` | ● | ● | 생성 | 로컬 `board`. 운영은 postgres 데이터 디렉터리를 처음 만들 때만 쓰인다(그 뒤에 바꾸면 접속이 깨진다) |
 | `DB_URL` / `DB_USERNAME` | | | (render-env 기본) | 로컬 `jdbc:postgresql://localhost:5432/board` / `board`. 운영은 `jdbc:postgresql://db:5432/board` / `board` |
+| `DB_LOG_SERVER_ERROR_DETAIL` | | | (없음) | `false`. PostgreSQL 오류 Detail(키 값 등 개인정보)을 예외·로그에 싣지 않는다. 로컬 디버깅 때만 `true` |
 | `JWT_SECRET` | ● | ● | 생성 | 자체 서명 JWT HS256 키, 32바이트 이상. 로컬은 개발용 기본값(운영 금지). 빈 값이면 기동 실패 |
 | `OTP_HASH_KEY` | ● | ● | 생성 | OTP 코드 해시(HMAC-SHA256) 키, 32바이트 이상. 로컬은 개발용 기본값(운영 금지) |
 | `JWT_REFRESH_TTL` | | | 입력(선택) | `P14D`. refresh 토큰 수명(ISO-8601). access 토큰은 15분 고정 |
 | `COOKIE_SECURE` | | ● | terraform(`true`) | `false`. `SESSION`·`XSRF-TOKEN`·`VID` 쿠키 Secure 플래그 |
 | `PUBLIC_BASE_URL` | | ● | terraform | `http://localhost:3000`. 브라우저가 보는 공개 주소(끝 `/` 없이). OAuth redirect-uri와 로그인 후 리다이렉트를 이 값으로 만든다 |
+| `PRODUCTION_MODE` | | | render-env(`true`) | 앱 기본 `auto`, 운영 배포(render-env)는 SSM 에 없으면 `true`. `auto`면 `PUBLIC_BASE_URL`이 https일 때 운영 모드: 기동 시 안전 설정 검사(공개 비밀값·`COOKIE_SECURE`·`DB_PASSWORD`·`CLIENT_IP_HEADER`·`SMS_PROVIDER`), 실패하면 기동 안 함. `true`\|`false`로 강제 |
 | `CLIENT_IP_HEADER` | | ● | terraform(`CloudFront-Viewer-Address`) | 비어 있음 = remote address. OTP 발송 한도의 클라이언트 IP |
-| `ADMIN_EMAIL` | | ○ | 입력 | 비어 있음. 이 이메일(대소문자 무시)의 **LOCAL** 계정은 가입 시 ADMIN이 되고, 이미 있으면 기동 시 ADMIN으로 올린다 |
+| `ADMIN_EMAIL` | | | 입력(일시) | 비어 있음. 기동할 때 ADMIN이 하나도 없고 이 이메일(대소문자 무시)의 **LOCAL** 계정이 이미 있으면 한 번 ADMIN으로 올린다. 가입만으로는 ADMIN이 되지 않는다 — 가입 → 소유 확인 → 그때 설정·재배포 → 승격 뒤 반드시 삭제([first-deploy 7](docs/first-deploy.md#7-스모크-ac1)) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | 비우면 Google 로그인 꺼짐. [oauth-setup](docs/oauth-setup.md#google) |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | 비우면 꺼짐. 운영·로컬 OAuth App을 따로 만든다 |
 | `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | 시크릿만 | ○ | 입력 | Client ID / Client Secret. 비우면 꺼짐 |
@@ -370,7 +377,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `COGNITO_CLIENT_ID` | | ○ | terraform | Cognito 로그인. 있으면 `COGNITO_ISSUER_URI`·`COGNITO_DOMAIN`도 필요(없으면 기동 실패) |
 | `COGNITO_CLIENT_SECRET` | ● | ○ | terraform(`cognito_client_secret`) | App Client secret(state에는 남는다) |
 | `COGNITO_ISSUER_URI` / `COGNITO_DOMAIN` | | ○ | terraform | `https://cognito-idp.<region>.amazonaws.com/<pool id>` / `https://<prefix>.auth.<region>.amazoncognito.com` |
-| `SMS_PROVIDER` | | ● | 입력(`aws`) | `console`(로그로만, 로컬 전용) · `memory`(테스트) · `aws`. 그 밖의 값이면 기동 실패. [sms-setup](docs/sms-setup.md) |
+| `SMS_PROVIDER` | | ● | terraform(`aws`) | `console`(로그로만, 번호 마스킹, 로컬 전용) · `memory`(테스트) · `aws`. 그 밖의 값이면 기동 실패. 운영 모드(https)는 `aws`만 허용 [sms-setup](docs/sms-setup.md) |
 | `SMS_AWS_REGION` | | | terraform(`us-east-1`) | `us-east-1` |
 | `SMS_ORIGINATION_IDENTITY` | | | 입력 | 발신 번호·sender ID·pool. 비우면 계정 기본 |
 | `SMS_CONFIGURATION_SET` | | | 입력(선택) | 전송 이벤트 기록 |

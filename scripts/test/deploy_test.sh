@@ -276,8 +276,18 @@ t_compose_config() {
     and .services.db.environment.MARKER_DB == "1" and (.services.db.environment.MARKER_APP == null)
   ' <<<"$json" >/dev/null || { echo "$json"; return 1; }
 }
+# TASK-21 (계획 6): postgres 서버 로그(CloudWatch 로 간다)에 오류 DETAIL(키 값 = 개인정보)·실패 문장을 남기지 않는다
+t_compose_db_terse() {
+  local d="$TMP/compose-terse"; mkdir -p "$d"; : >"$d/app.env"; : >"$d/db.env"
+  local json
+  json="$(DEPLOY_DIR="$d" ECR_REPOSITORY_URL=r/x IMAGE_TAG=t AWS_REGION=us-east-1 \
+    docker compose -f deploy/docker-compose.prod.yml config --format json)" || return 1
+  jq -e '.services.db.command == ["postgres", "-c", "log_error_verbosity=terse", "-c", "log_min_error_statement=panic"]' \
+    <<<"$json" >/dev/null || { echo "$json" | jq '.services.db.command'; return 1; }
+}
 if command -v docker >/dev/null 2>&1; then
   check "TASK-17#1 docker-compose.prod.yml: api+postgres18(/srv/pgdata 바인드)·awslogs·healthcheck·restart" t_compose_config
+  check "TASK-21 docker-compose.prod.yml: db 는 log_error_verbosity=terse·log_min_error_statement=panic (로그에 DETAIL·문장 없음)" t_compose_db_terse
 else
   echo "  WARNING: docker 가 없어 compose config 검사를 건너뛴다" >&2
 fi
@@ -485,6 +495,20 @@ t_render_missing() {
   [ "$RC" != 0 ] && has_text "JWT_SECRET" && [ ! -e "$d/app.env" ]
 }
 check "TASK-17#3 render-env: 필수 시크릿이 없으면 파일을 만들지 않고 실패" t_render_missing
+# TASK-21#1 운영 배포 경로는 정의상 운영이다: PRODUCTION_MODE 기본 true(PUBLIC_BASE_URL 판정에 기대지 않는다). SSM 값이 있으면 그 값
+t_render_production_mode() {
+  local d="$TMP/render-prod"; rm -rf "$d"; local p="$TMP/p3.json"
+  echo '{"Parameters":[{"Name":"/board/prod/DB_PASSWORD","Value":"x"},{"Name":"/board/prod/JWT_SECRET","Value":"y"},{"Name":"/board/prod/OTP_HASH_KEY","Value":"z"}]}' >"$p"
+  run_capture with_fakes env AWS_REGION=us-east-1 FAKE_PARAMS_JSON="$p" deploy/render-env.sh /board/prod "$d"
+  [ "$RC" = 0 ] || { echo "$OUT"; return 1; }
+  grep -qx 'PRODUCTION_MODE="true"' "$d/app.env" || { cat "$d/app.env"; return 1; }
+  rm -rf "$d"
+  echo '{"Parameters":[{"Name":"/board/prod/DB_PASSWORD","Value":"x"},{"Name":"/board/prod/JWT_SECRET","Value":"y"},{"Name":"/board/prod/OTP_HASH_KEY","Value":"z"},{"Name":"/board/prod/PRODUCTION_MODE","Value":"auto"}]}' >"$p"
+  run_capture with_fakes env AWS_REGION=us-east-1 FAKE_PARAMS_JSON="$p" deploy/render-env.sh /board/prod "$d"
+  [ "$RC" = 0 ] || { echo "$OUT"; return 1; }
+  grep -qx 'PRODUCTION_MODE="auto"' "$d/app.env" || { cat "$d/app.env"; return 1; }
+}
+check "TASK-21#1 render-env: app.env 에 PRODUCTION_MODE 기본 true(SSM 값이 있으면 그 값)" t_render_production_mode
 
 # ================================================================ TASK-17#4 GitHub Actions
 CI=.github/workflows/ci.yml

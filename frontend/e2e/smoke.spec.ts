@@ -144,9 +144,10 @@ test("TASK-18#5 B 는 A 의 글을 수정·삭제할 수 없다(버튼 없음, A
   await shot(page, "07-other-user-view");
 });
 
-test("TASK-18#5 관리자(ADMIN_EMAIL)가 B 를 정지하면 B 의 다음 쓰기가 실패한다", async ({ browser }) => {
+test("TASK-18#5 TASK-21#3 관리자(ADMIN_EMAIL, 기동 시 승격)가 B 를 정지하면 B 의 다음 쓰기가 실패한다", async ({ browser }) => {
   const [ctx, page] = await newPage(browser);
-  await signup(page, admin);
+  // TASK-21#3: 가입만으로는 ADMIN 이 아니다. e2e.sh 가 가입 → 재시작으로 올려 둔 계정에 로그인한다
+  await login(page, admin);
   await expect(page.getByRole("link", { name: "관리자" })).toBeVisible();
   await page.getByRole("link", { name: "관리자" }).click();
   await expect(page.getByTestId("admin-view")).toBeVisible();
