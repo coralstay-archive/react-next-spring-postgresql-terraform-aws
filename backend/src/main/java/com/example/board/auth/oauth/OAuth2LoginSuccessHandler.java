@@ -197,6 +197,9 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 			return mapper.map(token.getPrincipal());
 		}
 		catch (RuntimeException ex) {
+			// TASK-25#2 BE-20: 원인을 남긴다. 메시지·속성 값(이메일·이름·제공자 원문)은 싣지 않는다.
+			log.warn("OAuth 사용자 정보 매핑 실패 → ?error=" + INVALID_USER_INFO + ": registration="
+					+ token.getAuthorizedClientRegistrationId() + " 오류=" + OAuth2Logs.causes(ex));
 			return null;
 		}
 	}

@@ -6,6 +6,8 @@ import java.util.regex.Pattern;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
@@ -19,12 +21,19 @@ import org.springframework.security.web.authentication.AuthenticationFailureHand
  * <p>코드는 {@link OAuth2AuthenticationException} 의 OAuth2 오류 코드다(예: {@code access_denied},
  * {@code authorization_request_not_found}, {@code invalid_id_token}, {@code invalid_nonce}, 우리가 만드는
  * {@code unknown_provider}). 모양이 이상하면 {@code oauth2_failed}.
+ *
+ * <p>원인은 WARN 한 줄로 남긴다(TASK-25#2, BE-20): 등록 id(요청 경로의 마지막 조각), 돌려보낸 오류 코드, 예외 클래스 사슬, 원인 사슬의 제공자
+ * HTTP 상태. 예외 메시지·error_description·제공자 응답 본문·인가 코드·state·토큰·이메일은 싣지 않는다({@link OAuth2Logs}).
  */
 public final class OAuth2LoginFailureHandler implements AuthenticationFailureHandler {
 
 	public static final String GENERIC = "oauth2_failed";
 
 	private static final Pattern CODE = Pattern.compile("[a-z0-9_]{1,64}");
+
+	private static final Pattern REGISTRATION_ID = Pattern.compile("[A-Za-z0-9_-]{1,32}");
+
+	private static final Log log = LogFactory.getLog(OAuth2LoginFailureHandler.class);
 
 	private final OAuth2Redirects redirects;
 
@@ -37,7 +46,16 @@ public final class OAuth2LoginFailureHandler implements AuthenticationFailureHan
 			AuthenticationException exception) throws IOException {
 		String code = errorCode(exception);
 		boolean linking = LinkIntent.take(request) != null;
+		log.warn("OAuth 로그인 실패 → ?error=" + code + ": registration=" + registrationId(request) + " mode="
+				+ (linking ? "link" : "login") + OAuth2Logs.httpStatus(exception) + " 오류=" + OAuth2Logs.causes(exception));
 		response.sendRedirect(linking ? redirects.linkFailed(code) : redirects.loginFailed(code));
+	}
+
+	/** 콜백·인가 시작 경로의 마지막 조각(등록 id). 모양이 이상하면(사용자 입력) {@code ?}. */
+	private static String registrationId(HttpServletRequest request) {
+		String uri = request.getRequestURI();
+		String last = uri == null ? "" : uri.substring(uri.lastIndexOf('/') + 1);
+		return REGISTRATION_ID.matcher(last).matches() ? last : "?";
 	}
 
 	/** 원인 사슬에서 처음 만나는 OAuth2 오류 코드. */
