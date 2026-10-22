@@ -1,10 +1,10 @@
 ---
 id: TASK-24
 title: '백엔드: 인증 경계 정리'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-22 05:05'
 labels:
   - backend
   - auth
