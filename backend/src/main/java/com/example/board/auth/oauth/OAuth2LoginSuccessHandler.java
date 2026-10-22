@@ -48,8 +48,9 @@ import com.example.board.user.UserStatus;
  * 만료됐으면 {@code link_expired}, 이미 다른 계정의 identity 면 {@code identity_in_use}(B2), 정지 계정이면 {@code suspended}.
  *
  * <p><b>예외</b>(TASK-25#1, BE-19): 계정 처리(DB 오류 등) 중 예외가 나면 500 JSON 대신 프론트로 302 {@code ?error=server_error}
- * (로그인은 로그인 콜백, 연결은 계정 화면 — B1 브라우저 흐름은 어떤 실패에도 프론트로 돌아간다). 로그인 도중이었으면 이번 요청이 세션에 넣은
- * 인증을 걷어 낸다. 로그는 ERROR 한 줄(등록 id·모드·예외 클래스 사슬)이고 메시지·이메일·토큰 같은 값은 싣지 않는다.
+ * (로그인은 로그인 콜백, 연결은 계정 화면 — B1 브라우저 흐름은 어떤 실패에도 프론트로 돌아간다). 모드는 연결 플래그를 꺼낸 결과로 정하고, 꺼내기
+ * 자체가 실패하면 로그인 콜백으로 보낸다. 이번 요청이 세션 로그인까지 한 뒤 실패했을 때만 그 인증을 걷어 낸다({@link SessionLogin#discardLogin}) —
+ * 그 전에 실패했으면 기존 세션(제한 세션, 연결하려던 로그인 사용자)은 그대로 남는다. 로그는 ERROR 한 줄(등록 id·모드·예외 클래스 사슬)이고 메시지·이메일·토큰 같은 값은 싣지 않는다.
  */
 public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
 
@@ -94,24 +95,24 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 		SecurityContextHolder.clearContext();
 		OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
 		String registrationId = token.getAuthorizedClientRegistrationId();
-		LinkIntent intent = null;
+		// 모드는 연결 플래그를 꺼낸 결과로 정한다. 꺼내다 실패하면(UNKNOWN) 연결인지 알 수 없으므로 로그인 콜백으로 보낸다(B1).
+		Mode mode = Mode.UNKNOWN;
 		String location;
 		try {
-			intent = LinkIntent.take(request);
+			LinkIntent intent = LinkIntent.take(request);
+			mode = intent != null ? Mode.LINK : Mode.LOGIN;
 			location = intent != null ? link(intent, registrationId, userInfo(token), request)
 					: login(userInfo(token), request, response);
 		}
 		catch (RuntimeException ex) {
 			log.error("OAuth 콜백 처리 실패 → ?error=" + SERVER_ERROR + ": registration=" + registrationId + " mode="
-					+ (intent != null ? "link" : "login") + " 오류=" + OAuth2Logs.causes(ex));
+					+ mode.label + " 오류=" + OAuth2Logs.causes(ex));
 			if (response.isCommitted()) {
 				throw ex;
 			}
-			if (intent == null) {
-				discardLogin(request);
-			}
+			discardLogin(request);
 			response.resetBuffer();
-			location = intent != null ? redirects.linkFailed(SERVER_ERROR) : redirects.loginFailed(SERVER_ERROR);
+			location = mode == Mode.LINK ? redirects.linkFailed(SERVER_ERROR) : redirects.loginFailed(SERVER_ERROR);
 		}
 		response.sendRedirect(location);
 	}
@@ -129,19 +130,29 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 		return redirects.loginSucceeded();
 	}
 
-	/** 로그인 도중 실패: 이번 요청이 세션에 넣었을 수 있는 인증을 걷어 낸다(실패 응답인데 로그인된 세션이 남지 않게). */
-	private static void discardLogin(HttpServletRequest request) {
-		SecurityContextHolder.clearContext();
-		request.removeAttribute(SessionLogin.LOGGED_IN_USER_ID);
+	/**
+	 * 실패: 이번 요청이 세션 로그인까지 했으면 넣은 인증을 걷어 낸다(실패 응답인데 로그인된 세션이 남지 않게). 로그인 전에 실패했으면 기존 세션(제한
+	 * 세션·연결하려던 로그인 사용자)은 건드리지 않는다.
+	 */
+	private void discardLogin(HttpServletRequest request) {
 		try {
-			HttpSession session = request.getSession(false);
-			if (session != null) {
-				session.removeAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
-			}
+			sessionLogin.discardLogin(request);
 		}
 		catch (RuntimeException ex) {
 			log.warn("OAuth 콜백 실패 뒤 세션 인증 제거 실패: 오류=" + ex.getClass().getSimpleName());
 		}
+	}
+
+	private enum Mode {
+
+		LOGIN("login"), LINK("link"), UNKNOWN("unknown");
+
+		private final String label;
+
+		Mode(String label) {
+			this.label = label;
+		}
+
 	}
 
 	/** 연결 모드 처리 후 돌려보낼 URL. */

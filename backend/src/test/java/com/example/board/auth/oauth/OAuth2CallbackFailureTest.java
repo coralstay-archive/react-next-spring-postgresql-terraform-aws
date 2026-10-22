@@ -13,6 +13,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.example.board.support.Api;
+import com.example.board.support.AuthClient;
 import com.example.board.support.AuthFixtures;
 import com.example.board.support.FailingInsert;
 import com.example.board.support.IntegrationTest;
@@ -94,6 +95,24 @@ class OAuth2CallbackFailureTest {
 		assertThat(OAuthFlow.location(callback)).isEqualTo(LINK_ERROR + "server_error");
 		assertThat(identityCount(sub)).isZero();
 		assertThat(api.get("/auth/me").cookie(flow.session()).send().statusCode()).isEqualTo(200);
+	}
+
+	@Test
+	@DisplayName("TASK-25#1 TASK-25#B1 제한 세션(TASK-7 B4)에서 소셜 로그인이 세션 로그인 전에 실패하면 server_error 로 302 하고 기존 제한 세션은 그대로 남는다")
+	void successHandlerFailureBeforeLoginKeepsExistingSession() {
+		User me = fixtures.user();
+		String session = fixtures.stepUpSessionCookie(me);
+		String sub = "g-" + UUID.randomUUID();
+		OAuthFlow flow = flow().session(session);
+		HttpResponse<String> callback;
+		try (FailingInsert ignored = FailingInsert.on(jdbc, "user_identities", "subject", sub)) {
+			callback = flow.google(new GoogleUser(sub, null, false, "Broken"));
+		}
+
+		assertThat(OAuthFlow.location(callback)).isEqualTo(LOGIN_ERROR + "server_error");
+		HttpResponse<String> after = api.get("/auth/me").cookie(flow.session()).send();
+		assertThat(after.statusCode()).as("이번 요청이 로그인하지 않았으면 기존 세션을 걷어 내지 않는다").isEqualTo(200);
+		assertThat(AuthClient.json(after).get("stepUpRequired").asBoolean()).isTrue();
 	}
 
 	@Test
