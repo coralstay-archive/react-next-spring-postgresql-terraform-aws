@@ -1,10 +1,10 @@
 ---
 id: TASK-23
 title: '백엔드: DB 타임아웃·잠금·동시성'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-21 09:04'
+updated_date: '2026-10-22 05:03'
 labels:
   - backend
   - data
@@ -34,12 +34,12 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 BE-3 hikari connection-timeout, lock_timeout·statement_timeout 설정, DB 장애는 503 db_unavailable, 락 실패는 409 lock_timeout
-- [ ] #2 BE-4 요청 본문 크기 상한(약 64KB, 첨부 제외) 초과 시 413 JSON
-- [ ] #3 BE-27·BE-39 글에 @Version 낙관적 잠금, 충돌 시 409 conflict(작성자 수정·관리자 숨김·복구 경쟁)
-- [ ] #4 BE-29 좋아요도 FOR SHARE 가시성 확인, 글 행 부재 시 404
-- [ ] #5 BE-30 page×size 상한(예: 10,000행)
-- [ ] #6 BE-7 시각은 Clock 빈 하나로 통일
+- [x] #1 BE-3 hikari connection-timeout, lock_timeout·statement_timeout 설정, DB 장애는 503 db_unavailable, 락 실패는 409 lock_timeout
+- [x] #2 BE-4 요청 본문 크기 상한(약 64KB, 첨부 제외) 초과 시 413 JSON
+- [x] #3 BE-27·BE-39 글에 @Version 낙관적 잠금, 충돌 시 409 conflict(작성자 수정·관리자 숨김·복구 경쟁)
+- [x] #4 BE-29 좋아요도 FOR SHARE 가시성 확인, 글 행 부재 시 404
+- [x] #5 BE-30 page×size 상한(예: 10,000행)
+- [x] #6 BE-7 시각은 Clock 빈 하나로 통일
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -69,4 +69,21 @@ documentation:
 TASK-19 리뷰에서 넘어온 BE-7 우선순위(2026-10-12): 1) Post.java:99 @PrePersist와 PostService.java:128·136의 Instant.now() — POST/PATCH 응답 시각(나노초)과 이후 GET(마이크로초)이 다른 유일한 사용자 노출 지점. PostService에서 clock.instant()를 넘기는 방식으로. 2) TokenService.java:45와 JwtTokenService.java:67의 자체 Clock.systemUTC()를 Clock 빈 주입으로(만료 테스트 가능). 3) User·UserIdentity·RefreshToken·LocalCredential·Category의 @PrePersist와 LinkIntent Instant.now()는 일관성 목적. 선택: src/main에서 Instant.now()/Clock.systemUTC() 금지 검사(ClockConfiguration 제외). 참고: 통합 테스트는 @Primary MutableClock을 쓰므로 테스트 시계 절삭이 CI 수정의 핵심이다.
 
 독립 리뷰(2026-10-21) 반영 결정: (1) AC#4는 카드 문구의 FOR SHARE 대신 SELECT ... FOR NO KEY UPDATE — FOR SHARE는 동시 좋아요끼리 like_count UPDATE로 잠금을 올리다 교착(40P01). NKU는 FK 검사(KEY SHARE)를 막지 않고 잠금 순서(글 행 → post_likes)를 뒤집는 경로도 없음을 리뷰에서 확인. (2) B2 예산은 문장별 statement_timeout만으로는 부족 → PG18의 transaction_timeout을 함께 건다(유저 결정). (3) Flyway는 풀과 분리한 커넥션으로 statement_timeout·socketTimeout을 끈다. (4) JWT 기본 검증기 복원, multipart 끄기·form 본문 64KB, 동시성 테스트 lock_timeout 여유, 문서 정리. (5) 프론트 페이지 상한은 TASK-33 AC로 이월.
+
+타임아웃 기본값 확정(유저, 2026-10-22, 정책이라 나중에 env로 조정 가능): 커넥션 대기 5s, statement_timeout 5s, transaction_timeout 10s(신규), socketTimeout 10s → 느린 DB 25초·응답 없는 DB 20초. transaction_timeout(25P04)은 503 db_timeout + 커넥션 폐기. 한계: 한 요청이 트랜잭션·autocommit 문장 여러 개를 쓰면 요청 전체로는 30초를 넘을 수 있음(문서화만). 후속 후보: 롤백 예외가 원래 예외를 덮을 때 Spring 의 ERROR 로그에 DB 메시지 원문이 실릴 수 있음(TASK-21 로그 정책 확인 필요).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+DB 장애·잠금·동시성 대비를 넣었다.
+- AC#1 BE-3: Hikari 커넥션 대기 5s, pgjdbc socketTimeout 10s, 세션 옵션 lock_timeout 5s·statement_timeout 5s·transaction_timeout 10s(env 조정 가능). DB 장애(08xxx·57P0x·53xxx·풀 대기 초과)는 503 db_unavailable, 문장·트랜잭션 시간 초과는 503 db_timeout, 락 대기 초과·교착은 409 lock_timeout. 필터 단계(세션 조회) 오류도 DbFailureFilter가 JSON으로 낸다. Flyway는 풀 밖의 자기 커넥션(타임아웃 없음)을 쓴다. B2: 느린 DB 25초, 응답 없는 DB 20초 안에 끝난다.
+- AC#2 BE-4: 요청 본문 64KB 상한(Content-Length·chunked·form 모두), 넘으면 413 payload_too_large. multipart는 끈다.
+- AC#3 BE-27·BE-39: posts.version(@Version), 겹친 수정·숨김·삭제의 늦은 쪽은 409 conflict(B1). 클라이언트는 버전을 보내지 않는다.
+- AC#4 BE-29: 좋아요는 글 행을 FOR NO KEY UPDATE로 잠그고 가시성을 확인한다(FOR SHARE는 동시 좋아요끼리 교착). 숨김·삭제·없는 글은 404.
+- AC#5 BE-30: page×size ≤ 10,000, 넘으면 400 validation.
+- AC#6 BE-7: 시각은 Clock 빈 하나(엔티티 리스너, 토큰·JWT 검증 포함). ClockUsageTest가 시스템 시계 직접 호출을 막는다.
+독립 리뷰 반영: Flyway 커넥션 분리, transaction_timeout, JWT 기본 검증기 복원, form·multipart 우회 차단, 잠금 테스트 여유.
+검증: 커밋 훅 make test 통과(backend 728, repo 222, deploy 135, terraform 57, frontend 160).
+이월: 프론트 페이지 상한은 TASK-33. 편집 화면 버전 전송(If-Match)과 새 오류 코드 문구는 후속(TASK-28 후보). 요청 단위 30초 데드라인은 문서화만 했다.
+<!-- SECTION:FINAL_SUMMARY:END -->

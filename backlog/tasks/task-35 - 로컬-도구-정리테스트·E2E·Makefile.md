@@ -4,7 +4,7 @@ title: 로컬 도구 정리(테스트·E2E·Makefile)
 status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-22 05:03'
 labels:
   - dx
 dependencies:
@@ -32,3 +32,9 @@ documentation:
 - [ ] #3 OPS-40 lock 파일이 바뀌면 npm ci
 - [ ] #4 OPS-41 배포 타깃에 .env 전역 export가 섞이지 않게
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-23 진행 중 관찰(2026-10-22): 머신 부하가 높을 때(load avg 약 45) 커밋 훅 make test 가 간헐 실패 — 프론트 vitest 5초 타임아웃(post-editor, post-detail), DbFailureTest 컨텍스트 기동 중 Flyway 첫 접속 EOF(Docker 포트 프록시 추정). 재실행하면 통과. loginSlidingWindow(Retry-After 891)는 TASK-23 브랜치 f53619f 에서 고침.
+<!-- SECTION:NOTES:END -->
