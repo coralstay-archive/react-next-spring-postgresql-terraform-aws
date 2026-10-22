@@ -4,7 +4,7 @@ title: '백엔드: 인증 경계 정리'
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-22 05:11'
+updated_date: '2026-10-22 06:19'
 labels:
   - backend
   - auth
@@ -75,3 +75,9 @@ documentation:
 - 각 AC 는 red 실행으로 실패를 확인한 뒤 green 커밋(red 증거를 메시지에), 필요하면 refactor 커밋. 표식 TASK-24#n, #B1·#B2.
 - 범위 밖으로 남길 것: refresh 로테이션(rotate)의 같은 경쟁(정지와 동시 로테이션), 로그인·가입 등 다른 엔드포인트의 만료 Bearer.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+독립 리뷰(2026-10-22) 반영 결정: #4 정지 필터 예외의 link 판정이 Spring boolean 변환(1·on·yes·퍼센트 인코딩)과 어긋나 정지 계정이 휴대폰을 연결할 수 있던 구멍을 고친다(디코딩된 값으로 '없거나 false일 때만 예외' + link()에서 ACTIVE 확인). #3 refresh 로테이션도 로그인과 같은 정지 경쟁이 있어 이 태스크에서 같이 고친다(유저 결정, AC#3 성격). 유지 결정: #5 깨진 세션은 401 unauthorized(새 코드 없음), 세션 로그인 중 정지 경쟁은 200 응답 후 세션 삭제로 둔다. 그 밖에 세션 경쟁 테스트의 cleanup-cron 간섭 제거, 재확인 DB 오류 시 WARN + 세션 삭제 시도.
+<!-- SECTION:NOTES:END -->
