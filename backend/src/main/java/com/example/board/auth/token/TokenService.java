@@ -15,6 +15,7 @@ import org.apache.commons.logging.LogFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.example.board.auth.AuthErrors;
 import com.example.board.auth.AuthUser;
 import com.example.board.auth.jwt.JwtProperties;
 import com.example.board.auth.jwt.JwtTokenService;
@@ -61,9 +62,16 @@ public class TokenService {
 	/**
 	 * 로그인: 새 family 를 시작한다. {@code stepUpRequired} 면 제한 토큰(TASK-7 B4)이고, 이 family 를 로테이션해 받는 토큰도 계속
 	 * 제한이다.
+	 *
+	 * <p>정지와의 경쟁(TASK-24#3, BE-17): 같은 트랜잭션에서 사용자 행을 FOR SHARE 로 잠그고 status 를 다시 본다. 정지 트랜잭션은 같은 행을
+	 * FOR UPDATE 로 잡으므로 둘이 줄을 선다 — 정지가 먼저면 여기서 SUSPENDED 를 보고 403 {@code suspended}(롤백, refresh 행이 남지
+	 * 않는다), 로그인이 먼저면 정지의 "refresh 전부 폐기"가 이 커밋 뒤에 실행돼 새 refresh 도 폐기한다.
 	 */
 	@Transactional
 	public TokenResponse issueForLogin(User user, boolean stepUpRequired) {
+		if (!users.lockStatusForShare(user.getId()).map(UserStatus.ACTIVE.name()::equals).orElse(false)) {
+			throw AuthErrors.suspendedLogin();
+		}
 		return respond(user, store(user.getId(), UUID.randomUUID(), stepUpRequired).raw(), stepUpRequired);
 	}
 
@@ -83,6 +91,11 @@ public class TokenService {
 	 * 함께 <em>커밋돼야</em> 하므로 트랜잭션을 롤백시키는 예외를 쓰지 않는다.
 	 *
 	 * <ol>
+	 * <li>정지와의 경쟁(TASK-24#3): 토큰 주인의 사용자 행을 먼저 FOR SHARE 로 잠그고 status 를 읽는다({@link #issueForLogin} 과 같은 방식).
+	 * 정지 트랜잭션(사용자 행 잠금 → status → refresh 전부 폐기)과 줄을 서므로, 정지가 먼저면 여기서 SUSPENDED 를 보고 새 토큰을 만들지 않고,
+	 * 로테이션이 먼저면 정지의 폐기가 이 커밋 뒤에 시작돼 새 토큰도 폐기한다. 잠그지 않고 사용자를 읽으면 정지의 폐기 문장이 로테이션의 새
+	 * 토큰 커밋 전에 시작돼(토큰 행 잠금에서 기다리다) 새 토큰을 못 보고 남긴다. 잠금 순서는 정지와 같이 사용자 행 → 토큰 행이다(반대면
+	 * 교착).</li>
 	 * <li>토큰 행을 {@code SELECT ... FOR UPDATE} 로 잠근다. 같은 토큰의 동시 요청은 여기서 줄을 선다.</li>
 	 * <li>이미 로테이션된 토큰(replaced_by 있음)이면 재사용이다: family 의 살아 있는 토큰을 모두 폐기하고 INVALID (B3).
 	 * 동시 요청에서 늦게 온 쪽도 앞 요청의 커밋 뒤 이 상태를 보게 되므로 똑같이 처리된다(유예 기간 없음 — 엄격한 쪽을 택했다).</li>
@@ -94,8 +107,14 @@ public class TokenService {
 	@Transactional
 	public Rotation rotate(String rawRefreshToken) {
 		Instant now = now();
-		RefreshToken token = refreshTokens.findForUpdateByTokenHash(hash(rawRefreshToken)).orElse(null);
-		if (token == null) {
+		String tokenHash = hash(rawRefreshToken);
+		Long ownerId = refreshTokens.findUserIdByTokenHash(tokenHash).orElse(null);
+		if (ownerId == null) {
+			return Rotation.INVALID;
+		}
+		String status = users.lockStatusForShare(ownerId).orElse(null);
+		RefreshToken token = refreshTokens.findForUpdateByTokenHash(tokenHash).orElse(null);
+		if (token == null || status == null) {
 			return Rotation.INVALID;
 		}
 		if (token.isRotated()) {
@@ -107,13 +126,13 @@ public class TokenService {
 		if (token.isRevoked() || token.isExpired(now)) {
 			return Rotation.INVALID;
 		}
+		if (!UserStatus.ACTIVE.name().equals(status)) {
+			refreshTokens.revokeFamily(token.getFamilyId(), now);
+			return Rotation.SUSPENDED;
+		}
 		User user = users.findById(token.getUserId()).orElse(null);
 		if (user == null) {
 			return Rotation.INVALID;
-		}
-		if (user.getStatus() != UserStatus.ACTIVE) {
-			refreshTokens.revokeFamily(token.getFamilyId(), now);
-			return Rotation.SUSPENDED;
 		}
 		Issued next = store(user.getId(), token.getFamilyId(), token.isStepUpRequired());
 		token.rotatedTo(next.token(), now);

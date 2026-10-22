@@ -3,6 +3,7 @@ package com.example.board.auth.jwt;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 import javax.crypto.SecretKey;
@@ -10,6 +11,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -20,6 +22,7 @@ import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
 import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
+import org.springframework.security.oauth2.jwt.JwtTypeValidator;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
@@ -62,6 +65,9 @@ public class JwtTokenService {
 
 	private final NimbusJwtDecoder decoder;
 
+	/** 만료 판정만 뺀 검증기(서명·발급자·sub·토큰 종류는 그대로). 만료만 된 토큰을 가려낼 때만 쓴다 (TASK-24#1). */
+	private final NimbusJwtDecoder ignoringExpiry;
+
 	/** 발급(iat·exp)과 검증(만료 판정)이 같은 Clock 빈을 쓴다 (TASK-23#6). */
 	public JwtTokenService(JwtProperties properties, Clock clock) {
 		this.properties = properties;
@@ -75,6 +81,11 @@ public class JwtTokenService {
 		// Spring Security 기본 검증기(typ=JWT·x5t 지문·만료)는 그대로 두고, 만료 판정만 Clock 빈을 쓰는 것으로 바꾼다
 		this.decoder.setJwtValidator(JwtValidators.createDefaultWithValidators(
 				new JwtIssuerValidator(properties.issuer()), timestampValidator(clock),
+				new JwtClaimValidator<String>(JwtClaimNames.SUB, sub -> sub != null && !sub.isBlank()),
+				new JwtClaimValidator<String>(CLAIM_TOKEN_TYPE, ACCESS::equals)));
+		this.ignoringExpiry = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
+		this.ignoringExpiry.setJwtValidator(new DelegatingOAuth2TokenValidator<>(JwtTypeValidator.jwt(),
+				new JwtIssuerValidator(properties.issuer()),
 				new JwtClaimValidator<String>(JwtClaimNames.SUB, sub -> sub != null && !sub.isBlank()),
 				new JwtClaimValidator<String>(CLAIM_TOKEN_TYPE, ACCESS::equals)));
 	}
@@ -105,6 +116,28 @@ public class JwtTokenService {
 	/** 서명·만료·발급자·토큰 종류를 검증한다. 실패하면 {@link JwtException}. */
 	public Jwt decode(String token) {
 		return decoder.decode(token);
+	}
+
+	/**
+	 * 만료 말고는 멀쩡한 토큰(서명·발급자·sub·토큰 종류가 맞고 만료 시각만 지났다)이면 그 토큰을, 아니면 empty (TASK-24#1, BE-15).
+	 * 정상 토큰·위조·형식 오류는 empty 다.
+	 */
+	public Optional<Jwt> expiredOnly(String token) {
+		try {
+			decoder.decode(token);
+			return Optional.empty();
+		}
+		catch (JwtException ex) {
+			// 아래에서 만료만 뺀 검증으로 다시 본다
+		}
+		try {
+			Jwt jwt = ignoringExpiry.decode(token);
+			Instant expiresAt = jwt.getExpiresAt();
+			return expiresAt != null && expiresAt.isBefore(clock.instant()) ? Optional.of(jwt) : Optional.empty();
+		}
+		catch (JwtException ex) {
+			return Optional.empty();
+		}
 	}
 
 	public AuthUser toAuthUser(Jwt jwt) {

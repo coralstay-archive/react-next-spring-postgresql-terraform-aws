@@ -63,11 +63,25 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 - **계정**: `users` 1 : N `user_identities(provider, subject)`. 비밀번호는 `local_credentials`에만 있다(decision-4).
 - **하나의 보안 체인**(decision-5): `Authorization: Bearer <JWT>`가 있으면 JWT로 인증하고 세션은 읽지도 쓰지도 않는다.
   없으면 `SESSION` 쿠키(Spring Session JDBC, HttpOnly·SameSite=Lax)로 인증한다. 토큰이 틀리면 세션이 있어도 401.
+- **만료된 Bearer**(TASK-24#1): `POST /api/auth/token/refresh`·`POST /api/auth/logout`·공개 GET(아래 표의 익명 읽기와 `/auth/csrf`·헬스체크)은
+  access 토큰이 *만료만* 됐으면(서명·발급자·형식은 맞음) 헤더를 무시하고 익명으로 처리한다. 그래서 만료된 헤더를 붙인 채로도 refresh 를 받고,
+  로그아웃하면 그 토큰 주인의 refresh family 가 폐기된다(남의 refresh 토큰은 폐기하지 않는다). 서명이 틀린 토큰과 보호된 API 의 만료 토큰은 그대로 401.
+- **깨진 세션**(TASK-24#5): 역직렬화할 수 없는 세션(배포 뒤 클래스 변경, 깨진 데이터)은 세션 없음·만료와 같다. 그 세션을 지우고
+  `SESSION` 쿠키를 만료시킨 뒤 익명으로 계속한다 — 보호된 API 는 401 `unauthorized`, 공개 GET 은 200. 500 이 아니다. 깨진 세션 전용 오류
+  코드는 따로 두지 않는다(클라이언트는 기존 401 `unauthorized` 를 로그아웃 상태로 다루면 된다).
 - **CSRF**: 세션 요청의 POST/PUT/PATCH/DELETE는 `XSRF-TOKEN` 쿠키 값을 `X-XSRF-TOKEN` 헤더로 보내야 한다.
   SPA는 처음에 `GET /api/auth/csrf`로 쿠키를 받는다. Bearer 요청은 CSRF 면제.
 - **오류**: 미인증 401, 권한 없음 403, 모두 JSON(`{"status","error","message"}`). 로그인 페이지 리다이렉트는 없다.
 - **인가**: 기본은 인증 필요. 역할 `USER`/`ADMIN`은 `@PreAuthorize`, 수정·삭제는 `@ownership.canModify(authentication, ownerId)`
-  (본인 또는 ADMIN). `SUSPENDED` 계정은 읽기만 되고 모든 쓰기가 403(DB 최신 상태 기준, 보안 체인에서 공통 처리).
+  (본인 또는 ADMIN). `SUSPENDED` 계정은 읽기만 되고 모든 쓰기가 403 `suspended`(로그아웃·로그인 계열 제외, 보안 체인에서 공통 처리).
+- **역할·상태는 요청마다 DB 값**(TASK-24#2): 세션·토큰에 실린 role/status 는 발급 시점 값이라, 인증된 요청마다 DB 의 최신 role·status 로
+  판정한다(PK 조회 1회). 강등·승격·정지는 같은 세션·토큰의 다음 요청부터 반영되고, 계정이 지워졌으면 익명(보호된 API 401)이다.
+- **정지 계정의 로그인 계열**(TASK-24#4): 정지 계정의 세션·토큰이 남은 클라이언트도 로그인·가입·refresh·OTP 발송·검증은 공통 필터에 막히지
+  않고 각 엔드포인트의 계약대로 응답한다(다른 계정이면 정상 로그인, 정지 계정 자신이면 비밀번호가 맞을 때 403 `suspended`
+  "정지된 계정은 로그인할 수 없습니다"). 현재 계정을 바꾸는 OTP 연결(`?link=true`)은 그대로 403 `suspended`. 연결 모드 판정은 컨트롤러와
+  같은 디코딩된 `link` 값으로 한다: 필터 예외는 `link` 가 없거나 모든 값이 (앞뒤 공백을 뺀) `false`(대소문자 무시)일 때뿐이고, 그 밖의 값
+  (`true`·`1`·`on`·`yes`, `%74rue`·`+true` 같은 인코딩 변형, 빈 값)은 연결 모드로 보고 정지 계정이면 403 `suspended` 다. 연결 처리 자체도
+  ACTIVE 가 아닌 계정을 403 `suspended` 로 거절한다(심층 방어).
 - **제한 세션**(재활용 번호 보호, 아래 휴대폰 로그인): 읽기만 되고 쓰기는 403 `step_up_required`(로그아웃·step-up·로그인 계열 제외).
 - `/api/actuator/health`는 공개, 세부 정보(DB 등)는 ADMIN에게만.
 
@@ -78,11 +92,17 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | `POST /api/auth/signup` `{email, password, nickname}` | 201 + 사용자 요약. 자동 로그인 없음. 비밀번호 8자 이상·72바이트 이하·문자+숫자, 닉네임 2~20자. 같은 이메일(대소문자 무시) 중복은 409. CSRF 필요 |
 | `POST /api/auth/login` `{email, password}` | 세션 로그인: 세션 ID 교체 + `SESSION` 쿠키 + 새 `XSRF-TOKEN` 쿠키, 200 + 사용자 요약. CSRF 필요 |
 | `POST /api/auth/login?token=jwt` | 세션 없이 `{accessToken, refreshToken, tokenType:"Bearer", expiresIn}`. CSRF 면제(쿠키를 만들지 않는 비브라우저 흐름) |
-| `POST /api/auth/token/refresh` `{refreshToken}` | 로테이션: 새 access+refresh. 이미 쓴 refresh를 다시 쓰면 그 로그인(family)의 토큰을 모두 폐기하고 401. Authorization 헤더 없이 호출. CSRF 면제 |
-| `POST /api/auth/logout` | 세션: 세션 삭제 + 쿠키 만료(CSRF 필요). Bearer: 본문 `{refreshToken}`이 있으면 그 family 폐기. 항상 204, 정지 계정도 가능 |
+| `POST /api/auth/token/refresh` `{refreshToken}` | 로테이션: 새 access+refresh. 이미 쓴 refresh를 다시 쓰면 그 로그인(family)의 토큰을 모두 폐기하고 401. 정지 계정이면 그 family 를 폐기하고 403 `suspended`(정지로 이미 폐기된 토큰이면 401 `invalid_refresh_token`). Authorization 헤더는 필요 없다(만료된 access 토큰이 붙어 있으면 무시). CSRF 면제 |
+| `POST /api/auth/logout` | 세션: 세션 삭제 + 쿠키 만료(CSRF 필요). Bearer: 본문 `{refreshToken}`이 그 사용자 것이면 그 family 폐기(access 토큰이 만료됐어도). 항상 204, 정지 계정도 가능 |
 | `GET /api/auth/me` | 현재 사용자 `{id, nickname, email, role, status, providers, stepUpRequired, stepUpProviders}` (DB 최신 값). 익명은 401. `stepUpRequired`면 이 세션·토큰은 제한 상태이고 `stepUpProviders`는 다시 인증할 수 있는 수단 |
 
 - 로그인 실패는 이유와 상관없이 같은 401(`invalid_credentials`)이다. 정지 계정은 비밀번호가 맞을 때만 403(`suspended`).
+- 로그인과 정지가 동시에 일어나도(TASK-24#3) 살아 있는 자격이 남지 않는다. JWT 발급(LOCAL·OTP·step-up)은 refresh 를 저장하는 트랜잭션에서
+  사용자 행을 `FOR SHARE` 로 잠그고 status 를 다시 봐서, 정지가 먼저 커밋됐으면 403 `suspended`(refresh 를 남기지 않음), 로그인이 먼저면 정지가
+  새 refresh 까지 폐기한다. refresh 로테이션도 같다: 토큰 행보다 먼저 사용자 행을 `FOR SHARE` 로 잠그고 status 를 다시 봐서, 정지가 먼저면
+  새 토큰을 만들지 않고(403 `suspended`, 정지가 이미 폐기한 토큰이면 401 `invalid_refresh_token`), 로테이션이 먼저면 정지가 새 refresh 까지
+  폐기한다. 세션 로그인은 세션이 저장된 뒤 status 를 다시 봐서 정지됐으면 그 사용자 세션을 지운다 — 이 경쟁에서 로그인 응답은 200 일 수
+  있지만 그 세션은 이미 지워져 다음 요청부터 익명(보호된 API 401)이다. 재확인 조회가 DB 오류로 실패해도 그 사용자의 세션 삭제를 시도한다.
 - 레이트리밋(TASK-22): 로그인 실패는 (계정, IP)별 15분 창 안 5회(슬라이딩 창)·IP별 1시간 30회, 가입은 IP별 1시간 10회. 넘으면 429 `rate_limited` + `Retry-After`(위 레이트리밋 표).
 - refresh 토큰은 256비트 랜덤 값이고 DB에는 SHA-256 해시만 둔다. access 토큰은 상태가 없어 로그아웃 뒤에도 만료(15분)까지 유효하다.
 
@@ -288,7 +308,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 
 ### 관리자 API (TASK-12)
 
-`/api/admin/**`는 보안 체인에서 `ADMIN`만 통과한다(익명 401, `USER`·정지 계정 403). 관리 쓰기도 다른 쓰기와 같이 세션이면 CSRF가 필요하고, 정지·제한(step-up) 필터를 거친다. 역할은 세션·토큰 발급 시점 값이다. 역할 변경(승격·강등) API는 없다(`ADMIN_EMAIL` 부트스트랩만).
+`/api/admin/**`는 보안 체인에서 `ADMIN`만 통과한다(익명 401, `USER`·정지 계정 403). 관리 쓰기도 다른 쓰기와 같이 세션이면 CSRF가 필요하고, 정지·제한(step-up) 필터를 거친다. 역할은 요청마다 DB 값으로 판정한다(TASK-24#2) — DB 에서 강등하면 그 사람의 세션·JWT 로 하는 다음 관리자 API 요청부터 403 `forbidden`이다. 역할 변경(승격·강등) API는 없다(`ADMIN_EMAIL` 부트스트랩만).
 
 | 요청 | 응답 |
 |---|---|

@@ -73,7 +73,7 @@ public class StepUpController {
 		User user = users.findById(principal.id())
 			.orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "인증이 필요합니다"));
 		if (user.getStatus() != UserStatus.ACTIVE) {
-			throw new ApiException(HttpStatus.FORBIDDEN, "suspended", "정지된 계정은 로그인할 수 없습니다");
+			throw AuthErrors.suspendedLogin();
 		}
 		if (BearerRequests.isBearer(request)) {
 			if (body.refreshToken() != null && !body.refreshToken().isBlank()) {

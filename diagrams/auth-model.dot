@@ -53,9 +53,9 @@ digraph auth_model {
     label="요청 하나 = 보안 체인 하나 (decision-5)"; style="rounded,filled"; color="#f00006"; fillcolor="#f00005"; fontcolor="#f00006"
     req [label="요청 /api/**", color="#f00006", fillcolor="#f00007"]
     has_bearer [label="Authorization:\nBearer ?", shape=diamond, style="filled", fillcolor="#f00004"]
-    jwt [label="JWT 검증 (HS256, 15분)\n세션 읽지도 쓰지도 않음\nCSRF 면제\n틀리면 401"]
-    session [label="SESSION 쿠키\nSpring Session JDBC\n쓰기는 X-XSRF-TOKEN 필요"]
-    authz [label="공통 인가\nSUSPENDED → 쓰기 403\nstep-up 제한 → 쓰기 403\n@PreAuthorize · ownership", color="#f00006", fillcolor="#f00007"]
+    jwt [label="JWT 검증 (HS256, 15분)\n세션 읽지도 쓰지도 않음\nCSRF 면제\n틀리면 401\n(만료만 됐으면 refresh·logout·\n공개 GET 은 익명으로)"]
+    session [label="SESSION 쿠키\nSpring Session JDBC\n쓰기는 X-XSRF-TOKEN 필요\n역직렬화 실패 → 세션 삭제·익명"]
+    authz [label="공통 인가\n역할·상태는 요청마다 DB 값\nSUSPENDED → 쓰기 403\nstep-up 제한 → 쓰기 403\n(로그아웃·로그인 계열 제외)\n@PreAuthorize · ownership", color="#f00006", fillcolor="#f00007"]
     req -> has_bearer
     has_bearer -> jwt [label="예"]
     has_bearer -> session [label="아니오"]
