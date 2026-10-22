@@ -119,6 +119,11 @@ public class PhoneAuthController {
 		if (principal == null) {
 			throw new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "로그인한 뒤 연결할 수 있습니다");
 		}
+		if (principal.status() != UserStatus.ACTIVE) {
+			// 심층 방어 (TASK-24#4): 정지 필터가 연결 모드를 놓치더라도 정지 계정에 번호를 붙이지 않는다. principal 의 status 는
+			// CurrentUserFilter 가 요청마다 DB 최신 값으로 채운다.
+			throw AuthErrors.suspendedWrite();
+		}
 		if (principal.stepUpRequired()) {
 			// 제한 세션이 새 수단을 붙여 그 수단으로 step-up 하는 우회를 막는다 (B4).
 			throw StepUpRequiredException.apiException();

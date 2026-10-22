@@ -17,4 +17,12 @@ public final class AuthErrors {
 		return new ApiException(HttpStatus.FORBIDDEN, SUSPENDED, "정지된 계정은 로그인할 수 없습니다");
 	}
 
+	/**
+	 * 정지 계정이 지금 계정을 바꾸는 쓰기(휴대폰 연결 등): 403 {@code suspended}. 정지 쓰기 차단 필터({@code SuspendedUserException})와 같은
+	 * 문구 — 필터를 지나온 경우의 심층 방어(TASK-24#4).
+	 */
+	public static ApiException suspendedWrite() {
+		return new ApiException(HttpStatus.FORBIDDEN, SUSPENDED, "정지된 계정은 쓰기 요청을 할 수 없습니다");
+	}
+
 }

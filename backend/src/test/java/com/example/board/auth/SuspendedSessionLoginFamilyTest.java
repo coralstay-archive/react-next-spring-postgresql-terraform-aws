@@ -2,20 +2,34 @@ package com.example.board.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import java.net.http.HttpResponse;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+
+import com.example.board.auth.phone.PhoneAuthController;
+import com.example.board.auth.phone.PhoneVerifyRequest;
+import com.example.board.common.ApiException;
 
 import com.example.board.sms.SmsSender;
 import com.example.board.support.Api;
 import com.example.board.support.AuthClient;
 import com.example.board.support.IntegrationTest;
 import com.example.board.support.PhoneClient;
+import com.example.board.user.Role;
+import com.example.board.user.UserStatus;
 
 /**
  * TASK-24#4 (BE-18) 정지 계정의 세션·토큰이 남은 클라이언트도 로그인 계열(로그인·가입·refresh·OTP 발송·검증)은 정지 필터에 막히지 않고 각
@@ -32,6 +46,9 @@ class SuspendedSessionLoginFamilyTest {
 
 	@Autowired
 	SmsSender sms;
+
+	@Autowired
+	PhoneAuthController phoneAuth;
 
 	Api api;
 
@@ -158,6 +175,55 @@ class SuspendedSessionLoginFamilyTest {
 
 		assertThat(response.statusCode()).as(response.body()).isEqualTo(403);
 		assertThat(error(response)).isEqualTo("suspended");
+	}
+
+
+	private int phoneIdentities(String number) {
+		return jdbc.queryForObject("select count(*) from user_identities where provider = 'PHONE' and subject = ?",
+				Integer.class, PhoneClient.e164(number));
+	}
+
+	@ParameterizedTest(name = "{0}")
+	@ValueSource(strings = { "?link=1", "?link=on", "?link=yes", "?link=%74rue", "?link=+true", "?link=TRUE%20" })
+	@DisplayName("TASK-24#4 link 를 Spring boolean 변환이 참으로 읽는 다른 표기(1·on·yes·퍼센트 인코딩·공백)도 정지 필터 예외가 아니다 — 403 suspended, 번호는 연결되지 않는다")
+	void linkVariantsStayBlocked(String query) {
+		String session = suspendedSession(auth.signedUp());
+		String number = PhoneClient.uniquePhone();
+		String challenge = phone.challenge(number);
+
+		HttpResponse<String> response = phone.verify(query, challenge, phone.lastCode(number), session);
+
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(403);
+		assertThat(error(response)).isEqualTo("suspended");
+		assertThat(phoneIdentities(number)).isZero();
+	}
+
+	@ParameterizedTest(name = "{0}")
+	@ValueSource(strings = { "?link=true", "?link=1", "?link=%74rue" })
+	@DisplayName("TASK-24#4 ACTIVE 계정의 연결은 그대로 된다(link 표기는 컨트롤러의 boolean 변환대로)")
+	void activeLinkStillWorks(String query) {
+		String session = auth.sessionCookie(auth.signedUp());
+		String number = PhoneClient.uniquePhone();
+		String challenge = phone.challenge(number);
+
+		HttpResponse<String> response = phone.verify(query, challenge, phone.lastCode(number), session);
+
+		assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+		assertThat(phoneIdentities(number)).isOne();
+	}
+
+	@Test
+	@DisplayName("TASK-24#4 심층 방어: 필터를 지나더라도 연결 모드는 ACTIVE 가 아닌 principal 을 403 suspended 로 거절한다(챌린지 검증 전)")
+	void linkRejectsSuspendedPrincipal() {
+		AuthUser suspended = new AuthUser(1L, Role.USER, UserStatus.SUSPENDED);
+		PhoneVerifyRequest body = new PhoneVerifyRequest(UUID.randomUUID().toString(), "000000");
+
+		assertThatThrownBy(() -> phoneAuth.verify(body, null, true, suspended, new MockHttpServletRequest(),
+				new MockHttpServletResponse()))
+			.isInstanceOfSatisfying(ApiException.class, ex -> {
+				assertThat(ex.getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+				assertThat(ex.getError()).isEqualTo("suspended");
+			});
 	}
 
 }

@@ -85,12 +85,11 @@ public class SecurityConfig {
 	 * 정지 계정(TASK-2 B3)도 할 수 있는 쓰기 (TASK-24#4, BE-18): 로그아웃, 로그인 계열. 정지 계정의 세션·토큰이 남은 클라이언트도 다른 계정으로
 	 * 로그인·가입할 수 있고, 정지 계정 자신으로 로그인하면 필터의 쓰기 오류가 아니라 로그인 계약(비밀번호가 맞으면 403 {@code suspended}
 	 * "정지된 계정은 로그인할 수 없습니다", 틀리면 401)을 받는다. 단 휴대폰 검증의 연결 모드({@code ?link=true})는 지금 계정(정지)을 바꾸는
-	 * 쓰기라 빼지 않는다.
+	 * 쓰기라 빼지 않는다 — 판정은 {@link #loginModeOnly} (연결 모드일 수 있는 표기는 모두 예외가 아니다).
 	 */
 	static final List<RequestMatcher> SUSPENDED_EXEMPT = Stream
 		.concat(Stream.of(LOGOUT), LOGIN_FAMILY.stream()
-			.map(matcher -> (RequestMatcher) request -> matcher.matches(request)
-					&& !"true".equalsIgnoreCase(queryParam(request, "link"))))
+			.map(matcher -> (RequestMatcher) request -> matcher.matches(request) && loginModeOnly(request)))
 		.toList();
 
 	/**
@@ -238,7 +237,22 @@ public class SecurityConfig {
 		return request -> refresh.matches(request)
 				|| (login.matches(request) && "jwt".equals(queryParam(request, "token")))
 				|| (phoneVerify.matches(request) && "jwt".equals(queryParam(request, "token"))
-						&& !"true".equalsIgnoreCase(queryParam(request, "link")));
+						&& loginModeOnly(request));
+	}
+
+	/**
+	 * 휴대폰 검증이 연결 모드가 <em>아님이 확실한</em> 요청인가 (TASK-24#4): {@code link} 파라미터가 없거나, 모든 값이 앞뒤 공백을 뺀
+	 * {@code false}(대소문자 무시)일 때만 참이다. 컨트롤러의 {@code @RequestParam boolean link} 는 서블릿이 디코딩한 값(쿼리·폼, 예:
+	 * {@code %74rue}, {@code +true})을 Spring 변환으로 읽어 {@code true}·{@code on}·{@code yes}·{@code 1} 을 모두 참으로 받으므로,
+	 * 원문 쿼리를 {@code "true"} 와만 비교하면 다른 표기로 연결 모드가 예외를 통과한다. 그래서 같은 디코딩 값을 보고, 거짓이라고 확신할 수
+	 * 없는 값(빈 값·알 수 없는 값 포함 — 컨트롤러는 400 으로 거절한다)은 연결 모드로 친다.
+	 */
+	static boolean loginModeOnly(HttpServletRequest request) {
+		String[] values = request.getParameterValues("link");
+		if (values == null) {
+			return true;
+		}
+		return values.length > 0 && Stream.of(values).allMatch(value -> "false".equalsIgnoreCase(value.strip()));
 	}
 
 	private static String queryParam(HttpServletRequest request, String name) {
