@@ -1,10 +1,10 @@
 ---
 id: TASK-25
 title: '백엔드: 외부 호출 견고성(OAuth·SMS·OTP)'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-22 10:55'
+updated_date: '2026-10-22 11:10'
 labels:
   - backend
   - auth
@@ -34,12 +34,12 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 BE-19 OAuth 성공 핸들러 예외는 /auth/callback/?error=server_error로 302하고 로그
-- [ ] #2 BE-20 OAuth 실패·매퍼 예외 원인을 WARN 로그로(민감값 제외)
-- [ ] #3 BE-21 token·userinfo·JWKS 호출에 연결·읽기 타임아웃
-- [ ] #4 BE-24 End User Messaging apiCallTimeout·attempt 타임아웃
-- [ ] #5 BE-22 OTP 소모 후 계정 처리 실패 시 사용자 안내(재요청 가능 상태 유지)
-- [ ] #6 BE-23 OTP 한도 설정값 1 이상 검증
+- [x] #1 BE-19 OAuth 성공 핸들러 예외는 /auth/callback/?error=server_error로 302하고 로그
+- [x] #2 BE-20 OAuth 실패·매퍼 예외 원인을 WARN 로그로(민감값 제외)
+- [x] #3 BE-21 token·userinfo·JWKS 호출에 연결·읽기 타임아웃
+- [x] #4 BE-24 End User Messaging apiCallTimeout·attempt 타임아웃
+- [x] #5 BE-22 OTP 소모 후 계정 처리 실패 시 사용자 안내(재요청 가능 상태 유지)
+- [x] #6 BE-23 OTP 한도 설정값 1 이상 검증
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -62,3 +62,18 @@ documentation:
 <!-- SECTION:NOTES:BEGIN -->
 독립 리뷰(2026-10-22) 반영 결정: 유지(유저) — #5 OTP 되돌리기는 모든 실패(4xx 정상 거절 포함)에 적용, #4 SMS SDK 재시도 유지(드문 중복 문자는 README에 기록), #1 연결 모드 server_error는 /account/?error=server_error(로그인은 AC대로 /auth/callback/). 고칠 것 — (1) 휴대폰 세션 로그인 뒤의 실패(providers 조회 등)에서 release하면 로그인된 세션이 남고 OTP도 재사용 가능 → 세션 로그인을 마지막 단계로, (2) OAuth 성공 핸들러 실패 시 이 요청이 sessionLogin 을 호출했을 때만 인증을 걷어 냄(기존 제한 세션·연결 중 로그인 보존), (3) 타임아웃 통합 테스트 지연 12s→짧게. 후속 후보: PhoneOtpService.send 의 log.warn(ex) 스택 전체 기록 — BE-20 원칙(클래스명만) 적용 검토.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+외부 호출(OAuth·SMS·OTP) 실패 처리를 정리했다.
+- AC#1 BE-19: OAuth 성공 핸들러 예외는 ERROR 로그 + 302. 로그인은 /auth/callback/?error=server_error, 연결은 /account/?error=server_error(유저 결정). 이 요청이 세션 로그인을 했을 때만 인증을 걷어 내 기존 세션은 보존한다. B1: 실패 핸들러·매퍼 예외·state 불일치·제공자 오류·모르는 제공자까지 모두 프론트 콜백으로 돌아감을 테스트로 고정.
+- AC#2 BE-20: OAuth 실패·매퍼 예외는 WARN으로 registration·오류 코드·HTTP 상태·예외 클래스 사슬만 남긴다(메시지·코드·토큰·이메일·응답 원문 제외).
+- AC#3 BE-21: token·userinfo·JWKS 호출에 연결 3s·읽기 5s(OAUTH_HTTP_*). JWKS는 OidcIdTokenDecoderFactory와 같은 검증 규칙의 자체 팩토리.
+- AC#4 BE-24: End User Messaging apiCallTimeout 10s·apiCallAttemptTimeout 4s(SMS_API_CALL_*), 초과 시 503 sms_unavailable. SDK 재시도는 유지(드문 중복 문자, 유저 결정).
+- AC#5 BE-22: OTP 확인 뒤 계정 처리가 실패하면 소모를 되돌려 같은 인증번호로 다시 확인할 수 있다(모든 실패에 적용, 유저 결정). 불변식: 오류 응답이면 로그인되지 않는다 — 세션 로그인을 마지막 단계로 옮겼다.
+- AC#6 BE-23: OTP 한도 설정값은 기동 시 검증(횟수 ≥ 1, ttl > 0, 쿨다운 ≥ 0).
+독립 리뷰 반영: OTP 이중 로그인 구멍, OAuth 실패 시 기존 세션 보존, 타임아웃 테스트 시간 단축.
+검증: make test 통과(backend 804, repo 226, deploy 135, terraform 57, frontend 160).
+후속 후보: PhoneOtpService.send 의 스택 전체 WARN 로그에 BE-20 원칙 적용, 프론트 server_error 전용 문구(TASK-28), OIDC 디코더 등록별 캐시.
+<!-- SECTION:FINAL_SUMMARY:END -->
