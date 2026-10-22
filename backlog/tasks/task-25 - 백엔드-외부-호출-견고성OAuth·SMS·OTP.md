@@ -4,7 +4,7 @@ title: '백엔드: 외부 호출 견고성(OAuth·SMS·OTP)'
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-22 09:51'
+updated_date: '2026-10-22 10:55'
 labels:
   - backend
   - auth
@@ -56,3 +56,9 @@ documentation:
 - 각 AC는 red 실행으로 실패를 확인한 뒤 green 커밋(red 증거를 메시지에), 필요하면 refactor 커밋. 표식 TASK-25#n, #B1.
 - 리뷰: 구현 후 독립 서브에이전트 리뷰 → fix·refactor 커밋.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+독립 리뷰(2026-10-22) 반영 결정: 유지(유저) — #5 OTP 되돌리기는 모든 실패(4xx 정상 거절 포함)에 적용, #4 SMS SDK 재시도 유지(드문 중복 문자는 README에 기록), #1 연결 모드 server_error는 /account/?error=server_error(로그인은 AC대로 /auth/callback/). 고칠 것 — (1) 휴대폰 세션 로그인 뒤의 실패(providers 조회 등)에서 release하면 로그인된 세션이 남고 OTP도 재사용 가능 → 세션 로그인을 마지막 단계로, (2) OAuth 성공 핸들러 실패 시 이 요청이 sessionLogin 을 호출했을 때만 인증을 걷어 냄(기존 제한 세션·연결 중 로그인 보존), (3) 타임아웃 통합 테스트 지연 12s→짧게. 후속 후보: PhoneOtpService.send 의 log.warn(ex) 스택 전체 기록 — BE-20 원칙(클래스명만) 적용 검토.
+<!-- SECTION:NOTES:END -->
