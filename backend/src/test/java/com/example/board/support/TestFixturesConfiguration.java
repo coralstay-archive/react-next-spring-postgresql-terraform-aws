@@ -1,6 +1,7 @@
 package com.example.board.support;
 
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
@@ -8,7 +9,8 @@ import org.springframework.test.context.DynamicPropertyRegistrar;
 
 /** 통합 테스트 전용 픽스처(테스트 컨트롤러, 인증 헬퍼, OAuth 제공자 stub)를 모아 등록한다. */
 @TestConfiguration(proxyBeanMethods = false)
-@Import({ AuthFixtures.class, BoardFixtures.class, ProtectedResourceTestController.class })
+@Import({ AuthFixtures.class, BoardFixtures.class, ProtectedResourceTestController.class,
+		ErrorContractTestController.class })
 public class TestFixturesConfiguration {
 
 	/** TASK-7 만료·레이트리밋 테스트용 시계(앱의 Clock 빈을 대신한다). 움직인 테스트는 끝날 때 reset 한다. */
@@ -22,6 +24,15 @@ public class TestFixturesConfiguration {
 	@Bean
 	OAuthProviderStub oauthProviderStub() {
 		return new OAuthProviderStub();
+	}
+
+	/** TASK-20#1 컨트롤러 밖(필터)에서 터지는 예외도 오류 계약을 따르는지 보는 필터. 그 경로만 건드린다. */
+	@Bean
+	FilterRegistrationBean<ErrorContractTestController.FailingFilter> failingFilter() {
+		FilterRegistrationBean<ErrorContractTestController.FailingFilter> registration = new FilterRegistrationBean<>(
+				new ErrorContractTestController.FailingFilter());
+		registration.addUrlPatterns(ErrorContractTestController.FailingFilter.PATH);
+		return registration;
 	}
 
 	/** stub 주소를 앱의 OAuth 등록 설정으로 넣는다. 다른 빈보다 먼저 초기화되므로 등록 빈이 이 값을 본다. */

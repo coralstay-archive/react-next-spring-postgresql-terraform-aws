@@ -3,9 +3,8 @@ package com.example.board.post;
 import java.util.Locale;
 
 import org.springframework.data.domain.Sort;
-import org.springframework.http.HttpStatus;
 
-import com.example.board.common.ApiException;
+import com.example.board.common.ApiErrors;
 
 /** 목록 정렬: {@code latest}(기본), {@code popular}(TASK-9#4). 대소문자 무시, 그 밖의 값은 400. */
 public enum PostSort {
@@ -34,7 +33,7 @@ public enum PostSort {
 			return valueOf(value.strip().toUpperCase(Locale.ROOT));
 		}
 		catch (IllegalArgumentException ex) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "validation", "지원하지 않는 정렬입니다: " + value);
+			throw ApiErrors.invalidParam("sort", "지원하지 않는 정렬입니다: " + value);
 		}
 	}
 

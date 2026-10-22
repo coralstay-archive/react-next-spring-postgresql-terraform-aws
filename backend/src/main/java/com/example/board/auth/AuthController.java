@@ -1,5 +1,7 @@
 package com.example.board.auth;
 
+import java.util.Map;
+
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -20,6 +22,7 @@ import com.example.board.auth.local.SignupRequest;
 import com.example.board.auth.token.RefreshRequest;
 import com.example.board.auth.token.TokenResponse;
 import com.example.board.auth.token.TokenService;
+import com.example.board.common.ApiErrors;
 import com.example.board.common.ApiException;
 import com.example.board.security.BearerRequests;
 import com.example.board.user.User;
@@ -90,7 +93,7 @@ public class AuthController {
 	public Object login(@Valid @RequestBody LoginRequest body, @RequestParam(name = "token", required = false) String token,
 			HttpServletRequest request, HttpServletResponse response) {
 		if (token != null && !TOKEN_MODE_JWT.equals(token)) {
-			throw new ApiException(HttpStatus.BAD_REQUEST, "bad_request", "token 파라미터는 jwt 만 지원합니다");
+			throw unsupportedTokenMode();
 		}
 		User user = localAccounts.authenticate(body.email(), body.password());
 		if (user.getStatus() != UserStatus.ACTIVE) {
@@ -163,6 +166,12 @@ public class AuthController {
 
 	private UserSummary summary(User user) {
 		return UserSummary.of(user, identities.findProvidersByUserId(user.getId()));
+	}
+
+	/** {@code ?token=} 이 {@code jwt} 가 아님: 파라미터 오류는 400 validation + fields (TASK-20#4). */
+	public static ApiException unsupportedTokenMode() {
+		String message = "token 파라미터는 jwt 만 지원합니다";
+		return new ApiException(HttpStatus.BAD_REQUEST, ApiErrors.VALIDATION, message, Map.of("token", message));
 	}
 
 }

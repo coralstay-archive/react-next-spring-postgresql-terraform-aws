@@ -89,7 +89,7 @@ public class PhoneAuthController {
 			@RequestParam(name = "link", defaultValue = "false") boolean link, @AuthenticationPrincipal AuthUser principal,
 			HttpServletRequest request, HttpServletResponse response) {
 		if (token != null && !AuthController.TOKEN_MODE_JWT.equals(token)) {
-			throw badRequest("token 파라미터는 jwt 만 지원합니다");
+			throw AuthController.unsupportedTokenMode();
 		}
 		if (link) {
 			return link(body, token, principal);

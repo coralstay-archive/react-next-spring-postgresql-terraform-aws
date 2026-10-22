@@ -4,7 +4,7 @@ title: '백엔드: 운영 설정 fail-fast + 보안 기본값'
 status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-12 06:13'
 labels:
   - backend
   - security
@@ -42,3 +42,9 @@ documentation:
 - [ ] #4 BE-26 운영 모드에서 SMS_PROVIDER=console이면 기동 실패, console 출력은 번호 마스킹
 - [ ] #5 BE-12 pg_trgm 확장 권한 요구사항을 문서화하고 기동 실패 메시지를 개선
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-20 리뷰 이월(2026-10-12): Hibernate SqlExceptionHelper가 JPA 경로의 SQL 오류를 자체 ERROR로 로깅하고, 여기에 DB 상세 'Key (email)=(...)'(개인정보)가 포함될 수 있다. 앱 처리기는 더 이상 메시지를 로깅하지 않는다. 운영 로그 개인정보 정책과 함께 이 로거 레벨이나 마스킹을 결정한다.
+<!-- SECTION:NOTES:END -->
