@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountView } from "@/app/account/account-view";
 import type { Identity } from "@/lib/identities";
@@ -257,3 +257,40 @@ describe("TASK-28#5 ?linked= 처리", () => {
   });
 });
 
+// TASK-28#5: linked·error 를 지울 때 다른 쿼리와 hash 는 남긴다. ?error= 도 표시 후 지워 새로고침에 반복되지 않는다.
+describe("TASK-28#5 URL 정리(hash 보존, ?error= 제거)", () => {
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("TASK-28#5 linked 를 지울 때 hash 를 남긴다", async () => {
+    window.history.replaceState(null, "", "/account/?linked=kakao&tab=x#step-up");
+    navigation.reset("/account/", "linked=kakao&tab=x");
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    renderWithQuery(<AccountView />);
+    await screen.findByRole("status", { name: "알림" });
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith("/account/?tab=x#step-up", { scroll: false }),
+    );
+  });
+
+  it("TASK-28#5 ?error= 는 보여 준 뒤 주소에서 지운다(다른 쿼리·hash 유지)", async () => {
+    window.history.replaceState(null, "", "/account/?error=identity_in_use&tab=x#step-up");
+    navigation.reset("/account/", "error=identity_in_use&tab=x");
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    renderWithQuery(<AccountView />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(ERROR_MESSAGES.identity_in_use);
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith("/account/?tab=x#step-up", { scroll: false }),
+    );
+  });
+
+  it("TASK-28#5 linked 와 error 가 함께 오면 둘 다 지운다", async () => {
+    navigation.reset("/account/", "linked=github&error=oauth2_failed");
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    renderWithQuery(<AccountView />);
+    await screen.findByText(OAUTH_LINK_MESSAGES.oauth2_failed);
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/account/", { scroll: false }));
+    for (const [url] of navigation.replace.mock.calls) expect(url).toBe("/account/");
+  });
+});
