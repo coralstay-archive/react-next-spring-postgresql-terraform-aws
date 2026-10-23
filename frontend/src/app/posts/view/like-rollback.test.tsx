@@ -53,6 +53,41 @@ describe("TASK-33#1 좋아요 롤백", () => {
     expect(screen.getByTestId("view-count")).toHaveTextContent("9");
   });
 
+  it("TASK-33#1 요청 중 재조회로 서버 값이 들어왔으면 실패해도 그 값을 덮지 않고 상세를 다시 받는다", async () => {
+    const gate = deferred();
+    let gets = 0;
+    server.use(
+      meHandler(makeMe()),
+      csrfHandler(),
+      http.get("*/api/posts/1", () => {
+        gets += 1;
+        return HttpResponse.json(
+          gets === 1 ? makePost({ likeCount: 3, likedByMe: false }) : makePost({ likeCount: 8, likedByMe: true }),
+        );
+      }),
+      commentsHandler(1, () => []),
+      http.post("*/api/posts/1/like", async () => {
+        await gate.promise;
+        return apiError(500, "internal", "서버 오류");
+      }),
+    );
+    const { client } = renderWithQuery(<PostDetailView />);
+
+    const button = await screen.findByTestId("like-button");
+    await userEvent.click(button);
+    expect(screen.getByTestId("like-count")).toHaveTextContent("4");
+
+    // 요청이 도는 사이 재조회가 서버 값(다른 탭에서 이미 좋아요, 총 7)을 가져왔다 — 낙관적 값(4)과 다르다.
+    client.setQueryData<PostDetail>(queryKeys.post(1), (old) => old && { ...old, likedByMe: true, likeCount: 7 });
+    await waitFor(() => expect(screen.getByTestId("like-count")).toHaveTextContent("7"));
+
+    gate.resolve();
+    // 옛 값(3)으로 되돌리지 않고, 상세를 다시 받아 서버 값으로 맞춘다.
+    await waitFor(() => expect(gets).toBe(2));
+    await waitFor(() => expect(screen.getByTestId("like-count")).toHaveTextContent("8"));
+    expect(button).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("TASK-33#1 404(그사이 삭제된 글)면 상세를 다시 받아 없는 글 안내로 바꾼다", async () => {
     let gets = 0;
     server.use(

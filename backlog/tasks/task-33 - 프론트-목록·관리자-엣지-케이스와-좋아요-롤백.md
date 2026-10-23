@@ -4,7 +4,7 @@ title: '프론트: 목록·관리자 엣지 케이스와 좋아요 롤백'
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 14:48'
+updated_date: '2026-10-23 15:21'
 labels:
   - frontend
   - board
@@ -49,3 +49,9 @@ documentation:
 6. (AC#6) validateCategoryForm: 순서는 0~10000 정수(서버 MAX_SORT_ORDER), 오류 '순서는 0~10000 사이 정수여야 합니다'. 수정 시 순서를 안 바꿨으면(PATCH 에서 빠짐) 범위 밖 기존 값도 검사하지 않는다(서버와 동일).
 7. docs/frontend.md 갱신, make test·tsc·eslint.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+독립 리뷰(2026-10-24) 반영 결정(유저): '첫 페이지로'는 필터 모두 빼고 / 유지. 정지 경고의 재시도는 백엔드에 세션 삭제 전용 API(정지 상태는 건드리지 않음, 감사 로그는 세션 삭제로 따로)를 추가해 쓴다(이 태스크에서, 백엔드 테스트 포함). 모르는 경고 코드는 일반 한국어 문장만 보이고 코드는 콘솔로(B2 예외 없음). 관리자 목록도 OFFSET 상한 유지. 고칠 것: 좋아요 롤백은 캐시가 아직 낙관적 값일 때만 되돌리기(아니면 상세 무효화), sortOrder '바꾸지 않음' 비교를 숫자로 통일, frontend.md 관리자 cap testid 목록 보완.
+<!-- SECTION:NOTES:END -->
