@@ -1,10 +1,10 @@
 ---
 id: TASK-32
 title: '프론트: step-up·계정 화면 일관성'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-23 11:46'
 labels:
   - frontend
   - auth

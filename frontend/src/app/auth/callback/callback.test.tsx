@@ -43,7 +43,8 @@ describe("TASK-29#7 OAuth 콜백 실패: 저장된 next 정리, 돌아가기 링
 
     const link = await screen.findByRole("link", { name: "로그인으로 돌아가기" });
     expect(link).toHaveAttribute("href", `/login/?next=${encodeURIComponent("/admin/?tab=users")}`);
-    expect(window.sessionStorage.getItem(NEXT_STORAGE_KEY)).toBeNull();
+    // 링크가 먼저 그려지고 정리는 effect 에서 한다 — 부하에서는 한 틱 늦을 수 있어 기다린다
+    await waitFor(() => expect(window.sessionStorage.getItem(NEXT_STORAGE_KEY)).toBeNull());
     expect(navigation.replace).not.toHaveBeenCalled();
   });
 
@@ -57,6 +58,6 @@ describe("TASK-29#7 OAuth 콜백 실패: 저장된 next 정리, 돌아가기 링
 
     const link = await screen.findByRole("link", { name: "로그인으로 돌아가기" });
     expect(link).toHaveAttribute("href", `/login/?next=${encodeURIComponent("/account/")}`);
-    expect(window.sessionStorage.getItem(NEXT_STORAGE_KEY)).toBeNull();
+    await waitFor(() => expect(window.sessionStorage.getItem(NEXT_STORAGE_KEY)).toBeNull());
   });
 });
