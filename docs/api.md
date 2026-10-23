@@ -4,7 +4,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 개요와 실행 방법은 [README](../README.md)에 있다. 이 문서는 TASK-18에서 README의 API 절을 옮긴 것이다.
 
 - [오류 응답](#오류-응답-task-20) · [인증·인가 모델](#인증인가-모델-백엔드) · [인증 API (LOCAL)](#인증-api-local) · [휴대폰 OTP](#휴대폰-otp-로그인-task-7) · [소셜 로그인·계정 연결](#소셜-로그인-google--github--naver--kakao--cognito-과-계정-연결)
-- [게시판](#게시판-api-task-8) · [댓글·좋아요·조회수](#댓글--좋아요--조회수-task-9) · [검색](#검색-task-10) · [이미지 첨부](#이미지-첨부-task-11) · [관리자](#관리자-api-task-12)
+- [게시판](#게시판-api-task-8) · [댓글·좋아요·조회수](#댓글--좋아요--조회수-task-9) · [검색](#검색-task-10) · [이미지 첨부](#이미지-첨부-task-11) · [관리자](#관리자-api-task-12) · [보존 기간 정리](#보존-기간-정리-task-27)
 - 콘솔 설정: [oauth-setup.md](oauth-setup.md), [sms-setup.md](sms-setup.md)
 
 ## 오류 응답 (TASK-20)
@@ -50,7 +50,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 - 실패만 세는 쪽은 처리 중인 시도도 세므로, 한 NAT 뒤에서 로그인이 동시에 많이 몰리면(맞는 비밀번호여도) IP 한도에 걸려 잠깐 429를 받을 수 있다. 성공한 시도는 끝나는 대로 지워져 곧 풀린다.
 - 시각은 DB가 아니라 앱 서버의 시계(`Clock`)로 기록·비교한다. 인스턴스끼리 시계가 어긋나면 그 차이만큼 덜 셀 수 있다(NTP 동기화 전제 — 초 단위 오차는 분·시간 창에서 무시할 수 있다).
 - 클라이언트 IP는 휴대폰 OTP와 같은 규칙(`CLIENT_IP_HEADER`)이다.
-- 오래된 행 정리(가장 긴 창 1시간보다 오래된 행)는 TASK-27 정리 잡에서 한다.
+- 오래된 행 정리(TASK-27#5): 설정된 `app.rate-limit.*.window` 중 가장 긴 것(기본 1시간)보다 오래된 행만 지운다 — 아래 [보존 기간 정리](#보존-기간-정리-task-27).
 
 엔드포인트별 고유 코드(예: `email_taken`, `post_not_found`)는 각 절에 있다. 다른 예외에 감싸여 올라온 고유 코드도 500으로 바뀌지 않고 그 코드로 나간다. 응답에 되돌려 주는 파라미터·필드 이름은 100자까지만 담는다.
 
@@ -92,7 +92,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | `POST /api/auth/signup` `{email, password, nickname}` | 201 + 사용자 요약. 자동 로그인 없음. 비밀번호 8자 이상·72바이트 이하·문자+숫자, 닉네임 2~20자. 같은 이메일(대소문자 무시) 중복은 409. CSRF 필요 |
 | `POST /api/auth/login` `{email, password}` | 세션 로그인: 세션 ID 교체 + `SESSION` 쿠키 + 새 `XSRF-TOKEN` 쿠키, 200 + 사용자 요약. CSRF 필요 |
 | `POST /api/auth/login?token=jwt` | 세션 없이 `{accessToken, refreshToken, tokenType:"Bearer", expiresIn}`. CSRF 면제(쿠키를 만들지 않는 비브라우저 흐름) |
-| `POST /api/auth/token/refresh` `{refreshToken}` | 로테이션: 새 access+refresh. 이미 쓴 refresh를 다시 쓰면 그 로그인(family)의 토큰을 모두 폐기하고 401. 정지 계정이면 그 family 를 폐기하고 403 `suspended`(정지로 이미 폐기된 토큰이면 401 `invalid_refresh_token`). Authorization 헤더는 필요 없다(만료된 access 토큰이 붙어 있으면 무시). CSRF 면제 |
+| `POST /api/auth/token/refresh` `{refreshToken}` | 로테이션: 새 access+refresh. 이미 쓴 refresh를 다시 쓰면 그 로그인(family)의 토큰을 모두 폐기하고 401. 정지 계정이면 그 family 를 폐기하고 403 `suspended`(정지로 이미 폐기된 토큰이면 401 `invalid_refresh_token`). 재사용 감지는 쓴 토큰 행이 남아 있는 동안만이다 — 폐기 7일 뒤(`REFRESH_TOKEN_RETENTION`) 지워진 토큰은 모르는 토큰과 같은 401 이고 family 를 폐기하지 않는다(TASK-27#1). Authorization 헤더는 필요 없다(만료된 access 토큰이 붙어 있으면 무시). CSRF 면제 |
 | `POST /api/auth/logout` | 세션: 세션 삭제 + 쿠키 만료(CSRF 필요). Bearer: 본문 `{refreshToken}`이 그 사용자 것이면 그 family 폐기(access 토큰이 만료됐어도). 항상 204, 정지 계정도 가능 |
 | `GET /api/auth/me` | 현재 사용자 `{id, nickname, email, role, status, providers, stepUpRequired, stepUpProviders}` (DB 최신 값). 익명은 401. `stepUpRequired`면 이 세션·토큰은 제한 상태이고 `stepUpProviders`는 다시 인증할 수 있는 수단 |
 
@@ -263,7 +263,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 
 - **수정·삭제 권한(B1)**: 작성자와 ADMIN만 할 수 있다. `@PreAuthorize("@ownership.canModify(authentication, @postService.ownerOf(#id, authentication))")`로 검사하며, 글이 없거나 이미 삭제됐으면 404를 먼저 낸다. 숨긴 글은 ADMIN이 아니면 없는 글처럼 404다. 그다음 남의 글이면 403 `forbidden`이다. 삭제된 글은 ADMIN도 수정할 수 없다(복구는 TASK-12).
 - **삭제·숨김 글(B2)**: ADMIN이 아니면 목록에 나오지 않고 상세는 404다. ADMIN은 상세에서 `deleted`·`hidden` 표시와 함께 볼 수 있고, 목록은 `?includeHidden=true`를 붙였을 때만 포함한다(ADMIN이 아니면 이 파라미터는 무시한다).
-- **태그(B3)**: 이름은 NFC로 정규화한 뒤 앞뒤 공백을 지우고, 안쪽 공백을 한 칸으로 줄이고, 소문자로 바꾼다. 30자를 넘거나 비면 400 `invalid_tag`다. 한 글 안의 중복은 하나로 합치며, 합친 뒤 5개를 넘으면 400 `too_many_tags`다(입력 배열은 20개까지 받는다). 태그는 `INSERT ... ON CONFLICT (name) DO NOTHING`으로 넣은 뒤 다시 읽어서 재사용하므로, 같은 새 태그를 동시에 써도 행은 하나만 생긴다.
+- **태그(B3)**: 이름은 NFC로 정규화한 뒤 앞뒤 공백을 지우고, 안쪽 공백을 한 칸으로 줄이고, 소문자로 바꾼다. 30자를 넘거나 비면 400 `invalid_tag`다. 한 글 안의 중복은 하나로 합치며, 합친 뒤 5개를 넘으면 400 `too_many_tags`다(입력 배열은 20개까지 받는다). 태그는 `INSERT ... ON CONFLICT (name) DO NOTHING`으로 넣은 뒤 다시 읽어서 재사용하므로, 같은 새 태그를 동시에 써도 행은 하나만 생긴다. 어느 글(삭제·숨김 글 포함)도 쓰지 않게 된 태그는 보존 기간 정리가 다음 실행(1시간 안)에 지운다(TASK-27#1). 저장 중인 글은 태그 행을 `FOR KEY SHARE` 로 잡아 두므로 정리가 건너뛰고, 정리가 먼저 잡아 지운 태그는 저장이 기다렸다가 다시 만든다 — 글 저장이 실패하거나 태그가 빠지지 않는다.
 - **동시 수정(TASK-23#3, B1)**: 글에는 낙관적 잠금 버전(`posts.version`)이 있다. 작성자 수정·삭제와 관리자 숨김·숨김 해제·복구가 동시에 겹치면 늦게 커밋하는 쪽이 409 `conflict`이고 아무것도 바뀌지 않는다. 그래서 먼저 커밋된 숨김·삭제가 늦은 수정에 덮여 되살아나지 않는다. 클라이언트는 버전을 보내지 않는다(`If-Match`·`version` 필드 없음, 기존 요청 그대로) — 서버 트랜잭션끼리 겹친 경쟁만 잡고, 409를 받으면 다시 읽고 시도한다. 오래 열어 둔 편집 화면의 덮어쓰기(읽은 뒤 몇 분 지나 저장)는 잡지 않는다(후속). 좋아요·조회수 카운터는 SQL로 ±1 하므로 버전을 올리지 않는다(좋아요가 수정을 409로 만들지 않는다).
 - **ADMIN 전용 카테고리**: `categories.admin_only=true`인 카테고리(공지)에 글을 쓰거나 글을 옮기는 것은 ADMIN만 할 수 있다. USER는 403 `category_admin_only`를 받는다.
 
@@ -283,7 +283,8 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 - **좋아요와 숨김·삭제(TASK-23#4)**: 좋아요·취소는 글이 보이는지 확인할 때 글 행을 잠근다(`FOR NO KEY UPDATE`). 확인 뒤의 숨김·삭제는 좋아요가 끝날 때까지 기다리고, 먼저 커밋된 숨김·삭제는 좋아요가 보고 404 `post_not_found`다. 글 행이 없어도 404다. 댓글 작성처럼 `FOR SHARE`를 쓰지 않는 이유: 좋아요는 이어서 같은 행의 `like_count`를 UPDATE 하므로, 공유 잠금을 쥔 동시 좋아요끼리 교착(40P01)이 난다. 같은 글의 좋아요는 이 잠금에서 줄을 선다(어차피 카운터 UPDATE에서 줄 선다).
 - **좋아요 정합성(B1)**: `post_likes`의 PK `(post_id, user_id)`로 사용자당 글 하나에 1회만 누를 수 있다. `posts.like_count`는 `INSERT ... ON CONFLICT DO NOTHING`이나 `DELETE`가 실제로 바꾼 행이 1개일 때만 같은 트랜잭션에서 ±1 한다. 그래서 같은 요청이 동시에 와도 카운터는 행 수와 같다. 엔티티는 카운터를 읽기 전용으로 매핑하므로 글 수정이 카운터를 덮어쓰지 않는다.
 - **조회수(B2)**: `GET /api/posts/{id}`가 보이는 글(삭제·숨김이 아닌 글)을 돌려줄 때 센다. 같은 방문자는 30분에 한 번만 센다. 방문자 키는 로그인 사용자면 `u:<user id>`(기기·세션과 상관없음)이다. 익명이면 `VID` 쿠키(128비트 랜덤, HttpOnly, SameSite=Lax, Path=/, 30일, `COOKIE_SECURE`를 따름)의 SHA-256인 `s:<hex>`이며, 익명에게 HTTP 세션은 만들지 않는다. `post_views (post_id, viewer_key, viewed_at)`에 `INSERT ... ON CONFLICT DO UPDATE ... WHERE viewed_at <= now-30m`를 실행해서 바뀐 행이 1개일 때만 `view_count + 1` 한다. 상세 읽기 트랜잭션이 끝난 뒤 별도 트랜잭션에서 실행한다. 응답의 `viewCount`에는 이번 조회가 들어 있다.
-  - 한계: 쿠키를 받지 않는 클라이언트(봇 등)는 요청할 때마다 새 방문자로 센다. `post_views`는 계속 커지므로 30분이 지난 행을 지우는 정리 작업이 필요하다(후속 작업, `post_views_viewed_at_ix` 인덱스가 있다).
+  - **집계 실패(TASK-27#2, BE-28)**: 집계가 DB 오류 등으로 실패해도 상세는 200 이다(이미 읽었다). 이번 조회는 세지 않고(`viewCount` 는 올리지 않은 값) WARN 로그(글 id·예외 종류·SQLState, 방문자 키는 남기지 않음)만 남는다. 집계는 자기 트랜잭션이라 실패가 응답을 롤백하지 않는다.
+  - 한계: 쿠키를 받지 않는 클라이언트(봇 등)는 요청할 때마다 새 방문자로 센다. `post_views`에서 30분 창 밖의 행은 보존 기간 정리가 지운다(TASK-27#1, 다시 보면 어차피 새로 세므로 결과가 같다).
 - **인기순**: `sort=popular`는 `like_count DESC, created_at DESC, id DESC` 순서다. 보이는 글만 담은 부분 인덱스 `posts_visible_popular_ix`를 쓴다.
 
 ### 검색 (TASK-10)
@@ -333,7 +334,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 - **지연 삭제(TASK-26#4, BE-36)**: 앱 스케줄러 `OrphanAttachmentCleanup`이 1시간마다(`app.uploads.cleanup-interval`) 유예 기간(`UPLOADS_ORPHAN_GRACE_PERIOD`, 기본 `P7D`)이 지난 첨부의 행을 지우고(행 먼저 — 다시 붙였거나 복구됐으면 조건부 DELETE 가 0행) 객체를 지운다. 대상은 ① 글 수정으로 뗀 첨부(뗀 시각 `detached_at`부터), ② 확정만 하고 글에 붙이지 않은 첨부(`confirmed_at`부터), ③ 삭제된 글의 첨부(글의 `deleted_at`부터). 유예 안에 다시 붙이거나 관리자가 복구(`POST /api/admin/posts/{id}/restore`)하면 손대지 않아 이미지가 그대로다. 유예 뒤 복구한 글에는 이미지가 없다(첨부 행이 없다). 숨김 글의 첨부는 대상이 아니다. 배포 전 데이터도 배포 시각부터 유예를 준다(V15): 그 전에 뗀(또는 붙이지 않은) 확정 첨부는 `detached_at` 을 배포 시각으로 채우고, 그 전에 삭제된 글의 첨부는 정리 시작 시각(`attachment_cleanup_start`, 배포 시각) + 유예 전에는 지우지 않는다 — 배포 직후 첫 정리에 오래된 이미지가 한꺼번에 지워지지 않는다. S3 삭제가 실패하면 그 키를 WARN 으로 남기고(태그가 없어 lifecycle 이 지우지 않는다) 그 실행을 멈춘다. 두 정리 작업 모두 실행당 예산(`app.uploads.cleanup-max-items` 기본 5000건, `app.uploads.cleanup-max-duration` 기본 10분, 상한 20분)을 다 쓰면 멈추고 남은 것은 다음 실행이 한다 — 스케줄 락 `lockAtMostFor` 30분을 넘겨 다른 인스턴스와 겹쳐 돌지 않게.
 - **오래 열어 둔 편집기(TASK-26#4)**: 확정만 하고 글에 붙이지 않은 이미지도 확정 시각부터 유예 기간(기본 7일)이 지나면 지워진다. 그래서 이미지를 올린 편집기를 7일 넘게 열어 두었다가 저장하면 그 이미지 id 는 이미 없어 글 작성·수정이 400 `unknown_attachment` 로 거절된다(글 전체 롤백). 편집기에서 그 이미지를 빼거나 다시 올린 뒤 저장한다.
 - **공개 URL 이 열리지 않게 되는 시점(B2)**: 공개 `url`(`/uploads/…`)은 CloudFront `/uploads/*` 동작이 S3(OAC)의 같은 키를 읽어 주는 것이라, 객체를 지우면 새 요청은 S3 의 403/404 를 받는다. 단 이 동작의 캐시 정책은 Managed-CachingOptimized 이고 S3 객체에 `Cache-Control` 이 없어 기본 TTL 24시간이 적용된다 — 이미 엣지에 캐시된 사본은 객체를 지운 뒤에도 최대 24시간 더 나갈 수 있고, 브라우저 캐시도 남을 수 있다. 그래서 글을 지운 뒤 이미지가 공개 URL 로 열리지 않게 되는 최악 시점은 **유예 7일 + 정리 주기 최대 1시간 + CloudFront 캐시 최대 24시간**이다. 앱은 CloudFront 무효화(invalidation)를 하지 않는다 — 이 최대 24시간 캐시 지연은 수용한 정책이다(TASK-26 리뷰 결정).
-- **스케줄 작업 분산 락(TASK-26#5, BE-37)**: 두 정리 작업은 ShedLock(`shedlock` 테이블, V14, DB 시계)으로 인스턴스가 여럿이어도 한 번에 하나만 돈다(락 이름 `pending-attachment-cleanup`·`orphan-attachment-cleanup`, `lockAtMostFor` 30분, `lockAtLeastFor` `SCHEDULING_LOCK_AT_LEAST_FOR` 기본 10초). 락을 못 잡은 실행은 건너뛴다. Spring Session JDBC 의 만료 세션 정리는 라이브러리 자체 스케줄러라 락 밖이지만 멱등 DELETE 라 겹쳐도 결과가 같다.
+- **스케줄 작업 분산 락(TASK-26#5, BE-37)**: 정리 작업들은 ShedLock(`shedlock` 테이블, V14, DB 시계)으로 인스턴스가 여럿이어도 한 번에 하나만 돈다(락 이름 `pending-attachment-cleanup`·`orphan-attachment-cleanup`·`retention-cleanup`(TASK-27), `lockAtMostFor` 30분, `lockAtLeastFor` `SCHEDULING_LOCK_AT_LEAST_FOR` 기본 10초). 락을 못 잡은 실행은 건너뛴다. Spring Session JDBC 의 만료 세션 정리는 라이브러리 자체 스케줄러라 락 밖이지만 멱등 DELETE 라 겹쳐도 결과가 같다.
 - **스키마**: V9 `attachments(owner_id, post_id NULL, s3_key UNIQUE, content_type, size, status PENDING|CONFIRMED, created_at, confirmed_at)`, V13 `detached_at`(글에 붙어 있으면 NULL — CHECK). CHECK 제약으로 타입·5MB와 "글에는 CONFIRMED만"을 DB에서도 막는다.
 - **운영 권한**: 앱(EC2 role)에는 `uploads` 모듈 출력 `app_policy_json`을 붙인다. 내용은 `uploads/*`에 대한 Put/Get/Delete Object와 Put/Get/Delete ObjectTagging이다. presigned URL은 앱 자격 증명으로 서명하므로 PutObject와 PutObjectTagging 권한도 앱에 있어야 한다.
 
@@ -344,10 +345,10 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | 요청 | 응답 |
 |---|---|
 | `GET /api/admin/users?q&status&page&size` | `{items:[{id, nickname, email, phone, role, status, providers[], createdAt}], page, size, totalElements, totalPages}` 최근 가입순. `q`는 닉네임·이메일 부분 일치(대소문자 무시) 또는 전화번호 부분 일치(숫자만 비교, `010-1234-5678`처럼 앞자리 0인 국내 표기도 찾는다). `status`=`ACTIVE`\|`SUSPENDED`(대소문자 무시), `size` 1~100(기본 20) |
-| `POST /api/admin/users/{id}/suspend` `{reason?}` | 200 사용자 한 줄(`status:"SUSPENDED"`). 멱등 |
+| `POST /api/admin/users/{id}/suspend` `{reason?}` | 200 사용자 한 줄(`status:"SUSPENDED"`) + `warnings`(배열, 평소 `[]`). 멱등. 정지 커밋 뒤 세션 삭제가 실패하면 `warnings:["session_revoke_failed"]`(정지는 그대로, TASK-27#3) |
 | `POST /api/admin/users/{id}/unsuspend` `{reason?}` | 200 사용자 한 줄(`status:"ACTIVE"`). 멱등. 끊긴 세션·토큰은 되살리지 않는다(다시 로그인) |
 | `POST /api/admin/posts/{id}/hide` · `/unhide` · `/restore` `{reason?}` | 200 `{id, hidden, deleted, hiddenAt, deletedAt}`. 멱등(다시 숨겨도 처음 숨긴 시각 유지). `restore`는 `deleted_at`만 지우고 숨김은 그대로 둔다. 작성자 수정·삭제와 겹치면 늦은 쪽이 409 `conflict`(위 게시판 동시 수정, TASK-23#3) |
-| `POST /api/admin/categories` `{slug, name, sortOrder?, adminOnly?}` | 201 `{id, slug, name, sortOrder, adminOnly}`. `sortOrder` 생략 시 맨 뒤(최대 + 1), `adminOnly` 생략 시 false |
+| `POST /api/admin/categories` `{slug, name, sortOrder?, adminOnly?}` | 201 `{id, slug, name, sortOrder, adminOnly}`. `sortOrder`는 0~10000(TASK-27#4), 생략 시 맨 뒤(최대 + 1, 10000 을 넘지 않는다 — 닿으면 같은 값이 여럿일 수 있고 목록은 같은 값끼리 id 순), `adminOnly` 생략 시 false |
 | `PATCH /api/admin/categories/{id}` `{slug?, name?, sortOrder?, adminOnly?}` | 200 같은 모양. 보낸 필드만 바꾼다 |
 | `DELETE /api/admin/categories/{id}` | 204. 그 카테고리의 글은 남고 카테고리 없음이 된다(FK `ON DELETE SET NULL`) |
 | `GET /api/admin/actions?page&size` | 감사 로그 최근순 `{items:[{id, adminId, adminNickname, action, targetType, targetId, reason, createdAt}], ...}` |
@@ -358,7 +359,24 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | 409 `cannot_suspend_admin` | 다른 ADMIN을 정지하려 함. 관리자끼리 서로 잠그는 것을 막는다. ADMIN 정지가 꼭 필요하면 DB에서 역할부터 바꾼다 |
 | 404 `user_not_found` · `post_not_found` · `category_not_found` | 없는 대상 |
 | 409 `slug_taken` | 카테고리 slug 중복(동시 생성의 유니크 위반 `categories_slug_uk`도 같은 409). 다른 DB 오류는 slug_taken으로 바꾸지 않고 공통 매핑(409 `conflict` · 400 `validation` · 500 `internal_error`)을 따른다 |
-| 400 `validation` | slug가 `^[a-z0-9-]{2,30}$`가 아님, name이 비었거나 50자 초과, `reason` 500자 초과, 잘못된 `page`·`size`·`status` |
+| 400 `validation` | slug가 `^[a-z0-9-]{2,30}$`가 아님, name이 비었거나 50자 초과, `sortOrder`가 0~10000 밖(`fields.sortOrder`, 생성·수정 모두), `reason` 500자 초과, 잘못된 `page`·`size`·`status` |
 
 - **정지는 즉시 효과**: 한 트랜잭션에서 `status=SUSPENDED`, 그 사용자의 refresh 토큰 전부(모든 family) 폐기, 감사 로그를 커밋하고, 커밋 뒤 Spring Session JDBC에서 그 사용자의 세션을 모두 지운다. 세션은 `SPRING_SESSION.PRINCIPAL_NAME` 인덱스로 찾는데, Spring Session이 세션의 SecurityContext에서 `Authentication#getName()`(= 사용자 id)을 뽑아 채우므로 세션·소셜·OTP 로그인 세션이 모두 사용자 id로 색인된다. 결과: 기존 세션은 다음 요청부터 익명(보호된 API는 401), refresh는 401, 이미 받은 access JWT는 만료(15분)까지 읽기만 되고 쓰기는 403, 로그인은 403 `suspended`.
+- **세션 삭제 실패(TASK-27#3, BE-38)**: 정지는 이미 커밋됐으므로 되돌리지 않는다. WARN 로그(사용자 id·예외 종류)를 남기고 200 + `warnings:["session_revoke_failed"]` 로 알린다. 남은 세션은 요청마다 DB 의 status 를 보는 필터(TASK-24, `CurrentUserFilter`·`SuspendedUserWriteFilter`)가 막아서 쓰기는 403 `suspended` 다(정지 계정의 읽기 범위는 이미 받은 access JWT 와 같다 — 세션 만료 14일 또는 삭제 재시도까지). 관리자가 같은 정지를 다시 누르면(멱등) 세션 삭제를 다시 시도한다.
 - **감사 로그**: V10 `admin_actions(id, admin_id, action, target_type, target_id, reason, created_at)`. 모든 관리 쓰기(`USER_SUSPEND`·`USER_UNSUSPEND`·`POST_HIDE`·`POST_UNHIDE`·`POST_RESTORE`·`CATEGORY_CREATE`·`CATEGORY_UPDATE`·`CATEGORY_DELETE`)를 그 작업과 같은 트랜잭션에서 한 행씩 남긴다. 상태가 이미 같아 바뀐 게 없어도 호출마다 기록한다. 빈 사유는 null, 카테고리 삭제는 사유에 `slug=...`를 남긴다. `target_id`는 대상이 지워져도 남도록 FK가 없다.
+
+### 보존 기간 정리 (TASK-27)
+
+앱 스케줄러 `RetentionCleanup`(ShedLock `retention-cleanup`)이 `RETENTION_INTERVAL`(기본 1시간)마다 더 이상 어떤 판단에도 쓰이지 않는 행을 지운다(TASK-27#1 BE-10, #5). 보안상 필요한 기록 — 살아 있는 refresh 토큰, 아직 한도 창 안의 OTP·레이트리밋 기록 — 은 지우지 않는다(B1).
+
+| 표 | 지우는 행 | 기준이 이런 이유 |
+|---|---|---|
+| `refresh_tokens` | 만료(`expires_at`) 또는 폐기(`revoked_at`) 뒤 `REFRESH_TOKEN_RETENTION`(기본 `P7D`)이 지난 행 | 살아 있는 토큰(폐기 안 됨·만료 안 됨)은 기간과 상관없이 남는다. 7일 동안은 로테이션된 토큰의 재사용을 감지해 family 를 폐기한다. 그보다 오래된 토큰의 재사용은 모르는 토큰과 같은 401 이고 family 는 폐기되지 않는다(수용한 한계 — 탈취된 옛 토큰은 이미 쓸 수 없고, 같은 family 의 최신 토큰은 로테이션마다 바뀐다) |
+| `otp_challenges` | 만료 뒤 `OTP_RETENTION`(기본 `P1D`)이 지났고 **그리고** `created_at` 이 발송 한도의 가장 긴 창(24시간·1시간·`app.otp.phone-cooldown` 중 긴 것)보다 오래된 행 | 발송 한도는 이 표의 `created_at` 을 센다. 보존 기간을 짧게 잡아도 창 안의 행은 남아서 지워도 한도가 풀리지 않는다 — 실제 기준은 `max(만료 + OTP_RETENTION, 가장 긴 창)` |
+| `post_views` | `viewed_at` 이 중복 집계 창(30분, 코드 상수)보다 오래된 행 | 창 밖의 방문자는 다음 조회 때 어차피 다시 센다 — 지워도 결과가 같다 |
+| `tags` | 어느 글(삭제·숨김 글 포함)도 쓰지 않는 태그 | 다음 실행에 바로 지운다. 글 저장과의 경쟁은 위 게시판 태그(B3) 참고 |
+| `rate_limit_events` | `occurred_at` 이 설정된 `app.rate-limit.*.window` 중 가장 긴 것(기본 1시간)보다 오래된 행 | 실행 때 설정에서 계산한다 — 창을 늘리면 그만큼 오래 남긴다 |
+
+- DELETE 한 문장은 `app.retention.batch-size`(기본 1000)행까지만 지운다(긴 잠금·긴 트랜잭션 없음). 한 번 실행은 표마다 `app.retention.max-items`(기본 50000)건, 전체 `app.retention.max-duration`(기본 10분, 상한 20분 — 스케줄 락 `lockAtMostFor` 30분보다 짧게)까지만 하고 남은 것은 다음 실행이 지운다.
+- 정리용 인덱스는 V16(`refresh_tokens` 의 `replaced_by`·`expires_at`·`revoked_at`, `otp_challenges.created_at`). 로그에는 표마다 지운 개수만 남긴다.
+- 기간이 0·음수이거나 batch-size 가 1~10000 밖, max-items 가 0 이하, max-duration 이 20분 초과면 기동하지 않는다.
