@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 
 import { ApiErrorAlert } from "@/components/board/api-error-alert";
 import { Button } from "@/components/ui/button";
 import { useCurrentPath } from "@/hooks/use-current-path";
+import { useDraftAutosave } from "@/hooks/use-draft-autosave";
 import { loginHref, useSessionUser, type Me } from "@/lib/auth";
 import {
   COMMENT_PAGE_SIZE,
@@ -16,7 +17,7 @@ import {
   type Comment,
 } from "@/lib/board";
 import { COMMENT_MAX, validateComment } from "@/lib/board-validation";
-import { clearDraft, draftKeys, loadDraft, saveDraft } from "@/lib/drafts";
+import { draftKeys, loadDraft } from "@/lib/drafts";
 
 /**
  * 댓글 목록·작성·삭제 (TASK-14#2). 목록은 오래된 순이고 삭제된 댓글은 자리표시(`deleted:true`)로 남는다.
@@ -149,11 +150,8 @@ function CommentEditor({ postId, user, onCreated }: { postId: number; user: Me; 
   // 같은 틱의 두 번째 제출(더블 클릭·Enter 연타)은 isPending 이 화면에 반영되기 전이라 ref 로 막는다.
   const submitting = useRef(false);
 
-  // 초안(TASK-29#3·#4, B1): 입력이 있으면 저장, 비면 지운다.
-  useEffect(() => {
-    if (content) saveDraft(draftKey, user.id, { content });
-    else clearDraft(draftKey, user.id);
-  }, [draftKey, user.id, content]);
+  // 초안(TASK-29#3·#4, B1): 입력이 있으면 (멈춘 뒤) 저장, 비면 지운다.
+  const autosave = useDraftAutosave({ key: draftKey, ownerId: user.id, data: { content }, empty: !content });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -162,9 +160,10 @@ function CommentEditor({ postId, user, onCreated }: { postId: number; user: Me; 
     setError(invalid);
     if (invalid) return;
     submitting.current = true;
+    autosave.flush();
     create.mutate(content, {
       onSuccess: () => {
-        clearDraft(draftKey);
+        autosave.discard();
         setContent("");
         onCreated();
       },

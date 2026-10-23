@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useId, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 
 import { ApiErrorAlert } from "@/components/board/api-error-alert";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -11,11 +11,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useDraftAutosave } from "@/hooks/use-draft-autosave";
 import { api, isApiError } from "@/lib/api";
 import { useSessionUser } from "@/lib/auth";
 import { useCategories, type Attachment, type PostDetail } from "@/lib/board";
 import { CONTENT_MAX, TITLE_MAX, validatePost, type PostInput } from "@/lib/board-validation";
-import { clearDraft, draftKeys, loadDraft, saveDraft } from "@/lib/drafts";
+import { draftKeys, loadDraft } from "@/lib/drafts";
 import { errorMessage } from "@/lib/errors";
 import { queryKeys } from "@/lib/query";
 import { addTag, MAX_TAGS, normalizeTag } from "@/lib/tags";
@@ -94,7 +95,7 @@ const SELECT = "border-input h-8 w-full rounded-lg border bg-transparent px-2 te
  * - 카테고리: `adminOnly` 는 ADMIN 에게만 보인다(서버도 403 `category_admin_only`).
  * - 태그: 서버와 같은 정규화를 미리 보여 주고 최대 5개.
  * - 이미지: 선검증 → presign → PUT(진행률) → confirm 한 첨부의 id 를 `attachmentIds` 로 보낸다. 업로드 중에는 등록을 막는다.
- * - 초안(TASK-29#3, B1): 입력이 바뀔 때마다 sessionStorage 에 저장하고(원래 값과 같으면 지움), 다시 열면 복원한다. 세션이 끝나도
+ * - 초안(TASK-29#3, B1): 입력이 멈추면 sessionStorage 에 저장하고(원래 값과 같으면 지움, useDraftAutosave), 다시 열면 복원한다. 세션이 끝나도
  *   편집기는 언마운트되지 않는다(RequireAuth). 저장에 성공하면 초안을 지운다.
  */
 export function PostEditor({ post }: { post?: PostDetail }) {
@@ -122,13 +123,8 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   // 초안 저장(TASK-29#3). 원래 값(작성: 빈 폼, 수정: 받은 글)과 같으면 지운다.
   const doneAttachments = items.flatMap((item) => (item.status === "done" ? [item.attachment] : []));
   const draft: PostDraft = { title, content, categorySlug, tags, attachments: doneAttachments };
-  const draftJson = JSON.stringify(draft);
   const pristine = sameDraft(draft, initialDraft(post));
-  useEffect(() => {
-    if (userId === undefined) return;
-    if (pristine) clearDraft(draftKey, userId);
-    else saveDraft(draftKey, userId, JSON.parse(draftJson));
-  }, [draftKey, userId, pristine, draftJson]);
+  const autosave = useDraftAutosave({ key: draftKey, ownerId: userId, data: draft, empty: pristine });
 
   const discardDraft = () => {
     const initial = initialDraft(post);
@@ -140,7 +136,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     setItems(doneItems(initial.attachments));
     setFieldErrors({});
     setRestored(null);
-    clearDraft(draftKey, userId);
+    autosave.discard();
   };
 
   const save = useMutation({
@@ -149,7 +145,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
         ? api<PostDetail>(`/posts/${post.id}`, { method: "PATCH", body })
         : api<PostDetail>("/posts", { method: "POST", body }),
     onSuccess: (saved) => {
-      clearDraft(draftKey);
+      autosave.discard();
       client.setQueryData(queryKeys.post(saved.id), saved);
       void client.invalidateQueries({ queryKey: queryKeys.postLists });
       void client.invalidateQueries({ queryKey: ["tags"] });
@@ -281,6 +277,8 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     else if (categorySlug) body.categorySlug = categorySlug;
     body.tags = finalTags;
     body.attachmentIds = attachmentIds;
+    // 요청 중 세션이 끝나도 마지막 입력이 초안에 있게 기다리지 않고 저장한다.
+    autosave.flush();
     save.mutate(body);
   };
 

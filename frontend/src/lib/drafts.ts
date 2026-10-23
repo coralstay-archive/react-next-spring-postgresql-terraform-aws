@@ -6,8 +6,11 @@
  * - 키: 글 작성 `draft:post:new`, 글 수정 `draft:post:edit:<글 id>`, 댓글 `draft:comment:<글 id>`.
  * - 값: `{v:1, userId, savedAt, data}`. 저장한 사용자에게만 되돌려 준다(같은 탭에서 다른 계정으로 로그인하면 복원하지 않는다).
  * - 상한: 직렬화 {@link DRAFT_MAX_CHARS}자를 넘으면 저장하지 않고 그 키의 이전 초안도 지운다(입력은 화면에 남는다). 초안은
- *   {@link DRAFT_MAX_ENTRIES}개까지 남기고 오래된 것부터 지운다. 저장소를 못 쓰면(사생활 모드·용량 초과) 조용히 건너뛴다.
- * - 지우는 때: 등록·저장 성공, 입력이 비었거나 원래 값과 같아졌을 때, 초안 버리기, 명시적 로그아웃 성공(TASK-29#5).
+ *   {@link DRAFT_MAX_ENTRIES}개까지 남기고 오래된 것부터 지운다(쓰기 전에). 용량 초과면 옛 버전을 지우고 한 번 더 쓰며, 그래도 안 되면
+ *   그 키를 비운다(옛 버전이 최신처럼 복원되지 않게). 저장소를 못 쓰면(사생활 모드) 조용히 건너뛴다.
+ * - 화면은 `useDraftAutosave`(hooks/use-draft-autosave.ts)로 입력이 멈춘 뒤 한 번 저장한다(디바운스, 언마운트·pagehide 때 바로).
+ * - 지우는 때: 등록·저장 성공, 입력이 비었거나 원래 값과 같아졌을 때, 초안 버리기, 명시적 로그아웃 성공(TASK-29#5),
+ *   같은 탭에서 계정이 A→B 로 바뀌었을 때 A 의 초안(TASK-29#1).
  */
 
 const PREFIX = "draft:";
@@ -71,7 +74,11 @@ function prune(storage: Storage, keep: string) {
   for (const { key } of entries.slice(0, excess)) storage.removeItem(key);
 }
 
-/** 초안 저장. 저장했으면 true, 상한 초과·저장소 오류면 false. */
+/**
+ * 초안 저장. 저장했으면 true, 상한 초과·저장소 오류면 false.
+ * 개수 상한 정리는 쓰기 전에 한다(가득 찬 저장소에서 자리를 먼저 만든다). 쓰기가 실패하면(용량 초과) 그 키의 옛 버전을 지우고 한 번만
+ * 다시 쓴다 — 옛 버전을 남겨 두면 나중에 그것이 최신 입력처럼 복원된다. 그래도 실패하면 그 키는 비어 있다(입력은 화면에 남는다).
+ */
 export function saveDraft(key: string, userId: number, data: unknown): boolean {
   const storage = store();
   if (!storage) return false;
@@ -81,10 +88,20 @@ export function saveDraft(key: string, userId: number, data: unknown): boolean {
       storage.removeItem(key);
       return false;
     }
-    storage.setItem(key, raw);
     prune(storage, key);
+    try {
+      storage.setItem(key, raw);
+    } catch {
+      storage.removeItem(key);
+      storage.setItem(key, raw);
+    }
     return true;
   } catch {
+    try {
+      storage.removeItem(key);
+    } catch {
+      // 저장소를 아예 못 쓰면 지울 것도 없다.
+    }
     return false;
   }
 }
@@ -119,6 +136,19 @@ export function clearAllDrafts() {
   if (!storage) return;
   try {
     for (const key of draftKeysIn(storage)) storage.removeItem(key);
+  } catch {
+    // 무시
+  }
+}
+
+/** 그 사용자의 초안만 삭제(TASK-29#1: 같은 탭에서 계정이 A→B 로 바뀌면 A 의 초안을 지운다). */
+export function clearDraftsOf(userId: number) {
+  const storage = store();
+  if (!storage) return;
+  try {
+    for (const key of draftKeysIn(storage)) {
+      if (read(storage, key)?.userId === userId) storage.removeItem(key);
+    }
   } catch {
     // 무시
   }

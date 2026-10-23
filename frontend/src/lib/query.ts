@@ -29,6 +29,12 @@ export const queryKeys = {
 /** 세션 만료 전역 안내 플래그(true 면 안내). `["auth", …]` 라 만료 리셋에서 빠진다. */
 export const SESSION_EXPIRED_KEY = ["auth", "sessionExpired"] as const;
 
+/**
+ * 명시적 로그아웃 중 플래그(TASK-29#5). 로그아웃 성공 때 true, 다시 로그인하면(me 가 사용자) false.
+ * 작성 화면은 이 동안 "로그인이 끊겼습니다(임시 저장됨)" 안내를 띄우지 않고, 언마운트돼도 초안을 다시 만들지 않는다.
+ */
+export const LOGGED_OUT_KEY = ["auth", "loggedOut"] as const;
+
 const MAX_RETRIES = 2;
 
 /** 4xx 는 다시 해도 같으므로 재시도하지 않는다. 네트워크 오류·5xx 만 최대 2번. */
