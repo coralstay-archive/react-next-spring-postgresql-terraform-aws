@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 
-import { ApiErrorAlert } from "@/components/board/api-error-alert";
+import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
 import { PostFlags } from "@/components/board/post-flags";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -84,7 +84,15 @@ export function PostListView() {
 
       <TagChips filters={filters} />
 
-      {list.isError ? (
+      {list.isError && list.data && (
+        <RefetchErrorAlert
+          error={list.error}
+          retrying={list.isFetching}
+          onRetry={() => void list.refetch()}
+          testId="post-list-refetch-error"
+        />
+      )}
+      {list.isError && !list.data ? (
         <ApiErrorAlert error={list.error} testId="post-list-error" />
       ) : list.isPending ? (
         <p role="status" className="text-muted-foreground text-sm">

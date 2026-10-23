@@ -5,6 +5,7 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 
 import { FormError } from "@/components/auth/form-error";
 import { PhoneOtpForm } from "@/components/auth/phone-otp-form";
+import { RefetchErrorAlert } from "@/components/board/api-error-alert";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -124,34 +125,45 @@ function IdentitiesSection({
       <CardContent>
         {identities.isPending ? (
           <p role="status">불러오는 중…</p>
-        ) : identities.isError ? (
+        ) : identities.isError && !identities.data ? (
           <FormError message={errorMessage(identities.error)} />
         ) : (
-          <ul aria-label="연결된 로그인 수단" className="divide-y">
-            {identities.data.map((identity) => {
-              const label = PROVIDER_LABELS[identity.provider];
-              return (
-                <li key={identity.id} className="flex items-center gap-3 py-3">
-                  <div className="grid flex-1 gap-0.5">
-                    <span className="font-medium">{label}</span>
-                    {identity.email && <span className="text-muted-foreground text-sm">{identity.email}</span>}
-                    <span className="text-muted-foreground text-xs">
-                      {new Date(identity.linkedAt).toLocaleDateString("ko-KR")} 연결
-                    </span>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    aria-label={`${label} 연결 해제`}
-                    disabled={unlink.isPending}
-                    onClick={() => remove(identity)}
-                  >
-                    해제
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
+          <>
+            {/* 재조회 실패(TASK-30#4)면 받은 목록을 두고 배너만 붙인다. */}
+            {identities.isError && (
+              <RefetchErrorAlert
+                error={identities.error}
+                retrying={identities.isFetching}
+                onRetry={() => void identities.refetch()}
+                testId="identities-refetch-error"
+              />
+            )}
+            <ul aria-label="연결된 로그인 수단" className="divide-y">
+              {identities.data.map((identity) => {
+                const label = PROVIDER_LABELS[identity.provider];
+                return (
+                  <li key={identity.id} className="flex items-center gap-3 py-3">
+                    <div className="grid flex-1 gap-0.5">
+                      <span className="font-medium">{label}</span>
+                      {identity.email && <span className="text-muted-foreground text-sm">{identity.email}</span>}
+                      <span className="text-muted-foreground text-xs">
+                        {new Date(identity.linkedAt).toLocaleDateString("ko-KR")} 연결
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label={`${label} 연결 해제`}
+                      disabled={unlink.isPending}
+                      onClick={() => remove(identity)}
+                    >
+                      해제
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         )}
       </CardContent>
     </Card>

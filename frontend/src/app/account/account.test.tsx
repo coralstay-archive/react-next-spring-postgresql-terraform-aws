@@ -294,3 +294,27 @@ describe("TASK-28#5 URL 정리(hash 보존, ?error= 제거)", () => {
     for (const [url] of navigation.replace.mock.calls) expect(url).toBe("/account/");
   });
 });
+
+describe("TASK-30#4 내 계정: 로그인 수단 재조회 실패", () => {
+  beforeEach(() => {
+    navigation.reset("/account/");
+  });
+
+  it("TASK-30#4 재조회가 실패해도 받은 목록을 유지하고 배너를 보인다", async () => {
+    let fail = false;
+    server.use(
+      meHandler(makeMe({ providers: ["GOOGLE", "LOCAL"] })),
+      http.get("*/api/me/identities", () =>
+        fail ? apiError(500, "internal_error", "x") : HttpResponse.json([LOCAL, GOOGLE]),
+      ),
+    );
+    const { client } = renderWithQuery(<AccountView />);
+    await screen.findByRole("button", { name: "Google 연결 해제" });
+
+    fail = true;
+    await client.refetchQueries({ queryKey: queryKeys.identities });
+
+    expect(await screen.findByTestId("identities-refetch-error")).toHaveTextContent("최신 내용을 불러오지 못했습니다");
+    expect(screen.getByRole("button", { name: "Google 연결 해제" })).toBeInTheDocument();
+  });
+});

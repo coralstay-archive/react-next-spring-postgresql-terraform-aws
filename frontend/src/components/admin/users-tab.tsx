@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
 import { Pager } from "@/components/admin/pager";
-import { ApiErrorAlert } from "@/components/board/api-error-alert";
+import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,7 +77,15 @@ export function UsersTab() {
         </select>
       </div>
 
-      {list.isError ? (
+      {list.isError && list.data && (
+        <RefetchErrorAlert
+          error={list.error}
+          retrying={list.isFetching}
+          onRetry={() => void list.refetch()}
+          testId="admin-users-refetch-error"
+        />
+      )}
+      {list.isError && !list.data ? (
         <ApiErrorAlert error={list.error} testId="admin-users-error" />
       ) : list.isPending ? (
         <p role="status" className="text-muted-foreground text-sm">
