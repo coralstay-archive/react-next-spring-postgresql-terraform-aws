@@ -8,7 +8,8 @@ import Link from "next/link";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useCurrentPath } from "@/hooks/use-current-path";
-import { loginHref, useSessionUser } from "@/lib/auth";
+import { loginHref, useAuthFlag, useSessionUser } from "@/lib/auth";
+import { LOGGED_OUT_KEY } from "@/lib/query";
 
 function Loading() {
   return (
@@ -30,10 +31,14 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const { data: me, user, isError, isFetching, refetch, expired } = useSessionUser();
   const router = useRouter();
   const current = useCurrentPath();
+  const loggedOut = useAuthFlag(LOGGED_OUT_KEY);
 
   useEffect(() => {
     if (me === null && !expired) router.replace(loginHref(current));
   }, [me, expired, router, current]);
+
+  // 명시적 로그아웃(TASK-29#5): 초안은 이미 지웠고 곧 `/` 로 간다. "임시 저장되어 있습니다" 안내는 틀린 말이라 내용째 비운다.
+  if (loggedOut && me === null) return null;
 
   if (!expired) {
     if (me === undefined && isError) return <LoadError retrying={isFetching} onRetry={() => void refetch()} />;

@@ -1,11 +1,14 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PostEditor } from "@/components/board/post-editor";
+import { RequireAuth } from "@/components/guards";
 import { SiteHeader } from "@/components/site-header";
 import { draftKeys, loadDraft, saveDraft } from "@/lib/drafts";
 import { queryKeys, SESSION_EXPIRED_KEY } from "@/lib/query";
+import { categoriesHandler } from "@/test/board";
 import { apiError, csrfHandler, server } from "@/test/server";
 import { makeMe, meHandler, navigation, renderWithQuery } from "@/test/utils";
 
@@ -81,5 +84,35 @@ describe("TASK-29#5 로그아웃은 성공(또는 401)일 때만 상태를 해�
     await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/"));
     expect(loadDraft(draftKeys.newPost, 1)).toBeNull();
     expect(loadDraft(draftKeys.comment(3), 1)).toBeNull();
+  });
+
+  it("TASK-29#5 작성 화면에서 로그아웃하면 '임시 저장되어 있습니다' 안내를 띄우지 않고 초안도 다시 만들지 않는다", async () => {
+    navigation.reset("/posts/new/");
+    server.use(
+      csrfHandler(),
+      categoriesHandler(),
+      meHandler(makeMe()),
+      http.post("*/api/auth/logout", () => new HttpResponse(null, { status: 204 })),
+    );
+    renderWithQuery(
+      <>
+        <SiteHeader />
+        <RequireAuth>
+          <PostEditor />
+        </RequireAuth>
+      </>,
+    );
+    const title = await screen.findByTestId("editor-title");
+    await userEvent.click(title);
+    await userEvent.paste("로그아웃 직전 입력");
+    await userEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+
+    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/"));
+    expect(screen.queryByTestId("session-lost-notice")).not.toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+    expect(screen.queryByTestId("session-lost-notice")).not.toBeInTheDocument();
+    expect(loadDraft(draftKeys.newPost, 1)).toBeNull();
   });
 });

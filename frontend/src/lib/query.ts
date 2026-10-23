@@ -108,6 +108,7 @@ export function createQueryClient(): QueryClient {
       }
       lastUserId = data.id;
       if (client.getQueryData(SESSION_EXPIRED_KEY)) client.setQueryData(SESSION_EXPIRED_KEY, false);
+      if (client.getQueryData(LOGGED_OUT_KEY)) client.setQueryData(LOGGED_OUT_KEY, false);
     } else if (data === null && isUser(previous) && !event.action.manual) {
       expire();
     }

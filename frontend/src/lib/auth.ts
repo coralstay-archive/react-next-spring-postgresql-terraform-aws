@@ -5,7 +5,7 @@ import { useCallback, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
 import { clearAllDrafts } from "@/lib/drafts";
-import { queryKeys } from "@/lib/query";
+import { LOGGED_OUT_KEY, queryKeys } from "@/lib/query";
 
 export type Provider = "LOCAL" | "GOOGLE" | "GITHUB" | "NAVER" | "KAKAO" | "COGNITO" | "PHONE";
 
@@ -66,6 +66,14 @@ export function useSessionUser() {
 }
 
 /**
+ * 클라이언트만 쓰는 `["auth", …]` 플래그(만료 안내·명시적 로그아웃 등). 서버에서 받지 않고 `setQueryData` 로만 바뀐다.
+ */
+export function useAuthFlag(queryKey: readonly unknown[]): boolean {
+  const { data } = useQuery({ queryKey, queryFn: () => false, enabled: false, staleTime: Infinity });
+  return data === true;
+}
+
+/**
  * 로그인 계열(LOCAL 로그인, OTP 검증, step-up) 성공 뒤 호출: 세션이 바뀌었으니 me 를 응답으로 채우고 다른 캐시는 초기화한다.
  * CSRF 토큰은 응답 쿠키로 회전했고, api() 가 요청마다 쿠키를 다시 읽는다.
  */
@@ -85,8 +93,11 @@ export function useSessionChanged() {
  * 로그아웃(TASK-29#5, FE-10). 성공(204)이거나 401 `unauthorized`(이미 세션이 없음)일 때만 로그아웃 상태로 바꾸고 초안을 모두 지운다
  * (같은 탭의 다음 사용자에게 남기지 않는다). 그 밖의 실패(네트워크·5xx·403)는 오류로 남기고 me·캐시·초안을 그대로 둔다 —
  * 서버 세션이 살아 있는데 로그아웃된 것처럼 보이면 안 된다. 401 을 여기서 성공으로 바꾸므로 전역 만료 안내도 뜨지 않는다.
+ * 성공 때 {@link LOGGED_OUT_KEY} 를 먼저 세워, 작성 화면이 "로그인이 끊겼습니다(임시 저장됨)" 안내를 띄우거나 언마운트 저장으로 초안을
+ * 되살리지 않게 한다(다시 로그인하면 query.ts 가 내린다).
  */
 export function useLogout() {
+  const client = useQueryClient();
   const sessionChanged = useSessionChanged();
   return useMutation({
     mutationFn: async () => {
@@ -98,6 +109,7 @@ export function useLogout() {
       }
     },
     onSuccess: () => {
+      client.setQueryData(LOGGED_OUT_KEY, true);
       clearAllDrafts();
       sessionChanged(null);
     },
