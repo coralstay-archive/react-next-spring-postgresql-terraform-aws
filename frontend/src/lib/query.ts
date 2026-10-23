@@ -97,7 +97,9 @@ export function createQueryClient(): QueryClient {
     mutationCache: new MutationCache({ onError: onSessionError }),
     defaultOptions: {
       queries: { retry: shouldRetry, staleTime: 30_000, refetchOnWindowFocus: false },
-      mutations: { retry: false },
+      // 오프라인이어도 뮤테이션을 일시정지하지 않는다(TASK-30#1, FE-4). 기본 'online' 은 오프라인 제출을 멈춰 두었다가 복귀 때
+      // 사용자 모르게 보낸다 — 'always' 는 바로 fetch 해서 network 오류로 끝낸다(B1). 쿼리는 기본 'online'(멈췄다가 복귀 때 다시 받음).
+      mutations: { retry: false, networkMode: "always" },
     },
   });
 

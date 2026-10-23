@@ -33,7 +33,12 @@ export function anonymous() {
 
 export function renderWithQuery(ui: ReactElement) {
   const client = createQueryClient();
-  client.setDefaultOptions({ queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } });
+  // setDefaultOptions 는 통째로 바꾸므로 앱 기본값(뮤테이션 networkMode 등)을 합친 뒤 재시도·staleTime 만 덮는다.
+  const defaults = client.getDefaultOptions();
+  client.setDefaultOptions({
+    queries: { ...defaults.queries, retry: false, staleTime: Infinity },
+    mutations: { ...defaults.mutations, retry: false },
+  });
   return { client, ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>) };
 }
 
