@@ -11,7 +11,7 @@ import { ApiError } from "@/lib/api";
 import { errorMessage, NEXT_STORAGE_KEY } from "@/lib/errors";
 import { queryKeys } from "@/lib/query";
 import { apiError, csrfHandler, server } from "@/test/server";
-import { anonymous, makeMe, navigation, renderWithQuery } from "@/test/utils";
+import { anonymous, makeMe, meHandler, navigation, renderWithQuery } from "@/test/utils";
 
 vi.mock("next/navigation", async () => (await import("@/test/utils")).nextNavigationMock());
 
@@ -244,5 +244,48 @@ describe("TASK-13#3 /auth/callback/", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("취소");
     expect(screen.getByRole("link", { name: "로그인으로 돌아가기" })).toHaveAttribute("href", "/login/");
     expect(navigation.replace).not.toHaveBeenCalled();
+  });
+});
+
+// TASK-28#1 FE-1: next 를 쓰는 모든 곳(이메일·휴대폰 로그인, 소셜 시작 시 기억, OAuth 콜백)이 같은 오리진만 허용한다.
+describe("TASK-28#1 next 소비처의 오픈 리다이렉트 차단", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  it("TASK-28#1 TASK-28#B1 ?next= 에 탭을 넣은 외부 주소는 로그인 뒤 / 로 간다", async () => {
+    navigation.reset("/login/", `next=${encodeURIComponent("/\t/evil.com")}`);
+    server.use(
+      anonymous(),
+      csrfHandler(),
+      http.post("*/api/auth/login", () => HttpResponse.json(makeMe())),
+    );
+    renderWithQuery(<LoginView />);
+
+    await userEvent.type(screen.getByLabelText("이메일"), "a@example.com");
+    await userEvent.type(screen.getByLabelText("비밀번호"), "passw0rd!");
+    await userEvent.click(screen.getByRole("button", { name: "로그인" }));
+
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/"));
+  });
+
+  it("TASK-28#1 TASK-28#B1 소셜 로그인 전에 기억하는 next 도 검사한 값이다", async () => {
+    navigation.reset("/login/", `next=${encodeURIComponent("/\\evil.com")}`);
+    server.use(anonymous());
+    renderWithQuery(<LoginView />);
+
+    const link = screen.getByRole("link", { name: "GitHub로 로그인" });
+    link.addEventListener("click", (e) => e.preventDefault());
+    await userEvent.click(link);
+    expect(window.sessionStorage.getItem(NEXT_STORAGE_KEY)).toBe("/");
+  });
+
+  it("TASK-28#1 TASK-28#B1 OAuth 콜백은 sessionStorage 의 next 를 다시 검사한다", async () => {
+    navigation.reset("/auth/callback/", "status=ok");
+    window.sessionStorage.setItem(NEXT_STORAGE_KEY, "/%2F/evil.com");
+    server.use(meHandler(makeMe()));
+    renderWithQuery(<AuthCallbackView />);
+
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/"));
   });
 });
