@@ -1,10 +1,17 @@
 import { http } from "msw";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isApiError } from "@/lib/api";
-import { MAX_IMAGE_BYTES, uploadImage, validateImageFile } from "@/lib/uploads";
+import {
+  MAX_IMAGE_BYTES,
+  UPLOAD_MAX_MS,
+  UPLOAD_STALL_MS,
+  uploadImage,
+  validateImageFile,
+} from "@/lib/uploads";
 import { presignHandlers } from "@/test/board";
 import { apiError, csrfHandler, server } from "@/test/server";
+import { installFakeXhr } from "@/test/xhr";
 
 function png(bytes = 8, name = "a.png") {
   return new File([new Uint8Array(bytes)], name, { type: "image/png" });
@@ -34,7 +41,7 @@ describe("TASK-14#3 업로드 흐름", () => {
     server.use(csrfHandler(), ...calls.handlers);
     const progress: number[] = [];
 
-    const attachment = await uploadImage(png(8, "cat.png"), (p) => progress.push(p));
+    const attachment = await uploadImage(png(8, "cat.png"), { onProgress: (p) => progress.push(p) });
 
     expect(calls.presignBody).toEqual({ contentType: "image/png", size: 8, filename: "cat.png" });
     expect(calls.putHeaders?.get("content-type")).toBe("image/png");
@@ -81,5 +88,98 @@ describe("TASK-14#3 업로드 흐름", () => {
   it("TASK-14#3 선검증에 걸리면 요청하지 않는다", async () => {
     const error = await uploadImage(new File(["x"], "a.txt", { type: "text/plain" })).catch((e: unknown) => e);
     expect(isApiError(error) && error.code).toBe("attachment_type_not_allowed");
+  });
+});
+
+// TASK-31#5 업로드 정체·상한·취소. S3 PUT 은 XHR(fetch 에는 업로드 진행 이벤트가 없다)이라 진행 이벤트를 직접 내는 대역을 쓴다.
+describe("TASK-31#5 업로드 정체 timeout·전체 상한·취소(FE-26)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function startWithFakeXhr(options: Parameters<typeof uploadImage>[1] = {}) {
+    const calls = presignHandlers();
+    server.use(csrfHandler(), ...calls.handlers);
+    const xhrs = installFakeXhr();
+    const result = uploadImage(png(), options).then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    return { calls, xhrs, result };
+  }
+
+  it("TASK-31#5 정체 기준은 30초, 전체 상한은 presigned URL 만료와 같은 5분", () => {
+    expect(UPLOAD_STALL_MS).toBe(30_000);
+    expect(UPLOAD_MAX_MS).toBe(5 * 60_000);
+  });
+
+  it("TASK-31#5 진행 이벤트가 30초 동안 없으면 PUT 을 끊고 upload_stalled, confirm 하지 않는다", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout"] });
+    const { calls, xhrs, result } = startWithFakeXhr();
+    await vi.waitFor(() => expect(xhrs.instances).toHaveLength(1));
+
+    await vi.advanceTimersByTimeAsync(UPLOAD_STALL_MS - 1_000);
+    xhrs.instances[0].progress(4, 8); // 진행이 있으면 다시 30초를 준다
+    await vi.advanceTimersByTimeAsync(UPLOAD_STALL_MS - 1_000);
+    expect(xhrs.instances[0].aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const outcome = await result;
+    expect(outcome.ok).toBe(false);
+    expect(!outcome.ok && isApiError(outcome.error) && outcome.error.code).toBe("upload_stalled");
+    expect(xhrs.instances[0].aborted).toBe(true);
+    expect(calls.confirmed).toEqual([]);
+  });
+
+  it("TASK-31#5 진행 중이어도 전체 상한(5분)을 넘기면 끊고 upload_timeout", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout"] });
+    const { xhrs, result } = startWithFakeXhr();
+    await vi.waitFor(() => expect(xhrs.instances).toHaveLength(1));
+
+    for (let elapsed = 0; elapsed < UPLOAD_MAX_MS; elapsed += 20_000) {
+      xhrs.instances[0].progress(1, 8);
+      await vi.advanceTimersByTimeAsync(20_000);
+    }
+
+    const outcome = await result;
+    expect(!outcome.ok && isApiError(outcome.error) && outcome.error.code).toBe("upload_timeout");
+    expect(xhrs.instances[0].aborted).toBe(true);
+  });
+
+  it("TASK-31#5 signal 로 취소하면 PUT 을 abort 하고 AbortError 로 끝나며 confirm 하지 않는다", async () => {
+    const controller = new AbortController();
+    const { calls, xhrs, result } = startWithFakeXhr({ signal: controller.signal });
+    await vi.waitFor(() => expect(xhrs.instances).toHaveLength(1));
+
+    controller.abort();
+
+    const outcome = await result;
+    expect(!outcome.ok && (outcome.error as Error).name).toBe("AbortError");
+    expect(xhrs.instances[0].aborted).toBe(true);
+    expect(calls.confirmed).toEqual([]);
+  });
+
+  it("TASK-31#5 presign 전에 이미 취소됐으면 아무 요청도 하지 않는다", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { calls, xhrs, result } = startWithFakeXhr({ signal: controller.signal });
+
+    const outcome = await result;
+    expect(!outcome.ok && (outcome.error as Error).name).toBe("AbortError");
+    expect(calls.presignBody).toBeUndefined();
+    expect(xhrs.instances).toHaveLength(0);
+  });
+
+  it("TASK-31#5 진행 이벤트(정상 응답)면 confirm 까지 간다", async () => {
+    const { calls, xhrs, result } = startWithFakeXhr();
+    await vi.waitFor(() => expect(xhrs.instances).toHaveLength(1));
+    expect(xhrs.instances[0].headers["if-none-match"]).toBe("*");
+    xhrs.instances[0].progress(8, 8);
+    xhrs.instances[0].respond(200);
+
+    const outcome = await result;
+    expect(outcome.ok).toBe(true);
+    expect(calls.confirmed).toEqual([100]);
   });
 });

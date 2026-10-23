@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useId, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 
 import { ApiErrorAlert } from "@/components/board/api-error-alert";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -185,6 +185,15 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   const [tagText, setTagText] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [items, setItems] = useState<UploadItem[]>(() => doneItems(start.attachments));
+  // 진행·대기 중인 업로드의 취소 손잡이(TASK-31#5). '업로드 취소'와 언마운트가 abort 한다.
+  const uploadControllers = useRef(new Map<string, AbortController>());
+  useEffect(() => {
+    const controllers = uploadControllers.current;
+    return () => {
+      for (const controller of controllers.values()) controller.abort();
+      controllers.clear();
+    };
+  }, []);
   // 저장 때 연결이 거절된 첨부 id → 안내(TASK-31#4).
   const [problems, setProblems] = useState<Record<number, string>>({});
   const nextKey = useRef(0);
@@ -353,20 +362,35 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     }
     setItems((current) => [...current, ...added]);
 
-    // 하나씩 올린다(진행률을 파일별로 보이고 presign URL 5분 만료 안에 끝내려고).
+    for (const { key } of queue) uploadControllers.current.set(key, new AbortController());
+
+    // 하나씩 올린다(진행률을 파일별로 보이고 presign URL 5분 만료 안에 끝내려고). 취소된 것(대기 중 취소·언마운트)은 건너뛴다.
     for (const { key, file } of queue) {
+      const controller = uploadControllers.current.get(key);
+      if (!controller || controller.signal.aborted) continue;
       try {
-        const attachment = await uploadImage(file, (progress) =>
-          updateItem(key, { key, name: file.name, status: "uploading", progress }),
-        );
+        const attachment = await uploadImage(file, {
+          signal: controller.signal,
+          onProgress: (progress) => updateItem(key, { key, name: file.name, status: "uploading", progress }),
+        });
         updateItem(key, { key, name: file.name, status: "done", attachment });
       } catch (error) {
-        updateItem(key, { key, name: file.name, status: "error", error: errorMessage(error) });
+        // 취소는 항목을 이미 뺐다.
+        if (!controller.signal.aborted) {
+          updateItem(key, { key, name: file.name, status: "error", error: errorMessage(error) });
+        }
+      } finally {
+        uploadControllers.current.delete(key);
       }
     }
   };
 
-  const removeItem = (key: string) => setItems((current) => current.filter((item) => item.key !== key));
+  /** 항목 빼기. 올리는 중이거나 차례를 기다리는 것이면 업로드도 끊는다(TASK-31#5). */
+  const removeItem = (key: string) => {
+    uploadControllers.current.get(key)?.abort();
+    uploadControllers.current.delete(key);
+    setItems((current) => current.filter((item) => item.key !== key));
+  };
   const problemOf = (item: UploadItem) => (item.status === "done" ? problems[item.attachment.id] : undefined);
   const hasProblems = items.some((item) => problemOf(item));
 
@@ -568,11 +592,9 @@ export function PostEditor({ post }: { post?: PostDetail }) {
                   {item.name}: {item.error}
                 </p>
               )}
-              {item.status !== "uploading" && (
-                <Button type="button" variant="ghost" size="xs" onClick={() => removeItem(item.key)}>
-                  첨부 이미지 {index + 1} 빼기
-                </Button>
-              )}
+              <Button type="button" variant="ghost" size="xs" onClick={() => removeItem(item.key)}>
+                첨부 이미지 {index + 1} {item.status === "uploading" ? "업로드 취소" : "빼기"}
+              </Button>
             </li>
           ))}
         </ul>
