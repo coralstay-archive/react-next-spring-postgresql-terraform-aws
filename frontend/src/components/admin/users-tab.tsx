@@ -169,6 +169,7 @@ export function UsersTab() {
           totalPages={list.data.totalPages}
           onChange={(page) => setFilters((f) => ({ ...f, page }))}
           testId="admin-users"
+          settled={!list.isPlaceholderData}
         />
       )}
 

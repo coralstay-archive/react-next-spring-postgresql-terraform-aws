@@ -61,7 +61,15 @@ export function ActionsTab() {
         </div>
       )}
 
-      {list.data && <Pager page={page} totalPages={list.data.totalPages} onChange={setPage} testId="admin-actions" />}
+      {list.data && (
+        <Pager
+          page={page}
+          totalPages={list.data.totalPages}
+          onChange={setPage}
+          testId="admin-actions"
+          settled={!list.isPlaceholderData}
+        />
+      )}
     </div>
   );
 }
