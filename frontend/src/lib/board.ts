@@ -137,8 +137,11 @@ export function usePost(id: number) {
 }
 
 /**
- * 좋아요·취소. 누르는 즉시 상세 캐시를 바꾸고(낙관적), 실패하면 이전 값으로 되돌린다. 성공하면 서버 값 `{liked, likeCount}` 로 맞춘다.
+ * 좋아요·취소. 누르는 즉시 상세 캐시를 바꾸고(낙관적), 실패하면 좋아요 필드만 되돌린다. 성공하면 서버 값 `{liked, likeCount}` 로 맞춘다.
  * 목록의 likeCount·인기순도 바뀌므로 목록 캐시는 stale 로만 표시한다(지금 다시 받지는 않는다).
+ *
+ * 롤백(TASK-33#1, FE-20): 이전 스냅숏을 통째로 되돌리면 요청이 도는 사이 다시 받은 제목·본문·조회수까지 옛 값으로 덮는다. 그래서 최신 캐시에
+ * 함수형 업데이트로 `likedByMe`·`likeCount` 만 이전 값으로 돌린다. 404(그사이 삭제·숨김)면 상세를 다시 받아 없는 글 안내로 맞춘다.
  */
 export function useToggleLike(id: number) {
   const client = useQueryClient();
@@ -148,17 +151,18 @@ export function useToggleLike(id: number) {
     onMutate: async (like) => {
       await client.cancelQueries({ queryKey: key });
       const previous = client.getQueryData<PostDetail>(key);
-      if (previous && previous.likedByMe !== like) {
-        client.setQueryData<PostDetail>(key, {
-          ...previous,
-          likedByMe: like,
-          likeCount: Math.max(0, previous.likeCount + (like ? 1 : -1)),
-        });
-      }
-      return { previous };
+      if (!previous || previous.likedByMe === like) return { rollback: undefined };
+      client.setQueryData<PostDetail>(key, {
+        ...previous,
+        likedByMe: like,
+        likeCount: Math.max(0, previous.likeCount + (like ? 1 : -1)),
+      });
+      return { rollback: { likedByMe: previous.likedByMe, likeCount: previous.likeCount } };
     },
-    onError: (_error, _like, context) => {
-      if (context?.previous) client.setQueryData(key, context.previous);
+    onError: (error, _like, context) => {
+      const rollback = context?.rollback;
+      if (rollback) client.setQueryData<PostDetail>(key, (old) => (old ? { ...old, ...rollback } : old));
+      if (isApiError(error) && error.status === 404) void client.invalidateQueries({ queryKey: key });
     },
     onSuccess: (state) => {
       client.setQueryData<PostDetail>(key, (old) =>
