@@ -287,3 +287,48 @@ describe("TASK-28#3 2xx 비JSON 응답", () => {
     await expect(api("/d")).resolves.toBeNull();
   });
 });
+
+describe("TASK-30#2 쿠키가 막혀 CSRF 쿠키가 계속 없으면 cookies_blocked", () => {
+  it("TASK-30#2 /api/auth/csrf 뒤에도 XSRF-TOKEN 쿠키가 없으면 쓰기 요청을 보내지 않고 cookies_blocked 로 실패한다", async () => {
+    let csrfCalls = 0;
+    let writes = 0;
+    server.use(
+      // 쿠키가 막힌 브라우저: Set-Cookie 가 저장되지 않는다(document.cookie 를 바꾸지 않는다).
+      http.get("*/api/auth/csrf", () => {
+        csrfCalls++;
+        return HttpResponse.json({ headerName: "X-XSRF-TOKEN", cookieName: "XSRF-TOKEN" });
+      }),
+      http.post("*/api/posts", () => {
+        writes++;
+        return HttpResponse.json({ status: 403, error: "csrf", message: "x" }, { status: 403 });
+      }),
+    );
+
+    const error = await api("/posts", { method: "POST", body: { title: "t" } }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("cookies_blocked");
+    expect(writes).toBe(0);
+    expect(csrfCalls).toBe(1);
+    expect(errorMessage(error)).toBe(ERROR_MESSAGES.cookies_blocked);
+    expect(errorMessage(error)).toContain("쿠키");
+  });
+
+  it("TASK-30#2 403 csrf 재시도 때 다시 받은 쿠키가 없어도 같은 오류로 끝난다(재시도 루프 없음)", async () => {
+    setCookie("XSRF-TOKEN", "stale");
+    let writes = 0;
+    server.use(
+      http.get("*/api/auth/csrf", () => {
+        // 서버는 새 토큰을 주지만 브라우저가 저장하지 못하고, 옛 쿠키도 지워졌다.
+        document.cookie = "XSRF-TOKEN=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        return HttpResponse.json({});
+      }),
+      http.post("*/api/posts", () => {
+        writes++;
+        return HttpResponse.json({ status: 403, error: "csrf", message: "x" }, { status: 403 });
+      }),
+    );
+
+    await expect(api("/posts", { method: "POST" })).rejects.toMatchObject({ code: "cookies_blocked" });
+    expect(writes).toBe(1);
+  });
+});

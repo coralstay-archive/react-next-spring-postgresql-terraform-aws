@@ -6,6 +6,7 @@
  * - 상태를 바꾸는 메서드(POST/PUT/PATCH/DELETE)는 `XSRF-TOKEN` 쿠키 값을 `X-XSRF-TOKEN` 헤더로 보낸다. 쿠키가 없으면
  *   `GET /api/auth/csrf` 로 먼저 받는다. 토큰은 로그인·OTP 검증·step-up·OAuth 콜백 뒤 회전하고 로그아웃 뒤 지워지므로
  *   **요청마다 쿠키를 다시 읽는다**(캐시하지 않는다). 그래도 403 `csrf` 가 오면 토큰을 다시 받아 한 번만 재시도한다.
+ * - CSRF 토큰을 받은 뒤에도 쿠키가 없으면(쿠키 차단) 보내지 않고 `cookies_blocked`(TASK-30#2).
  * - 오류 응답 `{status, error, message, fields?}` 는 {@link ApiError} 로 바꾼다. 429 는 `Retry-After`(초)를 담는다.
  *   `error` 가 계약 형식(`^[a-z0-9_]+$`)이 아니거나 본문이 JSON 이 아니면(프록시 HTML, Spring 기본 오류) 코드는 `http_<상태>`,
  *   문장은 상태 범위별 한국어다 — 영어 `statusText`·HTML 원문을 화면에 올리지 않는다(TASK-28#2).
@@ -42,7 +43,7 @@ export class ApiError extends Error {
   readonly status: number;
   /**
    * 백엔드 `error` 코드(예: `email_taken`). 오류 본문이 JSON·계약 형식이 아니면 `http_<status>`, 네트워크 오류는 `network`,
-   * 2xx 인데 본문이 JSON 이 아니면 `bad_response`.
+   * 2xx 인데 본문이 JSON 이 아니면 `bad_response`, CSRF 쿠키가 저장되지 않으면 `cookies_blocked`.
    */
   readonly code: string;
   readonly fields?: Record<string, string>;
@@ -136,12 +137,21 @@ export function fetchCsrfToken(): Promise<void> {
   return csrfInFlight;
 }
 
-async function csrfToken(): Promise<string | null> {
+/** 쿠키가 막힌 브라우저(TASK-30#2, FE-7): CSRF 토큰을 받아도 쿠키가 저장되지 않는다. */
+export const COOKIES_BLOCKED_MESSAGE =
+  "브라우저가 쿠키를 막고 있어 요청을 보낼 수 없습니다. 이 사이트의 쿠키를 허용한 뒤 다시 시도하세요.";
+
+/**
+ * 쓰기 요청의 CSRF 토큰. 쿠키가 없으면 받고, 받은 뒤에도 없으면 쿠키가 막힌 것이다 — 토큰 없이 보내면 403 `csrf` 가 되고
+ * 다시 받아도 또 없어 "보안 토큰이 만료" 안내만 되풀이되므로, 보내지 않고 ApiError 403 `cookies_blocked` 로 끝낸다.
+ */
+async function csrfToken(): Promise<string> {
   let token = readCookie(CSRF_COOKIE);
   if (!token) {
     await fetchCsrfToken();
     token = readCookie(CSRF_COOKIE);
   }
+  if (!token) throw new ApiError(403, "cookies_blocked", COOKIES_BLOCKED_MESSAGE);
   return token;
 }
 
@@ -153,8 +163,7 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
     const headers: Record<string, string> = { Accept: "application/json" };
     if (options.body !== undefined) headers["Content-Type"] = "application/json";
     if (unsafe) {
-      const token = await csrfToken();
-      if (token) headers[CSRF_HEADER] = token;
+      headers[CSRF_HEADER] = await csrfToken();
     }
     return send(apiUrl(path, options.query), {
       method,

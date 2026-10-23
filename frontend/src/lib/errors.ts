@@ -1,4 +1,4 @@
-import { ApiError, ERROR_CODE_PATTERN, statusMessage } from "@/lib/api";
+import { ApiError, COOKIES_BLOCKED_MESSAGE, ERROR_CODE_PATTERN, statusMessage } from "@/lib/api";
 
 /**
  * 백엔드 오류 코드 → 화면에 보일 한국어 문장. API 오류 JSON 의 `error` 와 OAuth 콜백 `?error=` 가 같은 표를 쓴다.
@@ -11,6 +11,8 @@ export const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: "로그인이 필요합니다.",
   forbidden: "권한이 없습니다.",
   csrf: "보안 토큰이 만료되었습니다. 페이지를 새로 고친 뒤 다시 시도하세요.",
+  // TASK-30#2: 클라이언트가 정하는 코드(서버는 보내지 않는다)
+  cookies_blocked: COOKIES_BLOCKED_MESSAGE,
   suspended: "정지된 계정입니다. 관리자에게 문의하세요.",
   step_up_required: "휴대폰으로 로그인한 세션은 읽기만 할 수 있습니다. 기존 로그인 수단으로 다시 인증하세요.",
   validation: "입력값을 확인하세요.",
