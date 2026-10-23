@@ -14,7 +14,9 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 
 /**
  * 미확정 첨부 정리 (TASK-11#4). {@code pending-ttl}(기본 24시간)보다 오래된 PENDING 행을 지운다. 객체 삭제는 best-effort 다 — 실패해도
- * S3 lifecycle(status=pending 태그 1일 만료)이 지운다. 확정된 첨부는 건드리지 않는다.
+ * 보통은 S3 lifecycle(status=pending 태그 1일 만료)이 지운다. 단 confirm 이 태그를 지운 뒤 확정(markConfirmed)에 실패해 PENDING 으로 남은
+ * 첨부는 객체에 태그가 없어 lifecycle 도 지우지 않는다 — 그래서 삭제 실패는 키를 WARN 으로 남기고 손으로 지우라고 적는다(어느 경우인지 태그를
+ * 다시 읽어 가리지 않는다). 확정된 첨부는 건드리지 않는다.
  *
  * <p>순서 (TASK-26#2, BE-33): 행을 먼저 조건부로 지우고({@code status = PENDING} 이고 아직 만료, 한 행씩), 실제로 지운 행의 객체만 지운다.
  * 대상을 고른 뒤 confirm 이 먼저 확정한 행은 남고 그 객체도 건드리지 않는다 → CONFIRMED 첨부는 항상 객체가 있다(B1). 반대로 행을 지운 뒤
@@ -88,8 +90,10 @@ public class PendingAttachmentCleanup {
 			storage.delete(key);
 		}
 		catch (RuntimeException ex) {
-			// S3 오류 원인은 저장소가 이미 남겼다(TASK-26#1)
-			log.warn("미확정 첨부 객체 삭제 실패(S3 lifecycle 이 정리한다) key={} causes={}", key, ex.getClass().getSimpleName());
+			// S3 오류 원인은 저장소가 이미 남겼다(TASK-26#1). 태그가 남았으면 lifecycle 이 지우지만, confirm 이 태그를 지운 뒤 확정에 실패한
+			// 객체면 영구 고아다 — 확인할 수 없으니 손으로 지우라고 남긴다
+			log.warn("미확정 첨부 객체 삭제 실패(행은 지움 — status=pending 태그가 없으면 lifecycle 도 지우지 않으므로 객체를 손으로 지워야 한다)"
+					+ " key={} causes={}", key, ex.getClass().getSimpleName());
 		}
 	}
 

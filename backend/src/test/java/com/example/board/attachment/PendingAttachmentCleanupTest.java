@@ -11,7 +11,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -32,6 +35,7 @@ import tools.jackson.databind.JsonNode;
  * 지운다). 확정된 첨부와 24시간이 안 된 PENDING 은 그대로.
  */
 @IntegrationTest
+@ExtendWith(OutputCaptureExtension.class)
 class PendingAttachmentCleanupTest {
 
 	static final String BUCKET = TestcontainersConfiguration.UPLOADS_BUCKET;
@@ -51,6 +55,9 @@ class PendingAttachmentCleanupTest {
 	@Autowired
 	PendingAttachmentCleanup cleanup;
 
+	@Autowired
+	StorageProbe probe;
+
 	S3Client s3;
 
 	UploadClient uploads;
@@ -63,6 +70,7 @@ class PendingAttachmentCleanupTest {
 
 	@AfterEach
 	void tearDown() {
+		probe.reset();
 		s3.close();
 	}
 
@@ -102,6 +110,54 @@ class PendingAttachmentCleanupTest {
 		assertThat(exists(fresh)).isTrue();
 		assertThat(exists(confirmed)).isTrue();
 		assertThatThrownBy(() -> s3.headObject(b -> b.bucket(BUCKET).key(staleKey))).isInstanceOf(NoSuchKeyException.class);
+	}
+
+	@Test
+	@DisplayName("TASK-26#2 confirm 이 태그를 지운 뒤 확정에 실패해 PENDING 으로 남은 첨부는 정리 때 객체 삭제도 실패하면 lifecycle 이 못 지우므로 키를 남기고 손으로 지워야 한다고 WARN")
+	void untaggedOrphanWarnsManualDeletion(CapturedOutput output) {
+		JsonNode presigned = uploads.presigned(fixtures.bearer(fixtures.user()), "image/png", 10);
+		assertThat(UploadClient.put(presigned, UploadClient.bytes(10)).statusCode()).isEqualTo(200);
+		long id = presigned.get("attachmentId").asLong();
+		String key = presigned.get("key").asString();
+		s3.deleteObjectTagging(b -> b.bucket(BUCKET).key(key));
+		age(id, Duration.ofHours(25));
+		probe.route(StorageProbe.Op.DELETE, new FailingDelete());
+
+		cleanup.cleanUp();
+
+		assertThat(exists(id)).isFalse();
+		assertThat(s3.getObjectTagging(b -> b.bucket(BUCKET).key(key)).tagSet()).as("태그 없는 고아").isEmpty();
+		assertThat(output.getOut()).contains("key=" + key).contains("손으로 지워야 한다").doesNotContain("lifecycle 이 정리한다");
+	}
+
+	/** 객체 삭제만 실패하는 저장소. */
+	private static final class FailingDelete implements UploadStorage {
+
+		@Override
+		public boolean available() {
+			return true;
+		}
+
+		@Override
+		public PresignedUpload presignPut(String key, String contentType, long size, Duration ttl) {
+			throw new UnsupportedOperationException();
+		}
+
+		@Override
+		public java.util.Optional<StoredObject> head(String key) {
+			throw new UnsupportedOperationException();
+		}
+
+		@Override
+		public void clearPendingTag(String key) {
+			throw new UnsupportedOperationException();
+		}
+
+		@Override
+		public void delete(String key) {
+			throw new IllegalStateException("S3 장애");
+		}
+
 	}
 
 	@Test
