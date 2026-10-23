@@ -1,10 +1,10 @@
 ---
 id: TASK-26
 title: '백엔드: 첨부 정합성'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 01:03'
+updated_date: '2026-10-23 01:44'
 labels:
   - backend
   - attachments
@@ -34,11 +34,11 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 BE-32 confirm·head·태그 제거의 S3 오류는 503 storage_unavailable + 로그
-- [ ] #2 BE-33 pendingTtl이 지난 confirm 거부, cleanup은 행 삭제 후 객체 삭제, markConfirmed 0행이면 객체 정리
-- [ ] #3 BE-35 presign을 트랜잭션 밖에서, S3Client apiCallTimeout
-- [ ] #4 BE-36 연결 해제되거나 글이 삭제된 첨부의 객체 정리(지연 삭제 정책)
-- [ ] #5 BE-37 스케줄 작업 분산 락(ShedLock 등)
+- [x] #1 BE-32 confirm·head·태그 제거의 S3 오류는 503 storage_unavailable + 로그
+- [x] #2 BE-33 pendingTtl이 지난 confirm 거부, cleanup은 행 삭제 후 객체 삭제, markConfirmed 0행이면 객체 정리
+- [x] #3 BE-35 presign을 트랜잭션 밖에서, S3Client apiCallTimeout
+- [x] #4 BE-36 연결 해제되거나 글이 삭제된 첨부의 객체 정리(지연 삭제 정책)
+- [x] #5 BE-37 스케줄 작업 분산 락(ShedLock 등)
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -73,4 +73,20 @@ documentation:
 
 <!-- SECTION:NOTES:BEGIN -->
 독립 리뷰(2026-10-23) 반영 결정(유저): M2 확정 뒤 같은 presigned URL 재PUT으로 pending 태그가 다시 붙어 CONFIRMED 객체가 lifecycle로 지워지던 B1 위반 → presign에 If-None-Match: * 서명(덮어쓰기 금지), 프론트 업로드가 헤더를 보냄. 앱 IAM에 uploads/ 접두어로 제한한 s3:ListBucket 추가(없는 키 HEAD가 404가 되어 400 attachment_not_uploaded). CloudFront /uploads/* 캐시 24시간은 수용(문서화). 그 밖에 고칠 것: M1 삭제 글 FOR SHARE 서브쿼리를 상관 EXISTS로(1행만 잠금), L1 V13 이전 뗀 첨부 detached_at 백필, L2 태그 없는 고아 WARN 문구, L3 정리 실행당 건수·시간 예산, L4 다시 붙이기·복구 동시성 테스트, L5 7일 넘게 열어 둔 편집기 이미지 소실 문서화.
+
+ListBucket(2026-10-23, 유저): HeadObject 에는 s3:prefix 가 없어 접두어 조건이 적용되지 않으므로 조건 없이 업로드 버킷에만 허용(버킷에는 uploads/ 객체뿐). 후속 후보: AttachmentService.deleteQuietly WARN 도 태그 없는 고아일 수 있다는 '손으로 지워야 한다' 문구로 맞추기(L2와 같은 경로).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+첨부(S3) 정합성을 정리했다.
+- AC#1 BE-32: confirm·head·태그 제거·presign·삭제의 S3 오류는 503 storage_unavailable + 한 줄 WARN(op·key·status·code·requestId·예외 클래스, 메시지 제외). 앱 IAM에 업로드 버킷 ListBucket을 줘 PUT 전 confirm은 400 attachment_not_uploaded.
+- AC#2 BE-33: pendingTtl이 지난 confirm은 410 attachment_expired. 정리는 행 먼저·객체 나중, markConfirmed 0행이면 다시 읽어 확정됐으면 200·아니면 객체 삭제 후 410. B1: presigned PUT에 If-None-Match: *를 서명해 확정 뒤 재PUT(덮어쓰기·pending 태그 재부착)을 412로 막았다.
+- AC#3 BE-35: presign 서명을 DB 트랜잭션 밖으로, S3Client apiCallTimeout 5s·attempt 2s(UPLOADS_API_CALL_*).
+- AC#4 BE-36: 글에서 뗀 첨부(detached_at)·확정 뒤 붙이지 않은 첨부·삭제 글 첨부를 유예 7일(설정 가능) 뒤 행 → 객체 순으로 정리. B2: 유예 안 복구는 이미지 유지, 그 뒤 공개 URL은 CloudFront 캐시(최대 24시간, 유저 수용) 뒤 닫힘. 배포 전 데이터도 배포 시각부터 유예(V15). 삭제 글 확인은 상관 EXISTS ... FOR SHARE로 한 행만 잠금. 실행당 예산 5000건·10분.
+- AC#5 BE-37: ShedLock(JDBC, DB 시계)으로 모든 @Scheduled 작업 잠금, 누락은 테스트가 막는다.
+독립 리뷰 반영: 재PUT 덮어쓰기 금지, ListBucket, 정리 잠금 범위, 배포 전 데이터 유예, 고아 객체 WARN 문구, 실행 예산, 동시성 테스트.
+검증: make test 통과(backend 842, frontend 162, repo 230, deploy 135, terraform 57).
+범위 밖: 숨김 글 이미지는 공개 URL로 계속 열림, 유예 뒤 복구한 글은 이미지 없음(문서화), deleteQuietly WARN 문구.
+<!-- SECTION:FINAL_SUMMARY:END -->
