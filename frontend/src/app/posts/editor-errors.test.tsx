@@ -144,6 +144,32 @@ describe("TASK-31#4 첨부 연결 오류면 문제 첨부를 표시하고 그것
     const cells = within(screen.getByTestId("editor-attachments")).getAllByRole("listitem");
     expect(await within(cells[0]).findByTestId("editor-attachment-problem")).toHaveTextContent("잘못된 첨부 id 입니다");
     expect(within(cells[1]).queryByTestId("editor-attachment-problem")).not.toBeInTheDocument();
+    // 같은 메시지를 첨부 칸 아래에 한 번 더 보이지 않는다.
+    expect(screen.queryByTestId("editor-attachments-error")).not.toBeInTheDocument();
+  });
+
+  it("TASK-31#3 TASK-31#4 보낸 첨부로 풀리지 않는 attachmentIds[n] 만 첨부 칸에 보이고, 풀리는 것은 그 항목에만 보인다", async () => {
+    const uploads = presignHandlers();
+    server.use(
+      meHandler(makeMe()),
+      categoriesHandler(),
+      csrfHandler(),
+      ...uploads.handlers,
+      rejectWith(400, "validation", "입력값을 확인하세요", {
+        fields: { "attachmentIds[1]": "둘째 첨부 문제", "attachmentIds[5]": "범위 밖 첨부 문제" },
+      }),
+    );
+    renderWithQuery(<PostEditor />);
+
+    await uploadTwo();
+    await fillRequired();
+    await userEvent.click(screen.getByTestId("editor-submit"));
+
+    const cells = within(screen.getByTestId("editor-attachments")).getAllByRole("listitem");
+    expect(await within(cells[1]).findByTestId("editor-attachment-problem")).toHaveTextContent("둘째 첨부 문제");
+    const fieldError = screen.getByTestId("editor-attachments-error");
+    expect(fieldError).toHaveTextContent("범위 밖 첨부 문제");
+    expect(fieldError).not.toHaveTextContent("둘째 첨부 문제");
   });
 
   it("TASK-31#4 어떤 첨부인지 알 수 없으면(attachment_forbidden) 첨부 칸에 안내하고 빼고 저장 버튼은 없다", async () => {

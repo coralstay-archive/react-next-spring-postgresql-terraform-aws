@@ -118,23 +118,26 @@ const FIELD_OF: Record<string, keyof FieldErrors> = {
 
 /**
  * 서버 필드 오류를 칸에 붙인다(TASK-31#3, FE-24). 폼에 없는 키(오타 필드 `titel` 등)는 `unmapped` 로 돌려 폼 위 알림에 보인다 —
- * 아무 안내 없이 저장만 실패하지 않게. `attachmentIds[n]` 은 n 번째로 보낸 첨부라 `attachmentIndexes` 로도 돌려준다(TASK-31#4).
+ * 아무 안내 없이 저장만 실패하지 않게. `attachmentIds[n]` 이 n 번째로 보낸 첨부(`sentIds[n]`)로 풀리면 그 첨부 id → 메시지로
+ * `attachmentProblems` 에 돌려주고 첨부 칸에는 붙이지 않는다 — 같은 메시지가 칸과 항목에 두 번 보이지 않게(TASK-31#4). 맨 `attachmentIds`
+ * 나 풀리지 않는 n 만 첨부 칸에 붙는다.
  */
-function mapFieldErrors(fields: Record<string, string>) {
+function mapFieldErrors(fields: Record<string, string>, sentIds: number[] = []) {
   const mapped: FieldErrors = {};
   const unmapped: string[] = [];
-  const attachmentIndexes = new Map<number, string>();
+  const attachmentProblems: Record<number, string> = {};
   for (const [key, message] of Object.entries(fields)) {
     const field = FIELD_OF[key.split(/[[.]/)[0]];
     if (!field) {
       unmapped.push(message);
       continue;
     }
-    mapped[field] ??= message;
     const index = field === "attachments" ? /^attachmentIds\[(\d+)\]/.exec(key)?.[1] : undefined;
-    if (index !== undefined) attachmentIndexes.set(Number(index), message);
+    const attachmentId = index !== undefined ? sentIds[Number(index)] : undefined;
+    if (attachmentId !== undefined) attachmentProblems[attachmentId] ??= message;
+    else mapped[field] ??= message;
   }
-  return { mapped, unmapped, attachmentIndexes };
+  return { mapped, unmapped, attachmentProblems };
 }
 
 /** 글 저장 때 첨부 연결이 거절된 코드(TASK-31#4, FE-25). 문제 첨부를 편집기에서 표시하고 그것만 빼고 다시 저장하게 한다. */
@@ -276,13 +279,9 @@ export function PostEditor({ post }: { post?: PostDetail }) {
         void client.invalidateQueries({ queryKey: queryKeys.post(post.id) });
       }
       if (error.fields) {
-        const { mapped, attachmentIndexes } = mapFieldErrors(error.fields);
+        const { mapped, attachmentProblems } = mapFieldErrors(error.fields, sentIds);
         setFieldErrors(mapped);
-        const found: Record<number, string> = {};
-        for (const [index, message] of attachmentIndexes) {
-          if (sentIds[index] !== undefined) found[sentIds[index]] = message;
-        }
-        setProblems(found);
+        setProblems(attachmentProblems);
       } else if (ATTACHMENT_LINK_ERRORS.includes(error.code)) {
         const id = linkErrorAttachmentId(error.message, sentIds);
         if (id !== null) setProblems({ [id]: errorMessage(error) });
