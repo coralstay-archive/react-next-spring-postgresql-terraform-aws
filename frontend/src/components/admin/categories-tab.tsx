@@ -160,7 +160,7 @@ export function CategoriesTab() {
   );
 }
 
-/** 생성·수정 폼. 서버 규칙(slug `^[a-z0-9-]{2,30}$`, 이름 1~50, 정수 순서)을 먼저 확인한다. 수정은 바뀐 필드만 PATCH. */
+/** 생성·수정 폼. 서버 규칙(slug `^[a-z0-9-]{2,30}$`, 이름 1~50, 순서 0~10000 정수)을 먼저 확인한다. 수정은 바뀐 필드만 PATCH. */
 function CategoryEditor({ editing, onDone }: { editing: Category | null; onDone: () => void }) {
   const [form, setForm] = useState<CategoryForm>(editing ? toForm(editing) : EMPTY);
   const [errors, setErrors] = useState<CategoryFormErrors>({});
@@ -171,7 +171,7 @@ function CategoryEditor({ editing, onDone }: { editing: Category | null; onDone:
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const found = validateCategoryForm(form);
+    const found = validateCategoryForm(form, editing ?? undefined);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     const payload = editing ? updatePayload(editing, form) : createPayload(form);

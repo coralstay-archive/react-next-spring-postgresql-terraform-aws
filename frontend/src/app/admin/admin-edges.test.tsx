@@ -6,8 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminView } from "@/app/admin/admin-view";
 import { Pager } from "@/components/admin/pager";
 import type { AdminActionEntry, AdminUser } from "@/lib/admin";
+import { SORT_ORDER_MAX, SORT_ORDER_MESSAGE, validateCategoryForm } from "@/lib/admin";
+import type { Category } from "@/lib/board";
 import { queryKeys } from "@/lib/query";
-import { makeSummary, pageOf } from "@/test/board";
+import { CATEGORIES, makeSummary, pageOf } from "@/test/board";
 import { csrfHandler, server } from "@/test/server";
 import { makeMe, meHandler, navigation, renderWithQuery } from "@/test/utils";
 
@@ -220,5 +222,74 @@ describe("TASK-33#5 정지 경고(warnings)", () => {
     await suspend("스팸");
     expect(await screen.findByTestId("admin-user-unsuspend")).toBeInTheDocument();
     expect(screen.queryByTestId("admin-suspend-warning")).not.toBeInTheDocument();
+  });
+});
+
+// TASK-33#6 카테고리 순서는 서버 범위(0~10000 정수, TASK-27#4)와 같게 미리 검사한다.
+describe("TASK-33#6 카테고리 순서 검사", () => {
+  beforeEach(() => navigation.reset("/admin/"));
+
+  const ok = { slug: "free-talk", name: "자유", sortOrder: "", adminOnly: false };
+
+  it("TASK-33#6 validateCategoryForm: 0~10000 정수만 통과, 그 밖은 한국어 오류", () => {
+    for (const value of ["0", "10000", "5", " 7 "]) {
+      expect(validateCategoryForm({ ...ok, sortOrder: value }).sortOrder, value).toBeUndefined();
+    }
+    for (const value of ["-1", "10001", "1.5", "1e3", "abc", "99999999999", "+3"]) {
+      expect(validateCategoryForm({ ...ok, sortOrder: value }).sortOrder, value).toBe(SORT_ORDER_MESSAGE);
+    }
+    expect(SORT_ORDER_MESSAGE).toBe("순서는 0~10000 사이의 정수여야 합니다");
+    expect(SORT_ORDER_MAX).toBe(10000);
+  });
+
+  it("TASK-33#6 수정에서 순서를 바꾸지 않았으면(PATCH 에서 빠짐) 범위 밖 기존 값도 검사하지 않는다", () => {
+    const legacy: Category = { id: 9, slug: "old", name: "옛", sortOrder: 20000, adminOnly: false };
+    const form = { slug: "old", name: "새", sortOrder: "20000", adminOnly: false };
+    expect(validateCategoryForm(form, legacy).sortOrder).toBeUndefined();
+    expect(validateCategoryForm({ ...form, sortOrder: "20001" }, legacy).sortOrder).toBe(SORT_ORDER_MESSAGE);
+    expect(validateCategoryForm(form).sortOrder).toBe(SORT_ORDER_MESSAGE);
+  });
+
+  it("TASK-33#6 폼: 10001 이면 요청하지 않고 순서 칸에 오류를 보인다", async () => {
+    const posts: unknown[] = [];
+    server.use(
+      meHandler(ADMIN),
+      csrfHandler(),
+      http.get("*/api/categories", () => HttpResponse.json(CATEGORIES)),
+      http.post("*/api/admin/categories", async ({ request }) => {
+        posts.push(await request.json());
+        return HttpResponse.json(CATEGORIES[0], { status: 201 });
+      }),
+    );
+    renderAdmin("categories");
+    await screen.findAllByTestId("admin-category-row");
+    await userEvent.type(screen.getByTestId("admin-category-slug"), "qna");
+    await userEvent.type(screen.getByTestId("admin-category-name"), "질문");
+    await userEvent.type(screen.getByTestId("admin-category-sort-order"), "10001");
+    await userEvent.click(screen.getByTestId("admin-category-submit"));
+    expect(await screen.findByTestId("admin-category-sort-order-error")).toHaveTextContent(SORT_ORDER_MESSAGE);
+    expect(screen.getByTestId("admin-category-sort-order")).toHaveAttribute("aria-invalid", "true");
+    expect(posts).toHaveLength(0);
+  });
+
+  it("TASK-33#6 폼: 범위 밖 기존 순서의 카테고리도 이름만 바꾸면 순서 없이 PATCH 한다", async () => {
+    const patches: unknown[] = [];
+    const legacy: Category = { id: 9, slug: "old", name: "옛", sortOrder: 20000, adminOnly: false };
+    server.use(
+      meHandler(ADMIN),
+      csrfHandler(),
+      http.get("*/api/categories", () => HttpResponse.json([legacy])),
+      http.patch("*/api/admin/categories/:id", async ({ request }) => {
+        patches.push(await request.json());
+        return HttpResponse.json({ ...legacy, name: "새" });
+      }),
+    );
+    renderAdmin("categories");
+    await userEvent.click(await screen.findByTestId("admin-category-edit"));
+    const name = screen.getByTestId("admin-category-name");
+    await userEvent.clear(name);
+    await userEvent.type(name, "새");
+    await userEvent.click(screen.getByTestId("admin-category-submit"));
+    await waitFor(() => expect(patches).toEqual([{ name: "새" }]));
   });
 });

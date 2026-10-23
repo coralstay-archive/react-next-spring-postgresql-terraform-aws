@@ -162,20 +162,24 @@ export type CategoryFormErrors = Partial<Record<keyof CategoryForm, string>>;
 export const SLUG_PATTERN = /^[a-z0-9-]{2,30}$/;
 export const SLUG_MESSAGE = "slug 는 소문자·숫자·하이픈 2~30자여야 합니다";
 export const NAME_MAX = 50;
-const INT_MIN = -2147483648;
-const INT_MAX = 2147483647;
+/** 서버 `AdminCategoryRequests.MAX_SORT_ORDER`(TASK-27#4): 순서는 0~10000 정수. */
+export const SORT_ORDER_MAX = 10000;
+export const SORT_ORDER_MESSAGE = `순서는 0~${SORT_ORDER_MAX} 사이의 정수여야 합니다`;
 
-/** 서버 `AdminCategoryRequests` 와 같은 규칙. 이름은 서버처럼 앞뒤 공백을 자른 뒤 1~50자. 순서는 Java int. */
-export function validateCategoryForm(form: CategoryForm): CategoryFormErrors {
+/**
+ * 서버 `AdminCategoryRequests` 와 같은 규칙. 이름은 서버처럼 앞뒤 공백을 자른 뒤 1~50자. 순서는 0~10000 정수(TASK-33#6).
+ * 수정(`original`)에서 순서를 바꾸지 않았으면 PATCH 에 빠지므로(서버도 검사하지 않는다) 범위 밖 기존 값이어도 통과시킨다.
+ */
+export function validateCategoryForm(form: CategoryForm, original?: Category): CategoryFormErrors {
   const errors: CategoryFormErrors = {};
   if (!SLUG_PATTERN.test(form.slug)) errors.slug = SLUG_MESSAGE;
   const name = javaStrip(form.name);
   if (!name) errors.name = "이름을 입력하세요";
   else if (name.length > NAME_MAX) errors.name = `이름은 1~${NAME_MAX}자입니다`;
   const order = form.sortOrder.trim();
-  if (order) {
-    const value = Number(order);
-    if (!/^-?\d+$/.test(order) || value < INT_MIN || value > INT_MAX) errors.sortOrder = "순서는 정수여야 합니다";
+  const unchanged = original !== undefined && order === String(original.sortOrder);
+  if (order && !unchanged) {
+    if (!/^\d+$/.test(order) || Number(order) > SORT_ORDER_MAX) errors.sortOrder = SORT_ORDER_MESSAGE;
   }
   return errors;
 }
