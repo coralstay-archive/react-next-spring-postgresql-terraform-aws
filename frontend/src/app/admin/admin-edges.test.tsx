@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminView } from "@/app/admin/admin-view";
 import { Pager } from "@/components/admin/pager";
 import type { AdminActionEntry, AdminUser } from "@/lib/admin";
-import { SORT_ORDER_MAX, SORT_ORDER_MESSAGE, validateCategoryForm } from "@/lib/admin";
+import { SORT_ORDER_MAX, SORT_ORDER_MESSAGE, updatePayload, validateCategoryForm } from "@/lib/admin";
 import type { Category } from "@/lib/board";
 import { queryKeys } from "@/lib/query";
 import { CATEGORIES, makeSummary, pageOf } from "@/test/board";
@@ -276,6 +276,13 @@ describe("TASK-33#6 카테고리 순서 검사", () => {
     expect(validateCategoryForm(form, legacy).sortOrder).toBeUndefined();
     expect(validateCategoryForm({ ...form, sortOrder: "20001" }, legacy).sortOrder).toBe(SORT_ORDER_MESSAGE);
     expect(validateCategoryForm(form).sortOrder).toBe(SORT_ORDER_MESSAGE);
+  });
+
+  it("TASK-33#6 '바꾸지 않음'은 검사와 PATCH 본문 모두 숫자로 비교한다(020000 = 20000)", () => {
+    const legacy: Category = { id: 9, slug: "old", name: "옛", sortOrder: 20000, adminOnly: false };
+    const form = { slug: "old", name: "새", sortOrder: "020000", adminOnly: false };
+    expect(validateCategoryForm(form, legacy).sortOrder).toBeUndefined();
+    expect(updatePayload(legacy, form)).toEqual({ name: "새" });
   });
 
   it("TASK-33#6 폼: 10001 이면 요청하지 않고 순서 칸에 오류를 보인다", async () => {

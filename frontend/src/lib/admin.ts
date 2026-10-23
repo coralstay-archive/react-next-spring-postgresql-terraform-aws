@@ -207,7 +207,8 @@ export function validateCategoryForm(form: CategoryForm, original?: Category): C
   if (!name) errors.name = "이름을 입력하세요";
   else if (name.length > NAME_MAX) errors.name = `이름은 1~${NAME_MAX}자입니다`;
   const order = form.sortOrder.trim();
-  const unchanged = original !== undefined && order === String(original.sortOrder);
+  // '바꾸지 않음'은 updatePayload 와 같은 숫자 비교다(020000 = 20000 이면 PATCH 에서 빠지므로 검사도 하지 않는다).
+  const unchanged = original !== undefined && order !== "" && Number(order) === original.sortOrder;
   if (order && !unchanged) {
     if (!/^\d+$/.test(order) || Number(order) > SORT_ORDER_MAX) errors.sortOrder = SORT_ORDER_MESSAGE;
   }
