@@ -209,3 +209,49 @@ describe("TASK-28#4 계정 연결 실패 ?error=", () => {
     expect(screen.getByRole("alert")).not.toHaveTextContent("Weird");
   });
 });
+
+// TASK-28#5 FE-17: ?linked= 는 알려진 provider 만 알리고, 읽은 뒤 URL 에서 지워 새로고침해도 반복되지 않는다.
+describe("TASK-28#5 ?linked= 처리", () => {
+  it.each([
+    ["google", "Google"],
+    ["github", "GitHub"],
+    ["naver", "네이버"],
+    ["kakao", "카카오"],
+    ["cognito", "Cognito"],
+  ])("TASK-28#5 linked=%s 는 '%s 계정을 연결했습니다.'를 보이고 쿼리를 지운다", async (id, label) => {
+    navigation.reset("/account/", `linked=${id}`);
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    renderWithQuery(<AccountView />);
+
+    expect(await screen.findByRole("status", { name: "알림" })).toHaveTextContent(`${label} 계정을 연결했습니다.`);
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/account/", { scroll: false }));
+  });
+
+  it.each(["evil", "<b>해킹</b> 성공! 비밀번호를 입력하세요", "GitHub", "phone", "local", ""])(
+    "TASK-28#5 모르는 linked=%j 는 표시하지 않고 쿼리만 지운다",
+    async (value) => {
+      navigation.reset("/account/", `linked=${encodeURIComponent(value)}`);
+      server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+      renderWithQuery(<AccountView />);
+
+      await screen.findByRole("list", { name: "연결된 로그인 수단" });
+      expect(screen.queryByRole("status", { name: "알림" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/계정을 연결했습니다/)).not.toBeInTheDocument();
+      await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/account/", { scroll: false }));
+    },
+  );
+
+  it("TASK-28#5 linked 만 지우고 다른 쿼리는 남긴다, linked 가 없으면 URL 을 건드리지 않는다", async () => {
+    navigation.reset("/account/", "linked=kakao&tab=x");
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    const { unmount } = renderWithQuery(<AccountView />);
+    await screen.findByRole("status", { name: "알림" });
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/account/?tab=x", { scroll: false }));
+    unmount();
+
+    navigation.reset("/account/", "tab=x");
+    renderWithQuery(<AccountView />);
+    await screen.findByRole("list", { name: "연결된 로그인 수단" });
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+});

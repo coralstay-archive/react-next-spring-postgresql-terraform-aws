@@ -1,7 +1,7 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useId, useState, type FormEvent } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useId, useState, type FormEvent } from "react";
 
 import { FormError } from "@/components/auth/form-error";
 import { PhoneOtpForm } from "@/components/auth/phone-otp-form";
@@ -37,13 +37,24 @@ function rememberAccountReturn() {
 export function AccountView() {
   const params = useSearchParams();
   const { data: me } = useMe();
+  const router = useRouter();
+  const pathname = usePathname();
   const linked = params.get("linked");
   const linkError = params.get("error");
+  // TASK-28#5: 알려진 제공자만 알린다(임의 문자열을 성공 문구에 넣지 않는다).
   const [notice, setNotice] = useState<string | null>(() => {
-    if (!linked) return null;
     const provider = SOCIAL_PROVIDERS.find((p) => p.id === linked);
-    return `${provider?.label ?? linked} 계정을 연결했습니다.`;
+    return provider ? `${provider.label} 계정을 연결했습니다.` : null;
   });
+
+  // 한 번 알린 linked 는 URL 에서 지운다(새로고침·뒤로 가기로 다시 뜨지 않게). 다른 쿼리는 남긴다.
+  useEffect(() => {
+    if (linked === null) return;
+    const rest = new URLSearchParams(params.toString());
+    rest.delete("linked");
+    const query = rest.toString();
+    router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false });
+  }, [linked, params, pathname, router]);
   const [error, setError] = useState<string | null>(() =>
     linkError !== null ? oauthErrorMessage(linkError, "link") : null,
   );
