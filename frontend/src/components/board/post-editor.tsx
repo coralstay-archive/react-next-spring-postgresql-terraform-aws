@@ -27,13 +27,17 @@ type UploadItem =
   | { key: string; name: string; status: "done"; attachment: Attachment }
   | { key: string; name: string; status: "error"; error: string };
 
-/** 글 초안(TASK-29#3). 업로드가 끝난 첨부만 담는다(진행 중·실패한 것은 다시 올려야 한다). */
+/**
+ * 글 초안(TASK-29#3). 업로드가 끝난 첨부만 담는다(진행 중·실패한 것은 다시 올려야 한다).
+ * 수정 초안은 바탕이 된 글의 `updatedAt`(`baseUpdatedAt`)도 담아, 복원할 때 서버 글이 그사이 바뀌었는지 본다.
+ */
 interface PostDraft {
   title: string;
   content: string;
   categorySlug: string;
   tags: string[];
   attachments: Attachment[];
+  baseUpdatedAt?: string;
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -52,7 +56,14 @@ function readPostDraft(key: string, userId: number): PostDraft | null {
     attachments: Array.isArray(draft.attachments)
       ? draft.attachments.filter((a): a is Attachment => !!a && typeof a === "object" && typeof a.id === "number")
       : [],
+    baseUpdatedAt: typeof draft.baseUpdatedAt === "string" ? draft.baseUpdatedAt : undefined,
   };
+}
+
+/** 수정 초안의 바탕 글보다 서버 글이 새로운가. 수정 시각을 모르는 초안(이전 형식·깨진 값)도 새로운 것으로 본다. */
+function serverIsNewer(post: PostDetail, draft: PostDraft): boolean {
+  const base = draft.baseUpdatedAt ? Date.parse(draft.baseUpdatedAt) : NaN;
+  return Number.isNaN(base) || Date.parse(post.updatedAt) > base;
 }
 
 function initialDraft(post?: PostDetail): PostDraft {
@@ -95,7 +106,8 @@ const SELECT = "border-input h-8 w-full rounded-lg border bg-transparent px-2 te
  * - 카테고리: `adminOnly` 는 ADMIN 에게만 보인다(서버도 403 `category_admin_only`).
  * - 태그: 서버와 같은 정규화를 미리 보여 주고 최대 5개.
  * - 이미지: 선검증 → presign → PUT(진행률) → confirm 한 첨부의 id 를 `attachmentIds` 로 보낸다. 업로드 중에는 등록을 막는다.
- * - 초안(TASK-29#3, B1): 입력이 멈추면 sessionStorage 에 저장하고(원래 값과 같으면 지움, useDraftAutosave), 다시 열면 복원한다. 세션이 끝나도
+ * - 초안(TASK-29#3, B1): 입력이 멈추면 sessionStorage 에 저장하고(원래 값과 같으면 지움, useDraftAutosave), 다시 열면 복원한다.
+ *   수정 초안은 바탕 글의 updatedAt 을 담고, 복원 때 서버 글이 더 새로우면 경고하고 초안 유지·버리기(최신 글)를 고르게 한다. 세션이 끝나도
  *   편집기는 언마운트되지 않는다(RequireAuth). 저장에 성공하면 초안을 지운다.
  */
 export function PostEditor({ post }: { post?: PostDetail }) {
@@ -112,6 +124,9 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   const draftKey = post ? draftKeys.editPost(post.id) : draftKeys.newPost;
 
   const [restored, setRestored] = useState<PostDraft | null>(() => (user ? readPostDraft(draftKey, user.id) : null));
+  // 수정 초안의 바탕 글 시각. 서버 글이 더 새로우면 사용자가 고를 때까지 초안이 기억한 시각을 그대로 둔다(다시 열어도 경고가 남게).
+  const [conflict, setConflict] = useState(() => !!post && !!restored && serverIsNewer(post, restored));
+  const [baseUpdatedAt, setBaseUpdatedAt] = useState(() => (restored && post ? restored.baseUpdatedAt : post?.updatedAt));
   const start = restored ?? initialDraft(post);
   const [title, setTitle] = useState(start.title);
   const [content, setContent] = useState(start.content);
@@ -124,7 +139,14 @@ export function PostEditor({ post }: { post?: PostDetail }) {
 
   // 초안 저장(TASK-29#3). 원래 값(작성: 빈 폼, 수정: 받은 글)과 같으면 지운다.
   const doneAttachments = items.flatMap((item) => (item.status === "done" ? [item.attachment] : []));
-  const draft: PostDraft = { title, content, categorySlug, tags, attachments: doneAttachments };
+  const draft: PostDraft = {
+    title,
+    content,
+    categorySlug,
+    tags,
+    attachments: doneAttachments,
+    ...(post && baseUpdatedAt ? { baseUpdatedAt } : {}),
+  };
   const pristine = sameDraft(draft, initialDraft(post));
   const autosave = useDraftAutosave({ key: draftKey, ownerId: userId, data: draft, empty: pristine });
 
@@ -138,7 +160,15 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     setItems(doneItems(initial.attachments));
     setFieldErrors({});
     setRestored(null);
+    setConflict(false);
+    setBaseUpdatedAt(post?.updatedAt);
     autosave.discard();
+  };
+
+  /** 서버 글이 바뀌었어도 초안을 쓴다: 이제 지금 서버 글을 바탕으로 본다(다음에 열 때 다시 경고하지 않는다). */
+  const keepDraft = () => {
+    setConflict(false);
+    setBaseUpdatedAt(post?.updatedAt);
   };
 
   const save = useMutation({
@@ -288,7 +318,24 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     <form onSubmit={submit} noValidate className="flex w-full flex-col gap-5" data-testid="post-editor">
       <h1 className="text-2xl font-semibold tracking-tight">{post ? "글 수정" : "글쓰기"}</h1>
 
-      {restored && (
+      {restored && conflict && (
+        <Alert variant="destructive" data-testid="draft-conflict">
+          <AlertDescription className="flex flex-col gap-2">
+            <p>
+              이 글은 그사이 수정되었습니다. 불러온 초안은 이전 글을 바탕으로 쓴 것이라, 그대로 저장하면 그사이 바뀐 내용을 덮어씁니다.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="xs" onClick={keepDraft}>
+                초안 유지
+              </Button>
+              <Button type="button" variant="outline" size="xs" onClick={discardDraft}>
+                초안 버리고 최신 글 불러오기
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+      {restored && !conflict && (
         <Alert data-testid="draft-restored">
           <AlertDescription className="flex flex-wrap items-center gap-2">
             <span>임시 저장된 초안을 불러왔습니다.</span>

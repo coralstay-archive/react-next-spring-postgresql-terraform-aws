@@ -208,3 +208,97 @@ describe("TASK-29#3 작성 화면에서는 세션 안내를 하단 고정 안내
   });
 });
 
+describe("TASK-29#3 수정 초안은 글의 수정 시각을 함께 기억하고, 그사이 서버 글이 바뀌었으면 경고한다", () => {
+  const OLD = "2026-10-01T00:00:00Z";
+  const NEW = "2026-10-05T00:00:00Z";
+
+  function editDraft(baseUpdatedAt?: string) {
+    saveDraft(draftKeys.editPost(9), 1, {
+      title: "초안 제목",
+      content: "초안 본문",
+      categorySlug: "",
+      tags: [],
+      attachments: [],
+      ...(baseUpdatedAt ? { baseUpdatedAt } : {}),
+    });
+  }
+
+  function renderEdit(serverUpdatedAt: string) {
+    // 앞의 핸들러가 이긴다: 글 9 응답을 백엔드 기본값보다 먼저 둔다.
+    server.use(
+      http.get("*/api/posts/9", () =>
+        HttpResponse.json(makePost({ id: 9, title: "서버 제목", content: "서버 본문", editable: true, updatedAt: serverUpdatedAt })),
+      ),
+      ...backend().handlers,
+    );
+    return renderWithQuery(
+      <RequireAuth>
+        <PostEditView />
+      </RequireAuth>,
+    );
+  }
+
+  beforeEach(() => {
+    navigation.reset("/posts/edit/", "id=9");
+  });
+
+  it("TASK-29#3 편집 중 저장하는 초안에 글의 updatedAt 을 담는다", async () => {
+    renderEdit(OLD);
+    await fill(await screen.findByTestId("editor-title"), " 고침");
+    await waitFor(() =>
+      expect(loadDraft(draftKeys.editPost(9), 1)).toMatchObject({ title: "서버 제목 고침", baseUpdatedAt: OLD }),
+    );
+  });
+
+  it("TASK-29#3 서버 글이 같으면 경고 없이 복원한다", async () => {
+    editDraft(OLD);
+    renderEdit(OLD);
+    expect(await screen.findByTestId("editor-title")).toHaveValue("초안 제목");
+    expect(screen.getByTestId("draft-restored")).toBeInTheDocument();
+    expect(screen.queryByTestId("draft-conflict")).not.toBeInTheDocument();
+  });
+
+  it("TASK-29#3 서버 글이 더 새로우면 경고하고, '초안 버리기'로 최신 글을 불러온다", async () => {
+    editDraft(OLD);
+    renderEdit(NEW);
+    expect(await screen.findByTestId("editor-title")).toHaveValue("초안 제목");
+    expect(screen.getByTestId("draft-conflict")).toHaveTextContent("이 글은 그사이 수정되었습니다");
+
+    await userEvent.click(screen.getByRole("button", { name: "초안 버리고 최신 글 불러오기" }));
+    expect(screen.getByTestId("editor-title")).toHaveValue("서버 제목");
+    expect(screen.getByTestId("editor-content")).toHaveValue("서버 본문");
+    expect(screen.queryByTestId("draft-conflict")).not.toBeInTheDocument();
+    await waitFor(() => expect(loadDraft(draftKeys.editPost(9), 1)).toBeNull());
+  });
+
+  it("TASK-29#3 '초안 유지'를 고르면 초안을 두고, 다음에 열 때는 다시 경고하지 않는다", async () => {
+    editDraft(OLD);
+    const { unmount } = renderEdit(NEW);
+    await screen.findByTestId("draft-conflict");
+
+    await userEvent.click(screen.getByRole("button", { name: "초안 유지" }));
+    expect(screen.queryByTestId("draft-conflict")).not.toBeInTheDocument();
+    expect(screen.getByTestId("editor-title")).toHaveValue("초안 제목");
+    unmount();
+    expect(loadDraft(draftKeys.editPost(9), 1)).toMatchObject({ title: "초안 제목", baseUpdatedAt: NEW });
+
+    renderEdit(NEW);
+    expect(await screen.findByTestId("editor-title")).toHaveValue("초안 제목");
+    expect(screen.queryByTestId("draft-conflict")).not.toBeInTheDocument();
+  });
+
+  it("TASK-29#3 고르기 전에 다시 열어도 경고가 남는다(기억한 수정 시각을 바꾸지 않는다)", async () => {
+    editDraft(OLD);
+    const { unmount } = renderEdit(NEW);
+    await screen.findByTestId("draft-conflict");
+    unmount();
+    expect(loadDraft(draftKeys.editPost(9), 1)).toMatchObject({ baseUpdatedAt: OLD });
+  });
+
+  it("TASK-29#3 수정 시각이 없는 초안(이전 형식)도 경고한다", async () => {
+    editDraft();
+    renderEdit(OLD);
+    expect(await screen.findByTestId("draft-conflict")).toBeInTheDocument();
+  });
+});
+
