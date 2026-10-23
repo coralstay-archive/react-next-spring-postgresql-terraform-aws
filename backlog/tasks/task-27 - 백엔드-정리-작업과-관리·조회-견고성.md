@@ -1,10 +1,10 @@
 ---
 id: TASK-27
 title: '백엔드: 정리 작업과 관리·조회 견고성'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-21 04:09'
+updated_date: '2026-10-23 01:46'
 labels:
   - backend
   - ops
