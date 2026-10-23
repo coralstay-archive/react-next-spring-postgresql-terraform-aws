@@ -1,10 +1,10 @@
 ---
 id: TASK-32
 title: '프론트: step-up·계정 화면 일관성'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 14:30'
+updated_date: '2026-10-23 14:43'
 labels:
   - frontend
   - auth
@@ -34,9 +34,9 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FE-16 로그인 수단 해제 확인 다이얼로그(LOCAL이면 비밀번호 삭제 경고), 제한 세션에서 비활성
-- [ ] #2 FE-18 OTP 5회 실패 시 재발송 안내
-- [ ] #3 FE-31 제한 세션이면 작성 컨트롤을 미리 비활성 또는 안내, step-up 오류 표시를 단일 컴포넌트로
+- [x] #1 FE-16 로그인 수단 해제 확인 다이얼로그(LOCAL이면 비밀번호 삭제 경고), 제한 세션에서 비활성
+- [x] #2 FE-18 OTP 5회 실패 시 재발송 안내
+- [x] #3 FE-31 제한 세션이면 작성 컨트롤을 미리 비활성 또는 안내, step-up 오류 표시를 단일 컴포넌트로
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -54,3 +54,14 @@ documentation:
 <!-- SECTION:NOTES:BEGIN -->
 독립 리뷰(2026-10-23) 반영 결정(유저): 제한 세션에서 글·댓글 삭제는 확인 창 전에 본인 확인 안내(좋아요·관리자 작업은 눌렀을 때 403 안내 유지). 화면 안 안내(편집기·댓글)는 role=status 간략형으로 — 상단 배너만 alert. OTP 재발송 대기는 서버 429 Retry-After 기준 유지. 고칠 것: frontend.md OTP '한계' 문장 정정(실제 어긋남은 서버가 실패를 커밋했는데 클라이언트가 네트워크 오류·타임아웃을 받은 경우 — 잠금 안내가 늦게 나올 뿐), 잠길 때 포커스를 '인증번호 다시 받기' 버튼으로.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+step-up·계정 화면을 일관되게 정리했다.
+- AC#1 FE-16: 로그인 수단 해제는 확인 다이얼로그를 거친다(LOCAL이면 비밀번호 삭제 경고, 409 last_identity는 다이얼로그 안에 표시). 제한 세션에서는 해제 버튼을 미리 막고 이유를 보인다. B1: 취소·Esc면 요청 0건.
+- AC#2 FE-18: 현재 챌린지의 invalid_otp를 세어 5번째에 입력을 비우고 막은 뒤 다시 받기 안내, 포커스는 '인증번호 다시 받기'로. 재발송 대기는 서버 429 Retry-After 기준(유저 결정).
+- AC#3 FE-31: 제한 세션이면 글 등록·이미지 올리기·댓글 등록을 미리 막고(입력은 초안으로 유지), 글·댓글 삭제는 확인 창 전에 안내(유저 결정). step-up 안내는 StepUpNotice 하나로 — 상단 배너는 alert, 화면 안은 조용한 status 간략형(유저 결정).
+검증: make test 통과(frontend 523, repo 233, deploy 135, terraform 57, backend), tsc·eslint.
+범위 밖: /account/는 세션 만료 시 내용(해제 다이얼로그 포함)이 사라짐, ConfirmDialog가 components/admin 아래에 있음, 마지막 수단 해제 버튼은 서버 409로 안내.
+<!-- SECTION:FINAL_SUMMARY:END -->
