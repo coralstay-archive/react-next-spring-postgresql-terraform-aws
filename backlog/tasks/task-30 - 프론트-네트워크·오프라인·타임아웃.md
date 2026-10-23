@@ -1,10 +1,10 @@
 ---
 id: TASK-30
 title: '프론트: 네트워크·오프라인·타임아웃'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 08:41'
+updated_date: '2026-10-23 08:50'
 labels:
   - frontend
 dependencies:
@@ -32,10 +32,10 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FE-4 오프라인 배너, 뮤테이션 networkMode always로 즉시 network 오류
-- [ ] #2 FE-7 CSRF 쿠키가 계속 없으면 cookies_blocked 전용 오류
-- [ ] #3 FE-8 뮤테이션 요청 타임아웃(AbortSignal)
-- [ ] #4 FE-23 재조회 실패 시 기존 데이터 유지 + 작은 오류 배너
+- [x] #1 FE-4 오프라인 배너, 뮤테이션 networkMode always로 즉시 network 오류
+- [x] #2 FE-7 CSRF 쿠키가 계속 없으면 cookies_blocked 전용 오류
+- [x] #3 FE-8 뮤테이션 요청 타임아웃(AbortSignal)
+- [x] #4 FE-23 재조회 실패 시 기존 데이터 유지 + 작은 오류 배너
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -55,3 +55,16 @@ documentation:
 
 독립 리뷰(2026-10-23) 반영 결정(유저): 쓰기 타임아웃은 호출 전체 35초(403 csrf 재시도·토큰 재발급 포함), CSRF 토큰 GET에도 10초 제한. 처음부터 오프라인이면 배너 없이 조회 재시도 뒤 오류 화면 — 그대로(navigator.onLine은 크롬 오탐 때문에 읽지 않음). 관리자 탭 페이지 이동 실패 시 이전 페이지가 사라지는 동작(keepPreviousData는 pending에만 적용)은 문서화.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+프론트 네트워크·오프라인·타임아웃 대응을 넣었다.
+- AC#1 FE-4: onlineManager 기반 오프라인 배너, 뮤테이션 networkMode always로 오프라인 제출은 바로 network 오류. B1: 다시 연결돼도 몰래 보내지 않음(테스트로 고정). 쿼리는 online 모드 유지, 처음부터 오프라인이면 재시도 뒤 오류 화면(유저 결정).
+- AC#2 FE-7: CSRF 토큰을 받은 뒤에도 XSRF-TOKEN 쿠키가 없으면 보내지 않고 cookies_blocked 안내.
+- AC#3 FE-8: 쓰기 요청은 호출 전체(403 csrf 재시도·토큰 재발급 포함) 35초 예산, 넘으면 timeout('처리됐는지 확인 후 다시 시도', 자동 재시도 없음). CSRF 토큰 GET은 10초 제한(넘으면 network). 사용자 취소는 timeout과 구분.
+- AC#4 FE-23: 재조회 실패 시 받은 데이터를 두고 작은 오류 배너 + 다시 시도(목록·상세·댓글·수정·관리자 탭·계정). 재조회 404는 없는 글 안내. TASK-29의 상세 재조회 실패 시 댓글 폼 소실도 해결.
+독립 리뷰 반영: 호출 전체 타임아웃 예산, 토큰 GET 제한·중복 제거.
+검증: make test 통과(frontend 447, repo 233, deploy 135, terraform 57, backend), tsc·eslint.
+범위 밖: GET 조회 타임아웃 없음, 카테고리·인기 태그 조회 실패 무표시(FE-22), 관리자 탭 페이지 이동 실패 시 전체 오류 화면(문서화).
+<!-- SECTION:FINAL_SUMMARY:END -->
