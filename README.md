@@ -396,6 +396,9 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `UPLOADS_PUBLIC_BASE_PATH` | | | terraform(`/uploads/`) | 첨부 공개 URL 앞부분(url = 이 값 + 키에서 `uploads/` 뒤, 운영은 CloudFront 같은 오리진). 로컬은 `http://localhost:9000/board-uploads/uploads/` |
 | `UPLOADS_ENDPOINT` / `UPLOADS_PATH_STYLE` | | | (운영은 비움) | 로컬 MinIO `http://localhost:9000` / `true`. 운영 S3는 비움 / `false` |
 | `UPLOADS_ACCESS_KEY` / `UPLOADS_SECRET_KEY` | 시크릿만 | | (운영은 비움) | 로컬 MinIO 정적 자격 증명. 운영은 비워서 EC2 인스턴스 프로파일을 쓴다 |
+| `UPLOADS_ORPHAN_GRACE_PERIOD` | | | 입력(선택) | `P7D` (`app.uploads.orphan-grace-period`, TASK-26#4). 글에서 뗀·붙이지 않은 확정 첨부와 삭제된 글의 첨부를 지우기 전 유예 기간. 이 안에 관리자가 글을 복구하면 이미지가 그대로다. 지난 뒤 1시간 안에 행·S3 객체를 지우고, 공개 URL 은 CloudFront 캐시(최대 24시간) 뒤 열리지 않는다. 양수가 아니면 기동 실패 |
+| `UPLOADS_API_CALL_TIMEOUT` / `UPLOADS_API_CALL_ATTEMPT_TIMEOUT` | | | 입력(선택) | `5s` / `2s` (`app.uploads.api-call-timeout`·`api-call-attempt-timeout`, TASK-26#3). S3 호출(HeadObject·태그 제거·삭제) 하나의 전체(재시도 포함)·HTTP 시도별 상한. 넘거나 S3 오류면 503 `storage_unavailable`. 0·음수이거나 시도별 > 전체면 기동 실패 |
+| `SCHEDULING_LOCK_AT_LEAST_FOR` | | | 입력(선택) | `PT10S` (`app.scheduling.lock-at-least-for`, TASK-26#5). 스케줄 작업(첨부 정리) ShedLock 락의 최소 유지 시간 — 짧게 끝난 작업을 다른 인스턴스가 바로 또 돌리지 않게 한다 |
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_PORT` | | | (로컬 전용) | `board` / `board` / `board` / `5432`. 로컬 PostgreSQL 컨테이너. 운영 db 컨테이너 값은 render-env가 `DB_*`에서 만든다 |
 | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` / `MINIO_PORT` / `MINIO_CONSOLE_PORT` | | | (로컬 전용) | `minioadmin` / `minioadmin` / `9000` / `9001` |
 | `BACKEND_URL` | | | (로컬 전용) | `http://localhost:8080`. `next dev`가 `/api`를 넘길 주소 |
