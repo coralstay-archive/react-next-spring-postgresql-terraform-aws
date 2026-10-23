@@ -30,6 +30,9 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
  * <p>순서: 행을 조건부로 먼저 지우고(그사이 다시 붙였거나 복구했으면 0행 — 건너뜀), 지운 행의 객체를 지운다 → CONFIRMED 첨부는 항상 객체가
  * 있다(TASK-26 B1). 객체 삭제가 실패하면(S3 장애) 그 객체는 태그가 없어 lifecycle 도 지우지 않으므로 키를 WARN 으로 남기고, 장애 중에 행만
  * 계속 지우지 않도록 이번 실행을 멈춘다.
+ *
+ * <p>실행당 예산({@link CleanupBudget}: {@code app.uploads.cleanup-max-items} 기본 5000건, {@code cleanup-max-duration} 기본 10분)을
+ * 다 쓰면 멈추고 남은 것은 다음 실행이 한다 — 스케줄 락 lockAtMostFor(30분)를 넘겨 다른 인스턴스와 겹쳐 돌지 않게.
  */
 @Component
 public class OrphanAttachmentCleanup {
@@ -72,12 +75,17 @@ public class OrphanAttachmentCleanup {
 		if (!storage.available()) {
 			return 0;
 		}
-		Instant cutoff = clock.instant().minus(properties.orphanGracePeriod());
-		Sweep sweep = new Sweep(cutoff);
+		Instant start = clock.instant();
+		Instant cutoff = start.minus(properties.orphanGracePeriod());
+		Sweep sweep = new Sweep(cutoff, new CleanupBudget(clock, start, properties));
 		sweep.drain(limit -> attachments.findUnlinkedBefore(cutoff, limit));
 		sweep.drain(limit -> attachments.findOfPostsDeletedBefore(cutoff, limit));
 		if (sweep.removed > 0) {
 			log.info("연결 해제·삭제 글 첨부 {}건 정리", sweep.removed);
+		}
+		if (sweep.budget.exhausted()) {
+			log.info("연결 해제·삭제 글 첨부 정리: 실행당 예산(최대 {}건·{})을 다 써서 멈춤 — 남은 것은 다음 실행", properties.cleanupMaxItems(),
+					properties.cleanupMaxDuration());
 		}
 		return sweep.removed;
 	}
@@ -86,19 +94,22 @@ public class OrphanAttachmentCleanup {
 
 		private final Instant cutoff;
 
+		private final CleanupBudget budget;
+
 		private int removed;
 
 		private boolean storageFailed;
 
-		Sweep(Instant cutoff) {
+		Sweep(Instant cutoff, CleanupBudget budget) {
 			this.cutoff = cutoff;
+			this.budget = budget;
 		}
 
 		void drain(Function<Integer, List<Attachment>> candidates) {
-			while (!storageFailed) {
+			while (!storageFailed && !budget.exhausted()) {
 				List<Attachment> batch = candidates.apply(BATCH);
 				for (Attachment attachment : batch) {
-					if (storageFailed) {
+					if (storageFailed || !budget.tryUse()) {
 						return;
 					}
 					if (attachments.deleteIfOrphanedBefore(attachment.getId(), cutoff) == 1) {

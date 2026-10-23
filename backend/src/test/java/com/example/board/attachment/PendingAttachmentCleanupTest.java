@@ -58,6 +58,12 @@ class PendingAttachmentCleanupTest {
 	@Autowired
 	StorageProbe probe;
 
+	@Autowired
+	AttachmentRepository attachmentRepository;
+
+	@Autowired
+	UploadProperties properties;
+
 	S3Client s3;
 
 	UploadClient uploads;
@@ -128,6 +134,26 @@ class PendingAttachmentCleanupTest {
 		assertThat(exists(id)).isFalse();
 		assertThat(s3.getObjectTagging(b -> b.bucket(BUCKET).key(key)).tagSet()).as("태그 없는 고아").isEmpty();
 		assertThat(output.getOut()).contains("key=" + key).contains("손으로 지워야 한다").doesNotContain("lifecycle 이 정리한다");
+	}
+
+	@Test
+	@DisplayName("TASK-26#4 미확정 정리도 실행당 건수 예산(app.uploads.cleanup-max-items)을 넘으면 멈추고 남은 것은 다음 실행이 지운다")
+	void itemBudgetPerRun() {
+		cleanup.cleanUp();
+		String bearer = fixtures.bearer(fixtures.user());
+		java.util.List<Long> stale = new java.util.ArrayList<>();
+		for (int i = 0; i < 3; i++) {
+			long id = uploads.presigned(bearer, "image/png", 10).get("attachmentId").asLong();
+			age(id, Duration.ofHours(25));
+			stale.add(id);
+		}
+		PendingAttachmentCleanup budgeted = new PendingAttachmentCleanup(attachmentRepository, probe,
+				CleanupBudgets.withBudget(properties, 2, Duration.ofMinutes(10)), java.time.Clock.systemUTC());
+
+		assertThat(budgeted.cleanUp()).isEqualTo(2);
+		assertThat(stale.stream().filter(this::exists).count()).isEqualTo(1);
+		assertThat(budgeted.cleanUp()).isEqualTo(1);
+		assertThat(stale.stream().filter(this::exists).count()).isZero();
 	}
 
 	/** 객체 삭제만 실패하는 저장소. */

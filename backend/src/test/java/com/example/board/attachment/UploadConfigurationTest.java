@@ -76,6 +76,26 @@ class UploadConfigurationTest {
 	}
 
 	@Test
+	@DisplayName("TASK-26#4 정리 실행당 예산: 기본 5000건·10분, 바꿀 수 있고, 0 이하이거나 시간이 20분(락 lockAtMostFor 30분보다 충분히 짧게)을 넘으면 기동하지 않는다")
+	void cleanupBudget() {
+		runner.withPropertyValues("app.uploads.bucket=b").run(context -> {
+			UploadProperties properties = context.getBean(UploadProperties.class);
+			assertThat(properties.cleanupMaxItems()).isEqualTo(5000);
+			assertThat(properties.cleanupMaxDuration()).isEqualTo(Duration.ofMinutes(10));
+		});
+		runner.withPropertyValues("app.uploads.bucket=b", "app.uploads.cleanup-max-items=100",
+				"app.uploads.cleanup-max-duration=PT20M")
+			.run(context -> {
+				UploadProperties properties = context.getBean(UploadProperties.class);
+				assertThat(properties.cleanupMaxItems()).isEqualTo(100);
+				assertThat(properties.cleanupMaxDuration()).isEqualTo(Duration.ofMinutes(20));
+			});
+		runner.withPropertyValues("app.uploads.cleanup-max-items=0").run(context -> assertThat(context).hasFailed());
+		runner.withPropertyValues("app.uploads.cleanup-max-duration=PT0S").run(context -> assertThat(context).hasFailed());
+		runner.withPropertyValues("app.uploads.cleanup-max-duration=PT21M").run(context -> assertThat(context).hasFailed());
+	}
+
+	@Test
 	@DisplayName("TASK-11#1 공개 URL: public-base-path + uploads/ 뒤의 키 (CloudFront /uploads/* 가 같은 키로 S3 를 읽는다)")
 	void publicUrl() {
 		assertThat(UploadProperties.publicUrl("/uploads/", "uploads/7/a.png")).isEqualTo("/uploads/7/a.png");

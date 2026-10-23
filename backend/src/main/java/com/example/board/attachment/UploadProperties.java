@@ -24,6 +24,9 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param apiCallAttemptTimeout HTTP 시도 하나의 상한 (기본 2초). 연결·소켓 타임아웃도 이 값이다. 전체보다 길 수 없다
  * @param orphanGracePeriod 글에서 뗀(또는 붙이지 않은) 확정 첨부와 삭제된 글의 첨부를 지우기 전 유예 기간 (기본 7일, TASK-26#4 BE-36). 이
  * 안에 다시 붙이거나 글을 복구하면 이미지가 그대로다. 양수여야 한다
+ * @param cleanupMaxItems 정리 작업(미확정·연결 해제) 한 번 실행에서 처리할 최대 건수 (기본 5000, TASK-26#4). 남은 것은 다음 실행이 한다
+ * @param cleanupMaxDuration 정리 작업 한 번 실행의 최대 시간 (기본 10분). 스케줄 락 {@code lockAtMostFor}(30분)보다 충분히 짧아야 해서
+ * {@value #MAX_CLEANUP_DURATION_MINUTES}분을 넘을 수 없다 — 넘겨 돌면 락이 풀려 다른 인스턴스가 같은 작업을 겹쳐 돌 수 있다
  */
 @ConfigurationProperties("app.uploads")
 public record UploadProperties(@DefaultValue("") String bucket, @DefaultValue("us-east-1") String region,
@@ -31,12 +34,24 @@ public record UploadProperties(@DefaultValue("") String bucket, @DefaultValue("u
 		@DefaultValue("") String secretKey, @DefaultValue("/uploads/") String publicBasePath,
 		@DefaultValue("PT5M") Duration presignTtl, @DefaultValue("PT24H") Duration pendingTtl,
 		@DefaultValue("5s") Duration apiCallTimeout, @DefaultValue("2s") Duration apiCallAttemptTimeout,
-		@DefaultValue("P7D") Duration orphanGracePeriod) {
+		@DefaultValue("P7D") Duration orphanGracePeriod, @DefaultValue("5000") int cleanupMaxItems,
+		@DefaultValue("PT10M") Duration cleanupMaxDuration) {
+
+	/** {@code cleanup-max-duration} 상한(분). 정리 작업 스케줄 락 lockAtMostFor 30분보다 충분히 짧게. */
+	public static final int MAX_CLEANUP_DURATION_MINUTES = 20;
 
 	public UploadProperties {
 		positive(apiCallTimeout, "api-call-timeout");
 		positive(apiCallAttemptTimeout, "api-call-attempt-timeout");
 		positive(orphanGracePeriod, "orphan-grace-period");
+		positive(cleanupMaxDuration, "cleanup-max-duration");
+		if (cleanupMaxItems <= 0) {
+			throw new IllegalArgumentException("app.uploads.cleanup-max-items 는 양수여야 한다: " + cleanupMaxItems);
+		}
+		if (cleanupMaxDuration.compareTo(Duration.ofMinutes(MAX_CLEANUP_DURATION_MINUTES)) > 0) {
+			throw new IllegalArgumentException("app.uploads.cleanup-max-duration(" + cleanupMaxDuration + ") 은 "
+					+ MAX_CLEANUP_DURATION_MINUTES + "분(스케줄 락 lockAtMostFor 30분보다 짧게)을 넘을 수 없다");
+		}
 		if (apiCallAttemptTimeout.compareTo(apiCallTimeout) > 0) {
 			throw new IllegalArgumentException("app.uploads.api-call-attempt-timeout(" + apiCallAttemptTimeout
 					+ ") 은 api-call-timeout(" + apiCallTimeout + ") 보다 길 수 없다");

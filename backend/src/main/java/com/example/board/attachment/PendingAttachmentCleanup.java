@@ -58,16 +58,26 @@ public class PendingAttachmentCleanup {
 		cleanUp();
 	}
 
-	/** 지운 행 수. 한 번에 {@value #BATCH}개씩, 남은 게 없을 때까지. 락 없이 바로 돈다(테스트·수동 실행용). */
+	/**
+	 * 지운 행 수. 한 번에 {@value #BATCH}개씩, 남은 게 없거나 실행당 예산({@link CleanupBudget}, TASK-26#4)을 다 쓸 때까지. 락 없이 바로
+	 * 돈다(테스트·수동 실행용).
+	 */
 	public int cleanUp() {
-		Instant cutoff = clock.instant().minus(properties.pendingTtl());
+		Instant start = clock.instant();
+		Instant cutoff = start.minus(properties.pendingTtl());
+		CleanupBudget budget = new CleanupBudget(clock, start, properties);
 		int removed = 0;
-		while (true) {
+		sweep: while (true) {
 			List<Attachment> stale = attachments.findPendingCreatedBefore(cutoff, Limit.of(BATCH));
 			if (stale.isEmpty()) {
 				break;
 			}
 			for (Attachment attachment : stale) {
+				if (!budget.tryUse()) {
+					log.info("미확정 첨부 정리: 실행당 예산(최대 {}건·{})을 다 써서 멈춤 — 남은 것은 다음 실행", properties.cleanupMaxItems(),
+							properties.cleanupMaxDuration());
+					break sweep;
+				}
 				if (attachments.deleteExpiredPending(attachment.getId(), cutoff) == 1) {
 					removed++;
 					if (storage.available()) {

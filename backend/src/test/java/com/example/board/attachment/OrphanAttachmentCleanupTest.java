@@ -54,6 +54,15 @@ class OrphanAttachmentCleanupTest {
 	@Autowired
 	OrphanAttachmentCleanup cleanup;
 
+	@Autowired
+	AttachmentRepository attachmentRepository;
+
+	@Autowired
+	UploadStorage storage;
+
+	@Autowired
+	UploadProperties properties;
+
 	Api api;
 
 	UploadClient uploads;
@@ -252,6 +261,49 @@ class OrphanAttachmentCleanupTest {
 		cleanup.run();
 		assertThat(rowExists(attachment)).as("배포 8일째: 유예 지남").isFalse();
 		assertThat(objectExists(key)).isFalse();
+	}
+
+	private List<Long> staleUnlinked(int count) {
+		String bearer = fixtures.bearer(fixtures.user());
+		List<Long> ids = new java.util.ArrayList<>();
+		for (int i = 0; i < count; i++) {
+			long id = uploads.uploaded(bearer, "image/png", UploadClient.bytes(10));
+			ageConfirmed(id, Duration.ofDays(8));
+			ids.add(id);
+		}
+		return ids;
+	}
+
+	@Test
+	@DisplayName("TASK-26#4 실행당 건수 예산(app.uploads.cleanup-max-items)을 넘으면 멈추고 남은 것은 다음 실행이 지운다")
+	void itemBudgetPerRun() {
+		cleanup.cleanUp();
+		List<Long> stale = staleUnlinked(3);
+		OrphanAttachmentCleanup budgeted = new OrphanAttachmentCleanup(attachmentRepository, storage,
+				CleanupBudgets.withBudget(properties, 2, Duration.ofMinutes(10)), java.time.Clock.systemUTC());
+
+		assertThat(budgeted.cleanUp()).isEqualTo(2);
+		assertThat(stale.stream().filter(this::rowExists).count()).as("하나는 다음 실행으로").isEqualTo(1);
+
+		assertThat(budgeted.cleanUp()).isEqualTo(1);
+		assertThat(stale.stream().filter(this::rowExists).count()).isZero();
+	}
+
+	@Test
+	@DisplayName("TASK-26#4 실행당 시간 예산(app.uploads.cleanup-max-duration)이 지나면 멈추고 남은 것은 다음 실행이 지운다")
+	void durationBudgetPerRun() {
+		cleanup.cleanUp();
+		List<Long> stale = staleUnlinked(3);
+		// 시계를 읽을 때마다 4분: 시작 → 4분(1건) → 8분(2건) → 12분(10분 예산 넘음, 멈춤)
+		OrphanAttachmentCleanup budgeted = new OrphanAttachmentCleanup(attachmentRepository, storage,
+				CleanupBudgets.withBudget(properties, 1000, Duration.ofMinutes(10)),
+				CleanupBudgets.stepping(Duration.ofMinutes(4)));
+
+		assertThat(budgeted.cleanUp()).isEqualTo(2);
+		assertThat(stale.stream().filter(this::rowExists).count()).isEqualTo(1);
+
+		cleanup.cleanUp();
+		assertThat(stale.stream().filter(this::rowExists).count()).isZero();
 	}
 
 	@Test
