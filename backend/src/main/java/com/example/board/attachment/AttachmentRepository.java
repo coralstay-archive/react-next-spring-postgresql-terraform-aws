@@ -26,20 +26,25 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
 	@Query("select a from Attachment a where a.id in :ids order by a.id")
 	List<Attachment> findAllForUpdate(Collection<Long> ids);
 
-	/** PENDING → CONFIRMED. 이미 확정됐거나(경쟁) 정리돼 없으면 0. */
+	/**
+	 * PENDING → CONFIRMED. {@code cutoff}(지금 - pending-ttl) 이전에 만든 행은 확정하지 않는다(TASK-26#2). 이미 확정됐거나(경쟁), 정리돼
+	 * 없거나, 만료됐으면 0.
+	 */
 	@Transactional
 	@Modifying(clearAutomatically = true)
-	@Query("update Attachment a set a.status = com.example.board.attachment.AttachmentStatus.CONFIRMED, a.confirmedAt = :now where a.id = :id and a.status = com.example.board.attachment.AttachmentStatus.PENDING")
-	int markConfirmed(Long id, Instant now);
+	@Query("update Attachment a set a.status = com.example.board.attachment.AttachmentStatus.CONFIRMED, a.confirmedAt = :now where a.id = :id and a.status = com.example.board.attachment.AttachmentStatus.PENDING and a.createdAt > :cutoff")
+	int markConfirmed(Long id, Instant now, Instant cutoff);
 
 	/** 정리 대상: {@code cutoff} 보다 먼저 만든 PENDING. */
 	@Query("select a from Attachment a where a.status = com.example.board.attachment.AttachmentStatus.PENDING and a.createdAt < :cutoff order by a.id")
 	List<Attachment> findPendingCreatedBefore(Instant cutoff, Limit limit);
 
-	/** PENDING 인 것만 지운다(그사이 confirm 된 행은 남는다). 지운 행 수. */
+	/**
+	 * 행 하나를 아직 만료된 PENDING 일 때만 지운다(TASK-26#2). 그사이 confirm 된 행은 남는다(0). 지운 행 수 — 1 이면 호출자가 객체를 지운다.
+	 */
 	@Transactional
 	@Modifying
-	@Query("delete from Attachment a where a.id in :ids and a.status = com.example.board.attachment.AttachmentStatus.PENDING")
-	int deletePending(Collection<Long> ids);
+	@Query("delete from Attachment a where a.id = :id and a.status = com.example.board.attachment.AttachmentStatus.PENDING and a.createdAt < :cutoff")
+	int deleteExpiredPending(Long id, Instant cutoff);
 
 }

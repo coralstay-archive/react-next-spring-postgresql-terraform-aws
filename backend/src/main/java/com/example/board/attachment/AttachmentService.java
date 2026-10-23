@@ -1,6 +1,7 @@
 package com.example.board.attachment;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +50,9 @@ public class AttachmentService {
 	public static final String NOT_CONFIRMED = "attachment_not_confirmed";
 
 	public static final String IN_USE = "attachment_in_use";
+
+	/** pending-ttl 이 지나 확정할 수 없다 (TASK-26#2). 410. 다시 presign 해서 올린다. */
+	public static final String EXPIRED = "attachment_expired";
 
 	/** 미확정(PENDING) 첨부가 한도에 이름 (TASK-22#3). 409. */
 	public static final String TOO_MANY_PENDING = "too_many_pending_attachments";
@@ -120,7 +124,13 @@ public class AttachmentService {
 	 * 이하) 다시 확인한 뒤 {@code status=pending} 태그를 지우고(lifecycle 대상에서 빠짐) CONFIRMED 로 바꾼다. 이미 확정됐으면 그대로
 	 * 200(멱등). 다르면 객체를 지우고 400 {@code attachment_mismatch}.
 	 *
-	 * <p>S3 호출이 DB 트랜잭션을 잡고 있지 않도록 트랜잭션 없이 돌고, 마지막 상태 변경만 조건부 UPDATE 로 한다.
+	 * <p>S3 호출이 DB 트랜잭션을 잡고 있지 않도록 트랜잭션 없이 돌고, 마지막 상태 변경만 조건부 UPDATE 로 한다. S3 오류는 503
+	 * {@code storage_unavailable}(TASK-26#1)이고 첨부는 PENDING 그대로다.
+	 *
+	 * <p>만료 (TASK-26#2, BE-33): 만든 지 pending-ttl 이 지난 첨부는 410 {@value #EXPIRED} — 정리 작업({@link PendingAttachmentCleanup})과
+	 * S3 lifecycle 이 지울 대상이다. 태그를 지운 뒤 확정(markConfirmed)이 0행이면 다시 읽어서, 동시 confirm 이 먼저 확정했으면 그대로 200,
+	 * 아니면(정리가 행을 지웠거나 그사이 만료) 태그 없는 객체가 영구 고아로 남지 않게 지우고 410. 정리 작업은 행을 먼저 지우고 객체를 지우므로
+	 * 어느 쪽이 이겨도 CONFIRMED 행은 객체가 있다(B1).
 	 */
 	public AttachmentView confirm(Long id, AuthUser user) {
 		Attachment attachment = attachments.findById(id).orElseThrow(AttachmentService::notFound);
@@ -129,6 +139,9 @@ public class AttachmentService {
 		}
 		if (attachment.isConfirmed()) {
 			return AttachmentView.of(attachment, properties);
+		}
+		if (!attachment.getCreatedAt().isAfter(pendingCutoff())) {
+			throw expired();
 		}
 		if (!storage.available()) {
 			throw DisabledUploadStorage.unavailable();
@@ -141,9 +154,21 @@ public class AttachmentService {
 			throw new ApiException(HttpStatus.BAD_REQUEST, MISMATCH, "업로드된 파일이 요청한 타입·크기와 다릅니다");
 		}
 		storage.clearPendingTag(key);
-		attachments.markConfirmed(id, clock.instant());
+		if (attachments.markConfirmed(id, clock.instant(), pendingCutoff()) == 0) {
+			Attachment current = attachments.findById(id).orElse(null);
+			if (current != null && current.isConfirmed()) {
+				return AttachmentView.of(current, properties);
+			}
+			deleteQuietly(key);
+			throw expired();
+		}
 		return attachments.findById(id).map(a -> AttachmentView.of(a, properties))
 			.orElseThrow(AttachmentService::notFound);
+	}
+
+	/** 이 시각 이전(포함)에 만든 PENDING 첨부는 만료다. */
+	private Instant pendingCutoff() {
+		return clock.instant().minus(properties.pendingTtl());
 	}
 
 	/**
@@ -205,12 +230,17 @@ public class AttachmentService {
 			storage.delete(key);
 		}
 		catch (RuntimeException ex) {
-			log.warn("첨부 객체 삭제 실패(lifecycle 이 정리한다): {}", key, ex);
+			// S3 오류 원인은 저장소가 이미 남겼다(TASK-26#1). 태그를 지운 뒤라면 lifecycle 도 지우지 않는 고아 객체다
+			log.warn("첨부 객체 삭제 실패 key={} causes={}", key, ex.getClass().getSimpleName());
 		}
 	}
 
 	static ApiException notFound() {
 		return new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND, "첨부를 찾을 수 없습니다");
+	}
+
+	static ApiException expired() {
+		return new ApiException(HttpStatus.GONE, EXPIRED, "업로드 확정 시간이 지났습니다. 이미지를 다시 올려 주세요");
 	}
 
 	static ApiException forbidden() {
