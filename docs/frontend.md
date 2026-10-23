@@ -18,7 +18,7 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 | `/login/` | 이메일·비밀번호, 휴대폰 OTP(인증번호 3분 카운트다운, 429면 `Retry-After` 초 동안 다시 받기 대기), 소셜 5종(`/api/oauth2/authorization/{p}`로 페이지 이동). `?next=`로 돌아갈 경로(같은 오리진만 — 아래 `safeNext`) |
 | `/signup/` | 서버와 같은 검증(이메일 모양, 비밀번호 8자·72바이트·문자+숫자, 닉네임 2~20자), 409 `email_taken`, 가입 뒤 `/api/auth/login`으로 자동 로그인 |
 | `/auth/callback/` | 소셜 로그인 착지. `?status=ok`면 me를 다시 받아 로그인 전에 기억한 경로(sessionStorage `auth.next`)로, `?error=`면 한국어 안내(oauth2_failed·표준 OAuth 코드 매핑, 모르는 코드는 콜백 전용 문구) |
-| `/account/` | 로그인 수단 목록·해제(409 `last_identity`), 소셜 연결(`/api/me/identities/link/{p}` → `?linked=`/`?error=`. `linked`는 알려진 제공자 id만 알리고, 알린 뒤 URL에서 지운다), 휴대폰 연결(OTP `?link=true`), 제한 세션 다시 인증(LOCAL 비밀번호 또는 소셜 재로그인) |
+| `/account/` | 로그인 수단 목록·해제(409 `last_identity`), 소셜 연결(`/api/me/identities/link/{p}` → `?linked=`/`?error=`. `linked`는 알려진 제공자 id만 알린다. `linked`·`error`는 보여 준 뒤 URL에서 지우고 다른 쿼리와 hash는 남긴다), 휴대폰 연결(OTP `?link=true`), 제한 세션 다시 인증(LOCAL 비밀번호 또는 소셜 재로그인) |
 
 - **API 클라이언트** `src/lib/api.ts`: `api(path, {method, body, query})`. 같은 오리진 `/api`, `credentials:'include'`. 쓰기 메서드는 `XSRF-TOKEN` 쿠키를
   `X-XSRF-TOKEN` 헤더로 보내고(쿠키가 없으면 `GET /api/auth/csrf` 먼저), 요청마다 쿠키를 다시 읽어 로그인·OTP·step-up·OAuth 뒤 회전을 따라간다.
@@ -31,7 +31,9 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 - **오류 문장** `src/lib/errors.ts`: 백엔드·OAuth 오류 코드 → 한국어. `errorMessage`는 형식이 맞고 표에 있으면 표 문구, 표에 없으면 서버 `message`가
   한국어일 때만 그 문장, 아니면 상태 범위별 한국어를 쓴다 — 영어 원문·HTML·내부 코드는 화면에 나오지 않는다. docs/api.md의 코드는 모두 표에 있다
   (`errors.test.ts`가 전수 확인 — 백엔드 코드를 더하면 그 목록에도 더한다). OAuth 콜백 `?error=`는 `oauthErrorMessage(code, "login"|"link")`로,
-  모르는 코드는 로그인·연결 각각의 콜백 전용 문구다. (TASK-28#2·#4)
+  모르는 코드는 로그인·연결 각각의 콜백 전용 문구다. 연결 모드는 `OAUTH_LINK_MESSAGES`가 로그인을 말하는 문구(oauth2_failed·server_error·
+  invalid_request·access_denied 등)를 "계정 연결" 문구로 덮는다. 입력칸 `fields` 문구는 백엔드 `ValidationMessageTest`가 모든 Bean Validation
+  제약에 한국어 message가 있는지 확인한다. (TASK-28#2·#4)
 - **이동 경로** `safeNext`(`src/lib/auth.ts`): `?next=`·sessionStorage `auth.next`는 원문에 제어 문자(탭·개행)·역슬래시·공백이 없고, `/`로 시작하거나 현재
   오리진의 절대 URL이며, `new URL(next, origin)`의 오리진이 같을 때만 쓴다. 쓰는 값은 `pathname+search+hash`뿐이고, 결과가 `//`로 시작하면 버린다. 이어서
   `pathname`을 `decodeURIComponent`로 한 번 디코드해, 디코드에 실패하거나 디코드한 경로가 `//`로 시작하거나(`/%2F/evil.com`) 역슬래시·제어
