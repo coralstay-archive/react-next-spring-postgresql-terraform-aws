@@ -10,6 +10,8 @@ import org.springframework.data.domain.Limit;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+
 /**
  * 미확정 첨부 정리 (TASK-11#4). {@code pending-ttl}(기본 24시간)보다 오래된 PENDING 행을 지운다. 객체 삭제는 best-effort 다 — 실패해도
  * S3 lifecycle(status=pending 태그 1일 만료)이 지운다. 확정된 첨부는 건드리지 않는다.
@@ -22,6 +24,9 @@ import org.springframework.stereotype.Component;
 public class PendingAttachmentCleanup {
 
 	static final int BATCH = 500;
+
+	/** ShedLock 락 이름 (TASK-26#5). */
+	static final String LOCK = "pending-attachment-cleanup";
 
 	private static final Logger log = LoggerFactory.getLogger(PendingAttachmentCleanup.class);
 
@@ -41,10 +46,18 @@ public class PendingAttachmentCleanup {
 		this.clock = clock;
 	}
 
-	/** 지운 행 수. 한 번에 {@value #BATCH}개씩, 남은 게 없을 때까지. */
+	/**
+	 * 주기 실행 (TASK-26#5): 인스턴스가 여럿이어도 한 번에 하나만 돈다(ShedLock {@value #LOCK}). 락을 못 잡으면 건너뛴다.
+	 */
 	@Scheduled(fixedDelayString = "${app.uploads.cleanup-interval:PT1H}",
 			initialDelayString = "${app.uploads.cleanup-interval:PT1H}")
-	public int run() {
+	@SchedulerLock(name = LOCK, lockAtMostFor = "PT30M", lockAtLeastFor = "${app.scheduling.lock-at-least-for:PT10S}")
+	public void run() {
+		cleanUp();
+	}
+
+	/** 지운 행 수. 한 번에 {@value #BATCH}개씩, 남은 게 없을 때까지. 락 없이 바로 돈다(테스트·수동 실행용). */
+	public int cleanUp() {
 		Instant cutoff = clock.instant().minus(properties.pendingTtl());
 		int removed = 0;
 		while (true) {

@@ -10,6 +10,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+
 /**
  * 글에 붙지 않은 확정 첨부와 삭제된 글의 첨부 정리 (TASK-26#4, BE-36). 지연 삭제 정책: 유예 기간({@code app.uploads.orphan-grace-period},
  * 기본 7일)이 지나면 행을 지우고 S3 객체를 지운다. 대상은
@@ -33,6 +35,9 @@ public class OrphanAttachmentCleanup {
 
 	static final int BATCH = 500;
 
+	/** ShedLock 락 이름 (TASK-26#5). */
+	static final String LOCK = "orphan-attachment-cleanup";
+
 	private static final Logger log = LoggerFactory.getLogger(OrphanAttachmentCleanup.class);
 
 	private final AttachmentRepository attachments;
@@ -51,10 +56,18 @@ public class OrphanAttachmentCleanup {
 		this.clock = clock;
 	}
 
-	/** 지운 첨부 수. 버킷이 없으면(업로드 꺼짐) 아무것도 하지 않는다 — 객체를 지울 수 없는데 행만 지우면 객체가 영구 고아가 된다. */
+	/**
+	 * 주기 실행 (TASK-26#5): 인스턴스가 여럿이어도 한 번에 하나만 돈다(ShedLock {@value #LOCK}). 락을 못 잡으면 건너뛴다.
+	 */
 	@Scheduled(fixedDelayString = "${app.uploads.cleanup-interval:PT1H}",
 			initialDelayString = "${app.uploads.cleanup-interval:PT1H}")
-	public int run() {
+	@SchedulerLock(name = LOCK, lockAtMostFor = "PT30M", lockAtLeastFor = "${app.scheduling.lock-at-least-for:PT10S}")
+	public void run() {
+		cleanUp();
+	}
+
+	/** 락 없이 바로 돈다(테스트·수동 실행용). 지운 첨부 수. 버킷이 없으면(업로드 꺼짐) 아무것도 하지 않는다 — 객체를 지울 수 없는데 행만 지우면 객체가 영구 고아가 된다. */
+	public int cleanUp() {
 		if (!storage.available()) {
 			return 0;
 		}

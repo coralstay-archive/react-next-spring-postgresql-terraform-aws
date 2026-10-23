@@ -94,7 +94,7 @@ class PendingAttachmentCleanupTest {
 		long confirmed = uploads.uploaded(bearer, "image/png", UploadClient.bytes(10));
 		age(confirmed, Duration.ofDays(30));
 
-		int removed = cleanup.run();
+		int removed = cleanup.cleanUp();
 
 		assertThat(removed).isGreaterThanOrEqualTo(2);
 		assertThat(exists(staleUploadedId)).isFalse();

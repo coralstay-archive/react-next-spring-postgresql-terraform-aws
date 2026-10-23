@@ -42,6 +42,9 @@ dependencies {
 		exclude(group = "software.amazon.awssdk", module = "netty-nio-client")
 	}
 	implementation("software.amazon.awssdk:url-connection-client")
+	// 스케줄 작업 분산 락 (TASK-26#5, BE-37). 락은 같은 PostgreSQL 의 shedlock 테이블(V14)에 둔다.
+	implementation("net.javacrumbs.shedlock:shedlock-spring:7.10.1")
+	implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:7.10.1")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
