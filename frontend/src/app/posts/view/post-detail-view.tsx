@@ -3,6 +3,7 @@
 import { Eye, Heart } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
 
 import { ApiErrorAlert } from "@/components/board/api-error-alert";
 import { CommentSection } from "@/components/board/comment-section";
@@ -36,23 +37,28 @@ export function PostNotFound() {
 
 function PostDetailById({ id }: { id: number }) {
   const post = usePost(id);
+  // 세션 만료 리셋(TASK-29#1)으로 데이터가 비고 다시 받는 동안에도 글을 그대로 두어 댓글 폼(입력·오류)이 언마운트되지 않게 한다
+  // (TASK-29#4). 그동안은 익명으로 보고 수정·삭제·좋아요 상태를 끈다(B2).
+  const [last, setLast] = useState<PostDetail | null>(null);
+  if (post.data && post.data !== last) setLast(post.data);
+  const shown = post.data ?? (post.isPending && last ? { ...last, editable: false, likedByMe: false } : undefined);
 
+  if (shown) {
+    return (
+      <article className="flex w-full flex-col gap-6">
+        <PostBody post={shown} />
+        <CommentSection postId={id} />
+      </article>
+    );
+  }
   if (post.isError) {
     if (isApiError(post.error) && post.error.status === 404) return <PostNotFound />;
     return <ApiErrorAlert error={post.error} testId="post-error" />;
   }
-  if (post.isPending) {
-    return (
-      <p role="status" className="text-muted-foreground text-sm">
-        불러오는 중…
-      </p>
-    );
-  }
   return (
-    <article className="flex w-full flex-col gap-6">
-      <PostBody post={post.data} />
-      <CommentSection postId={id} />
-    </article>
+    <p role="status" className="text-muted-foreground text-sm">
+      불러오는 중…
+    </p>
   );
 }
 

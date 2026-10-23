@@ -113,7 +113,7 @@ export function clearDraft(key: string, userId?: number) {
   }
 }
 
-/** 모든 초안 삭제(명시적 로그아웃). 다른 sessionStorage 값(`auth.next` 등)은 두다. */
+/** 모든 초안 삭제(명시적 로그아웃). 다른 sessionStorage 값(`auth.next` 등)은 남긴다. */
 export function clearAllDrafts() {
   const storage = store();
   if (!storage) return;

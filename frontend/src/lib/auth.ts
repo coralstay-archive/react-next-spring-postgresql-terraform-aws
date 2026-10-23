@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
 import { queryKeys } from "@/lib/query";
@@ -48,6 +48,20 @@ export function useMe() {
     refetchInterval: ME_REFETCH_INTERVAL,
     refetchIntervalInBackground: false,
   });
+}
+
+/**
+ * 이 컴포넌트가 본 마지막 사용자(TASK-29#3). 세션이 끝나 me 가 null 이 되어도 `user` 는 마지막 사용자로 남고 `expired` 가 true 다.
+ * 작성 화면이 세션 만료로 언마운트되지 않게(입력 보존) 하려고 쓴다. 처음부터 익명이면 `user` 는 null, `expired` 는 false.
+ */
+export function useSessionUser() {
+  const query = useMe();
+  const me = query.data;
+  const [last, setLast] = useState<Me | null>(me ?? null);
+  // 렌더 중 상태 맞추기(React 권장 패턴): 새 사용자를 보면 기억한다.
+  if (me && me !== last) setLast(me);
+  const user = me ?? (me === null ? last : null);
+  return { ...query, user, expired: me === null && last !== null };
 }
 
 /**

@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { ApiErrorAlert } from "@/components/board/api-error-alert";
 import { Button } from "@/components/ui/button";
 import { useCurrentPath } from "@/hooks/use-current-path";
-import { loginHref, useMe } from "@/lib/auth";
+import { loginHref, useSessionUser, type Me } from "@/lib/auth";
 import {
   COMMENT_PAGE_SIZE,
   formatDate,
@@ -16,6 +16,7 @@ import {
   type Comment,
 } from "@/lib/board";
 import { COMMENT_MAX, validateComment } from "@/lib/board-validation";
+import { clearDraft, draftKeys, loadDraft, saveDraft } from "@/lib/drafts";
 
 /**
  * 댓글 목록·작성·삭제 (TASK-14#2). 목록은 오래된 순이고 삭제된 댓글은 자리표시(`deleted:true`)로 남는다.
@@ -114,15 +115,16 @@ function CommentItem({ comment, deleting, onDelete }: { comment: Comment; deleti
   );
 }
 
+/**
+ * 댓글 쓰기. 처음부터 익명이면 로그인 링크, 로그인했으면 폼이다. 폼을 연 뒤 세션이 끝나도(401, 정지로 세션 삭제 — TASK-18 이슈)
+ * 폼을 로그인 링크로 바꾸지 않는다(TASK-29#4, FE-15): 입력·오류(로그인 링크 포함)가 남고 입력은 초안으로도 저장된다(B1).
+ */
 function CommentForm({ postId, onCreated }: { postId: number; onCreated: () => void }) {
-  const { data: me } = useMe();
+  const { data: me, user } = useSessionUser();
   const current = useCurrentPath();
-  const create = useCreateComment(postId);
-  const [content, setContent] = useState("");
-  const [error, setError] = useState<string | null>(null);
 
   if (me === undefined) return null;
-  if (me === null) {
+  if (!user) {
     return (
       <p className="text-sm">
         <Link href={loginHref(current)} className="font-medium underline underline-offset-4">
@@ -131,20 +133,46 @@ function CommentForm({ postId, onCreated }: { postId: number; onCreated: () => v
       </p>
     );
   }
+  return <CommentEditor postId={postId} user={user} onCreated={onCreated} />;
+}
+
+function readCommentDraft(postId: number, userId: number): string {
+  const draft = loadDraft<{ content?: unknown }>(draftKeys.comment(postId), userId);
+  return draft && typeof draft.content === "string" ? draft.content.slice(0, COMMENT_MAX) : "";
+}
+
+function CommentEditor({ postId, user, onCreated }: { postId: number; user: Me; onCreated: () => void }) {
+  const create = useCreateComment(postId);
+  const draftKey = draftKeys.comment(postId);
+  const [content, setContent] = useState(() => readCommentDraft(postId, user.id));
+  const [error, setError] = useState<string | null>(null);
+  // 같은 틱의 두 번째 제출(더블 클릭·Enter 연타)은 isPending 이 화면에 반영되기 전이라 ref 로 막는다.
+  const submitting = useRef(false);
+
+  // 초안(TASK-29#3·#4, B1): 입력이 있으면 저장, 비면 지운다.
+  useEffect(() => {
+    if (content) saveDraft(draftKey, user.id, { content });
+    else clearDraft(draftKey, user.id);
+  }, [draftKey, user.id, content]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (submitting.current) return;
     const invalid = validateComment(content);
     setError(invalid);
     if (invalid) return;
+    submitting.current = true;
     create.mutate(content, {
       onSuccess: () => {
+        clearDraft(draftKey);
         setContent("");
         onCreated();
       },
+      onSettled: () => {
+        submitting.current = false;
+      },
     });
   };
-
   return (
     <form onSubmit={submit} className="flex flex-col gap-2" aria-label="댓글 쓰기">
       <textarea

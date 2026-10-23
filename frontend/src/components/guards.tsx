@@ -3,9 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
+import Link from "next/link";
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useCurrentPath } from "@/hooks/use-current-path";
-import { loginHref, useMe } from "@/lib/auth";
+import { loginHref, useSessionUser } from "@/lib/auth";
 
 function Loading() {
   return (
@@ -18,19 +20,55 @@ function Loading() {
 /**
  * 로그인이 필요한 화면. 익명이면 `/login/?next=<현재 경로+쿼리>` 로 보낸다(정적 export 라 클라이언트에서 판단).
  * 쿼리(`/posts/edit/?id=3`)까지 담으려고 `useSearchParams` 를 쓰므로 `<Suspense>` 안에서 쓴다.
+ *
+ * 내용을 한 번 그린 뒤 세션이 끝나면(TASK-29#3, FE-9·FE-32) 로그인으로 보내지 않고 내용을 그대로 둔 채 위에 재로그인 안내를 붙인다 —
+ * 작성 중인 입력·첨부·다이얼로그가 언마운트되어 사라지지 않게. 입력은 초안으로도 남는다(lib/drafts.ts).
  */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { data: me, isPending, isError } = useMe();
+  const { data: me, isError, expired } = useSessionUser();
   const router = useRouter();
   const current = useCurrentPath();
 
   useEffect(() => {
-    if (me === null) router.replace(loginHref(current));
-  }, [me, router, current]);
+    if (me === null && !expired) router.replace(loginHref(current));
+  }, [me, expired, router, current]);
 
-  if (isError) return <LoadError />;
-  if (isPending || !me) return <Loading />;
-  return <>{children}</>;
+  if (!expired) {
+    if (me === undefined && isError) return <LoadError />;
+    if (!me) return <Loading />;
+  }
+  // 만료 전후로 트리 모양을 같게 둔다(children 위치가 바뀌면 다시 마운트되어 입력이 사라진다).
+  return (
+    <>
+      {expired ? <SessionLostNotice /> : null}
+      {children}
+    </>
+  );
+}
+
+/**
+ * 작성 화면의 인라인 재로그인 안내(TASK-29#3). 다시 로그인하면 지금 경로로 돌아오고 초안을 복원한다.
+ * 화면 아래에 고정해 보인다(레이아웃 흐름을 바꾸지 않고, 길게 쓰는 중에도 보이게).
+ */
+export function SessionLostNotice() {
+  const current = useCurrentPath();
+  return (
+    <Alert
+      variant="destructive"
+      data-testid="session-lost-notice"
+      className="bg-background fixed inset-x-0 bottom-4 z-50 mx-auto w-[calc(100%-2rem)] max-w-xl shadow-lg"
+    >
+      <AlertTitle>로그인이 끊겼습니다</AlertTitle>
+      <AlertDescription>
+        <p>
+          작성 중인 내용은 이 화면과 이 탭에 임시 저장되어 있습니다. 다시 로그인한 뒤 이 화면으로 돌아오면 이어서 쓸 수 있습니다.
+        </p>
+        <Link href={loginHref(current)} className="font-medium underline underline-offset-4">
+          다시 로그인
+        </Link>
+      </AlertDescription>
+    </Alert>
+  );
 }
 
 /**
@@ -46,8 +84,9 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
 }
 
 function AdminOnly({ children }: { children: ReactNode }) {
-  const { data: me } = useMe();
-  if (me?.role !== "ADMIN") {
+  // 세션이 끝나도 마지막 사용자로 판단한다(TASK-29#3, FE-32: 관리 다이얼로그·사유 유지).
+  const { user } = useSessionUser();
+  if (user?.role !== "ADMIN") {
     return (
       <Alert variant="destructive" data-testid="admin-forbidden">
         <AlertTitle>권한이 없습니다 (403)</AlertTitle>
