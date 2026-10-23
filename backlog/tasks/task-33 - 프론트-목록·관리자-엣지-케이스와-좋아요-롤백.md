@@ -1,10 +1,10 @@
 ---
 id: TASK-33
 title: '프론트: 목록·관리자 엣지 케이스와 좋아요 롤백'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 05:25'
+updated_date: '2026-10-23 14:45'
 labels:
   - frontend
   - board
