@@ -401,6 +401,20 @@ describe("TASK-32#2 OTP 5회 실패 뒤 다시 받기 안내", () => {
     expect(otp.verified).toHaveLength(5);
   });
 
+  it("TASK-32#2 잠기면 포커스가 '인증번호 다시 받기' 버튼으로 간다", async () => {
+    const otp = otpHandlers({ verify: () => apiError(401, "invalid_otp", "x") });
+    server.use(...otp.handlers);
+    renderWithQuery(<PhoneOtpForm onVerified={vi.fn()} />);
+
+    await userEvent.type(screen.getByLabelText("휴대폰 번호"), "01012345678");
+    await userEvent.click(screen.getByRole("button", { name: "인증번호 받기" }));
+    await screen.findByLabelText("인증번호");
+
+    await failTimes(5);
+    await screen.findByTestId("otp-locked");
+    await waitFor(() => expect(screen.getByRole("button", { name: "인증번호 다시 받기" })).toHaveFocus());
+  });
+
   it("TASK-32#2 잠긴 뒤 인증번호를 다시 받으면 새 챌린지로 다시 확인할 수 있다", async () => {
     let ok = false;
     const otp = otpHandlers({

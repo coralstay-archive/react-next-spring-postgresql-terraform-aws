@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { FormError } from "@/components/auth/form-error";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,12 @@ export function PhoneOtpForm({
   const retry = useCountdown();
 
   const locked = challengeId !== null && failures >= OTP_MAX_ATTEMPTS;
+  const resendRef = useRef<HTMLButtonElement>(null);
+
+  // 잠기면 인증번호 칸·확인 버튼이 비활성이 되어 포커스를 잃으므로, 다음 할 일인 '인증번호 다시 받기'로 옮긴다(TASK-32#2).
+  useEffect(() => {
+    if (locked) resendRef.current?.focus();
+  }, [locked]);
 
   const send = async (event: FormEvent) => {
     event.preventDefault();
@@ -118,7 +124,7 @@ export function PhoneOtpForm({
             onChange={(e) => setPhone(e.target.value)}
             required
           />
-          <Button type="submit" variant="outline" disabled={sending || retry.running || !phone.trim()}>
+          <Button ref={resendRef} type="submit" variant="outline" disabled={sending || retry.running || !phone.trim()}>
             {retry.running
               ? `${retry.remaining}초 후 다시 시도`
               : challengeId
