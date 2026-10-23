@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Suspense } from "react";
 
 import { Providers } from "@/components/providers";
+import { SessionExpiredBanner } from "@/components/session-expired-banner";
 import { SiteHeader } from "@/components/site-header";
 import { StepUpBanner } from "@/components/step-up-banner";
 
@@ -32,6 +34,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Providers>
           <SiteHeader />
           <StepUpBanner />
+          <Suspense fallback={null}>
+            <SessionExpiredBanner />
+          </Suspense>
           {children}
         </Providers>
       </body>
