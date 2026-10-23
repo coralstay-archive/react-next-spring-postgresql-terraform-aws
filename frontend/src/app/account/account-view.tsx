@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { useMe, useSessionChanged, type Me } from "@/lib/auth";
-import { errorMessage, NEXT_STORAGE_KEY } from "@/lib/errors";
+import { errorMessage, NEXT_STORAGE_KEY, oauthErrorMessage } from "@/lib/errors";
 import { useIdentities, useRefreshAccount, useUnlinkIdentity, type Identity } from "@/lib/identities";
 import {
   PROVIDER_LABELS,
@@ -44,7 +44,9 @@ export function AccountView() {
     const provider = SOCIAL_PROVIDERS.find((p) => p.id === linked);
     return `${provider?.label ?? linked} 계정을 연결했습니다.`;
   });
-  const [error, setError] = useState<string | null>(() => (linkError ? errorMessage(linkError) : null));
+  const [error, setError] = useState<string | null>(() =>
+    linkError !== null ? oauthErrorMessage(linkError, "link") : null,
+  );
 
   if (!me) return null;
 

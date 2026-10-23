@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { FormError } from "@/components/auth/form-error";
 import { buttonVariants } from "@/components/ui/button";
 import { fetchMe, safeNext, useSessionChanged } from "@/lib/auth";
-import { errorMessage, NEXT_STORAGE_KEY } from "@/lib/errors";
+import { errorMessage, NEXT_STORAGE_KEY, oauthErrorMessage } from "@/lib/errors";
 
 function takeNext(): string {
   try {
@@ -28,7 +28,9 @@ export function AuthCallbackView() {
   const router = useRouter();
   const sessionChanged = useSessionChanged();
   const status = params.get("status");
-  const errorCode = params.get("error") ?? (status === "ok" ? null : "authorization_request_not_found");
+  // `?error=`(빈 값 포함)는 실패다. status 도 error 도 없으면 state 를 잃은 것으로 본다.
+  const rawError = params.get("error");
+  const errorCode = rawError !== null ? rawError : status === "ok" ? null : "authorization_request_not_found";
   const [failure, setFailure] = useState<string | null>(null);
   const started = useRef(false);
 
@@ -47,7 +49,7 @@ export function AuthCallbackView() {
       .catch((e) => setFailure(errorMessage(e)));
   }, [status, router, sessionChanged]);
 
-  const message = errorCode ? errorMessage(errorCode) : failure;
+  const message = errorCode !== null ? oauthErrorMessage(errorCode) : failure;
   if (!message) {
     return <p role="status">로그인 처리 중…</p>;
   }

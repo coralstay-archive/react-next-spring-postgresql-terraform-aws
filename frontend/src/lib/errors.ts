@@ -54,6 +54,23 @@ export const ERROR_MESSAGES: Record<string, string> = {
   invalid_user_info_response: "제공자에게서 사용자 정보를 받지 못했습니다. 다시 시도하세요.",
   invalid_user_info: "제공자 사용자 정보가 올바르지 않습니다.",
   unknown_provider: "지원하지 않거나 설정되지 않은 로그인 수단입니다.",
+  // OAuth 콜백(TASK-25·28#4): 백엔드 일반 실패, 우리 쪽 계정 처리 실패, 제공자가 돌려준 표준 OAuth 2.0·OIDC 오류,
+  // Spring Security OAuth2 클라이언트 내부 코드. 모르는 코드는 oauthErrorMessage 의 콜백 전용 fallback.
+  oauth2_failed: "소셜 로그인을 완료하지 못했습니다. 처음부터 다시 시도하세요.",
+  server_error: "로그인을 처리하는 중 오류가 났습니다. 잠시 후 다시 시도하세요.",
+  temporarily_unavailable: "로그인 제공자가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도하세요.",
+  invalid_request: "로그인 요청이 올바르지 않습니다. 처음부터 다시 시도하세요.",
+  unauthorized_client: "이 로그인 수단의 설정에 문제가 있습니다. 다른 수단으로 로그인하거나 관리자에게 문의하세요.",
+  unsupported_response_type: "이 로그인 수단의 설정에 문제가 있습니다. 다른 수단으로 로그인하거나 관리자에게 문의하세요.",
+  invalid_client: "이 로그인 수단의 설정에 문제가 있습니다. 다른 수단으로 로그인하거나 관리자에게 문의하세요.",
+  unsupported_grant_type: "이 로그인 수단의 설정에 문제가 있습니다. 다른 수단으로 로그인하거나 관리자에게 문의하세요.",
+  invalid_scope: "요청한 정보 제공 권한을 받지 못했습니다. 다시 시도하세요.",
+  invalid_state_parameter: "로그인 요청이 만료되었습니다. 처음부터 다시 시도하세요.",
+  client_registration_not_found: "지원하지 않거나 설정되지 않은 로그인 수단입니다.",
+  login_required: "제공자에 로그인한 뒤 다시 시도하세요.",
+  consent_required: "정보 제공에 동의해야 로그인할 수 있습니다. 다시 시도하세요.",
+  interaction_required: "제공자 화면에서 로그인을 마친 뒤 다시 시도하세요.",
+  missing_signature_verifier: "제공자 인증 정보를 확인하지 못했습니다. 다시 시도하세요.",
   // 게시판(TASK-14)
   post_not_found: "글을 찾을 수 없습니다. 삭제되었거나 볼 수 없는 글입니다.",
   comment_not_found: "댓글을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.",
@@ -87,6 +104,11 @@ export const ERROR_MESSAGES: Record<string, string> = {
 
 const FALLBACK = "요청을 처리하지 못했습니다. 잠시 후 다시 시도하세요.";
 
+/** OAuth 콜백 `?error=` 가 모르는 코드일 때(로그인 콜백 `/auth/callback/`). */
+export const OAUTH_LOGIN_FALLBACK = "소셜 로그인을 완료하지 못했습니다. 처음부터 다시 시도하세요.";
+/** 계정 연결 콜백(`/account/?error=`)이 모르는 코드일 때. */
+export const OAUTH_LINK_FALLBACK = "계정을 연결하지 못했습니다. 다시 시도하세요.";
+
 /** 소셜 로그인 시작 전에 돌아올 경로를 기억하는 sessionStorage 키(OAuth 왕복은 next 를 실어 나르지 못한다). */
 export const NEXT_STORAGE_KEY = "auth.next";
 
@@ -96,6 +118,14 @@ const HANGUL = /[가-힣]/;
 function mapped(code: string): string | null {
   if (!ERROR_CODE_PATTERN.test(code) || !Object.hasOwn(ERROR_MESSAGES, code)) return null;
   return ERROR_MESSAGES[code];
+}
+
+/**
+ * OAuth 콜백 `?error=<코드>`(TASK-28#4). 형식이 맞고 표에 있으면 표 문구, 아니면 콜백 전용 fallback.
+ * 코드는 URL 에서 온 값이라 그대로 보이지 않는다.
+ */
+export function oauthErrorMessage(code: string, mode: "login" | "link" = "login"): string {
+  return mapped(code) ?? (mode === "link" ? OAUTH_LINK_FALLBACK : OAUTH_LOGIN_FALLBACK);
 }
 
 export function errorMessage(error: unknown): string {
