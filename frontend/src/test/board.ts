@@ -115,7 +115,8 @@ export function presignHandlers(options: { putStatus?: number } = {}) {
           key: `uploads/1/${id}.png`,
           uploadUrl: `http://storage.test/bucket/uploads/1/${id}.png?X-Amz-Signature=sig`,
           method: "PUT",
-          headers: { "content-type": body.contentType, "x-amz-tagging": "status=pending" },
+          // 서버 계약(TASK-26#2): 서명한 헤더 = content-type·x-amz-tagging·if-none-match(덮어쓰기 금지)
+          headers: { "content-type": body.contentType, "x-amz-tagging": "status=pending", "if-none-match": "*" },
           expiresAt: "2026-10-12T00:05:00Z",
         });
       }),

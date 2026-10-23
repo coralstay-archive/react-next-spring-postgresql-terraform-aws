@@ -15,8 +15,9 @@ public interface UploadStorage {
 	boolean available();
 
 	/**
-	 * PUT URL 을 발급한다. Content-Type·Content-Length·{@code x-amz-tagging: status=pending} 을 서명에 넣어, 클라이언트가 다른 값을
-	 * 보내면 저장소가 서명 불일치로 거부한다.
+	 * PUT URL 을 발급한다. Content-Type·Content-Length·{@code x-amz-tagging: status=pending}·{@code If-None-Match: *} 를 서명에 넣어,
+	 * 클라이언트가 다른 값을 보내거나 빼면 저장소가 서명 불일치로 거부한다. {@code If-None-Match: *} 는 덮어쓰기 금지다(TASK-26#2 B1):
+	 * 이미 올린 키에 같은 URL 로 다시 PUT 하면 412 — 확정한 객체에 pending 태그가 다시 붙어 lifecycle 이 지우는 일이 없다.
 	 */
 	PresignedUpload presignPut(String key, String contentType, long size, Duration ttl);
 

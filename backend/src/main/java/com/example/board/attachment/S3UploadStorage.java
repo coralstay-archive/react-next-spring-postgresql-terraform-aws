@@ -64,6 +64,9 @@ final class S3UploadStorage implements UploadStorage {
 			.contentType(contentType)
 			.contentLength(size)
 			.tagging(PENDING_TAG)
+			// TASK-26#2 B1 덮어쓰기 금지(S3 조건부 쓰기): 확정 뒤 같은 URL 로 다시 PUT 해 pending 태그가 다시 붙는 일(→ lifecycle 이 확정
+			// 객체를 지움)을 막는다. 이미 있는 키면 저장소가 412 PreconditionFailed
+			.ifNoneMatch("*")
 			.build();
 		PresignedPutObjectRequest presigned = call("presign", key,
 				() -> presigner.presignPutObject(request -> request.signatureDuration(ttl).putObjectRequest(put)));

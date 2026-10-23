@@ -64,6 +64,14 @@ run "cors_for_presigned_put" {
     ])
     error_message = "PUT 규칙은 content-type·x-amz-tagging 헤더를 허용해야 한다(presign 이 서명한 헤더)"
   }
+  # TASK-26#2 TASK-26#B1 presign 이 덮어쓰기 금지 If-None-Match: * 도 서명한다 → 브라우저 preflight 에 올라오므로 허용해야 PUT 이 된다
+  assert {
+    condition = anytrue([
+      for rule in aws_s3_bucket_cors_configuration.this.cors_rule :
+      contains(rule.allowed_methods, "PUT") && contains([for h in rule.allowed_headers : lower(h)], "if-none-match")
+    ])
+    error_message = "PUT 규칙은 If-None-Match 헤더를 허용해야 한다(TASK-26#2 덮어쓰기 금지)"
+  }
   assert {
     condition = anytrue([
       for rule in aws_s3_bucket_cors_configuration.this.cors_rule : contains(rule.allowed_methods, "GET")

@@ -8,7 +8,8 @@ locals {
   uploads_prefix = "uploads/"
   pending_tag    = { status = "pending" }
   # presign 이 서명하는 헤더 중 브라우저가 preflight 에 올리는 것(Content-Length·Host 는 브라우저가 붙인다)
-  signed_headers = ["content-type", "x-amz-tagging"]
+  # if-none-match: 덮어쓰기 금지(TASK-26#2) — 이미 있는 키에 다시 PUT 하면 412 라 확정 객체에 pending 태그가 다시 붙지 않는다
+  signed_headers = ["content-type", "x-amz-tagging", "if-none-match"]
 
   bucket_policy = {
     Version = "2012-10-17"

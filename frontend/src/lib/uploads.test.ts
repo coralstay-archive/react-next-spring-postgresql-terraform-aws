@@ -45,6 +45,24 @@ describe("TASK-14#3 업로드 흐름", () => {
     expect(progress.at(-1)).toBe(100);
   });
 
+  it("TASK-26#2 TASK-26#B1 서명된 덮어쓰기 금지 헤더(If-None-Match: *)를 그대로 보낸다", async () => {
+    const calls = presignHandlers();
+    server.use(csrfHandler(), ...calls.handlers);
+
+    await uploadImage(png());
+
+    expect(calls.putHeaders?.get("if-none-match")).toBe("*");
+  });
+
+  it("TASK-26#2 TASK-26#B1 이미 있는 키라 412 면 upload_failed 이고 confirm 하지 않는다", async () => {
+    const calls = presignHandlers({ putStatus: 412 });
+    server.use(csrfHandler(), ...calls.handlers);
+
+    const error = await uploadImage(png()).catch((e: unknown) => e);
+    expect(isApiError(error) && error.code).toBe("upload_failed");
+    expect(calls.confirmed).toEqual([]);
+  });
+
   it("TASK-14#3 S3 PUT 이 실패하면 upload_failed 이고 confirm 하지 않는다", async () => {
     const calls = presignHandlers({ putStatus: 403 });
     server.use(csrfHandler(), ...calls.handlers);
