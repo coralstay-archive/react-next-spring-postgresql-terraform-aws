@@ -60,13 +60,15 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
 	/**
 	 * 행 하나를 아직 정리 대상일 때만 지운다 (TASK-26#4): 글에 붙지 않은 채 {@code cutoff} 이전부터였거나, 붙은 글이 {@code cutoff} 이전에
 	 * 삭제됐다. 그사이 다시 붙였으면(글 수정이 행을 FOR UPDATE 로 잠근다 — 이 DELETE 는 기다렸다가 바뀐 행으로 조건을 다시 본다) 0. 글은
-	 * FOR SHARE 로 읽어 동시 복구(restore)가 먼저 커밋되면 그 결과를 본다. 지운 행 수 — 1 이면 호출자가 객체를 지운다.
+	 * FOR SHARE 로 읽어 동시 복구(restore)가 먼저 커밋되면 그 결과를 본다. 상관 EXISTS 라 잠그는 글은 이 첨부의 글 한 행뿐이다(비상관
+	 * {@code IN (select … for share)} 는 오래된 삭제 글 전부를 매번 잠갔다). 지운 행 수 — 1 이면 호출자가 객체를 지운다.
 	 */
 	@Transactional
 	@Modifying
 	@Query(value = "delete from attachments a where a.id = :id and ((a.status = 'CONFIRMED' and a.post_id is null"
 			+ " and coalesce(a.detached_at, a.confirmed_at) < :cutoff)"
-			+ " or a.post_id in (select p.id from posts p where p.deleted_at < :cutoff for share))", nativeQuery = true)
+			+ " or exists (select 1 from posts p where p.id = a.post_id and p.deleted_at < :cutoff for share))",
+			nativeQuery = true)
 	int deleteIfOrphanedBefore(Long id, Instant cutoff);
 
 }
