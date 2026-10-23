@@ -1,10 +1,10 @@
 ---
 id: TASK-27
 title: '백엔드: 정리 작업과 관리·조회 견고성'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 01:50'
+updated_date: '2026-10-23 05:25'
 labels:
   - backend
   - ops
@@ -31,11 +31,11 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 BE-10 만료·폐기 refresh_tokens, 오래된 otp_challenges·post_views, 미사용 tags 정리 스케줄
-- [ ] #2 BE-28 조회수 집계 실패는 로그만 남기고 상세 응답은 정상 반환
-- [ ] #3 BE-38 정지 후 세션 삭제 실패는 로그 + 응답에 경고 필드(정지는 유지)
-- [ ] #4 BE-40 카테고리 sortOrder 범위 검증과 오버플로 방지
-- [ ] #5 rate_limit_events 정리: 설정된 app.rate-limit.* window 최댓값보다 오래된 행만 지운다(TASK-22 리뷰 M2)
+- [x] #1 BE-10 만료·폐기 refresh_tokens, 오래된 otp_challenges·post_views, 미사용 tags 정리 스케줄
+- [x] #2 BE-28 조회수 집계 실패는 로그만 남기고 상세 응답은 정상 반환
+- [x] #3 BE-38 정지 후 세션 삭제 실패는 로그 + 응답에 경고 필드(정지는 유지)
+- [x] #4 BE-40 카테고리 sortOrder 범위 검증과 오버플로 방지
+- [x] #5 rate_limit_events 정리: 설정된 app.rate-limit.* window 최댓값보다 오래된 행만 지운다(TASK-22 리뷰 M2)
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -58,4 +58,20 @@ documentation:
 
 <!-- SECTION:NOTES:BEGIN -->
 TASK-22 리뷰(M2, 2026-10-21): rate_limit_events 정리가 빠져 있어 AC #5로 추가. 정리 기준은 고정 1시간이 아니라 설정된 window 최댓값(B1과 같은 취지).
+
+독립 리뷰(2026-10-23) 반영 결정(유저): M1 refresh_tokens는 로그인 묶음(family) 단위로 지운다 — 살아 있는 토큰이 없고 family가 끝난 시각(max(least(revoked_at, expires_at)))이 보존 기간(7일)보다 오래된 family만 통째로 삭제. 재사용 감지가 토큰 수명 내내 유지되고 replaced_by FK·인스턴스 시계 차이 문제도 사라짐. 대가: 계속 로테이션되는 장기 family는 끝날 때까지 행이 쌓임(문서화). L1 표마다 예외 격리. 프론트 후속(정지 warnings 표시, sortOrder 범위)은 TASK-33 AC로.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+정리 작업과 관리·조회 견고성을 넣었다.
+- AC#1 BE-10: RetentionCleanup(ShedLock, 실행당 시간·건수 예산, 배치 DELETE, 표마다 실패 격리). refresh_tokens는 살아 있는 토큰이 없고 끝난 지 7일이 지난 family 단위로 삭제(재사용 감지 유지). otp_challenges는 만료+1일 그리고 OTP 한도 창 밖. post_views는 중복 집계 창(30분) 밖. 미사용 tags는 SKIP LOCKED 잠금 + 재확인 후 삭제, 글 저장은 FOR KEY SHARE로 경쟁 처리. B1: 활성 토큰·한도 창 안 기록은 지우지 않는다. 보존 기간은 env로 조정.
+- AC#2 BE-28: 조회수 집계 실패는 WARN만 남기고 상세는 200.
+- AC#3 BE-38: 정지 뒤 세션 삭제 실패는 WARN + 응답 warnings ["session_revoke_failed"], 정지는 유지(남은 세션은 TASK-24 필터로 쓰기 403).
+- AC#4 BE-40: 카테고리 sortOrder 0~10000 검증, 기본값(최대+1)은 long 계산 후 고정.
+- AC#5: rate_limit_events는 설정된 app.rate-limit.* 창의 최댓값보다 오래된 행만 삭제.
+독립 리뷰 반영: refresh family 단위 삭제, 표마다 실패 격리, 옛 sortOrder 문서화.
+검증: make test 통과(backend 872, frontend 162, repo 233, deploy 135, terraform 57).
+후속: 관리자 화면 warnings 표시·sortOrder 범위는 TASK-33 AC. 장기 family 행 누적 상한은 미정.
+<!-- SECTION:FINAL_SUMMARY:END -->
