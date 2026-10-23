@@ -19,7 +19,8 @@ public class AdminAction {
 	/** 관리 액션 종류. DB 에는 이름 그대로 저장한다. */
 	public enum Type {
 
-		USER_SUSPEND(Target.USER), USER_UNSUSPEND(Target.USER), POST_HIDE(Target.POST), POST_UNHIDE(Target.POST),
+		USER_SUSPEND(Target.USER), USER_UNSUSPEND(Target.USER), USER_SESSIONS_REVOKE(Target.USER), POST_HIDE(Target.POST),
+		POST_UNHIDE(Target.POST),
 		POST_RESTORE(Target.POST), CATEGORY_CREATE(Target.CATEGORY), CATEGORY_UPDATE(Target.CATEGORY),
 		CATEGORY_DELETE(Target.CATEGORY);
 

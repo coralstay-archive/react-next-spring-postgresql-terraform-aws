@@ -349,6 +349,7 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | `GET /api/admin/users?q&status&page&size` | `{items:[{id, nickname, email, phone, role, status, providers[], createdAt}], page, size, totalElements, totalPages}` 최근 가입순. `q`는 닉네임·이메일 부분 일치(대소문자 무시) 또는 전화번호 부분 일치(숫자만 비교, `010-1234-5678`처럼 앞자리 0인 국내 표기도 찾는다). `status`=`ACTIVE`\|`SUSPENDED`(대소문자 무시), `size` 1~100(기본 20) |
 | `POST /api/admin/users/{id}/suspend` `{reason?}` | 200 사용자 한 줄(`status:"SUSPENDED"`) + `warnings`(배열, 평소 `[]`). 멱등. 정지 커밋 뒤 세션 삭제가 실패하면 `warnings:["session_revoke_failed"]`(정지는 그대로, TASK-27#3) |
 | `POST /api/admin/users/{id}/unsuspend` `{reason?}` | 200 사용자 한 줄(`status:"ACTIVE"`). 멱등. 끊긴 세션·토큰은 되살리지 않는다(다시 로그인) |
+| `POST /api/admin/users/{id}/sessions/revoke` `{reason?}` | 200 `{warnings}`(평소 `[]`). 멱등. 상태(ACTIVE·SUSPENDED)는 그대로 두고 그 사용자의 refresh 토큰 전부 폐기 + Spring Session 전부 삭제(정지의 세션·토큰 뒤처리와 같다). 감사 로그 `USER_SESSIONS_REVOKE`. 세션 삭제가 또 실패하면 `warnings:["session_revoke_failed"]`. 정지 경고의 '세션 끊기 다시 시도'가 쓴다(TASK-33#5) |
 | `POST /api/admin/posts/{id}/hide` · `/unhide` · `/restore` `{reason?}` | 200 `{id, hidden, deleted, hiddenAt, deletedAt}`. 멱등(다시 숨겨도 처음 숨긴 시각 유지). `restore`는 `deleted_at`만 지우고 숨김은 그대로 둔다. 작성자 수정·삭제와 겹치면 늦은 쪽이 409 `conflict`(위 게시판 동시 수정, TASK-23#3) |
 | `POST /api/admin/categories` `{slug, name, sortOrder?, adminOnly?}` | 201 `{id, slug, name, sortOrder, adminOnly}`. `sortOrder`는 0~10000(TASK-27#4), 생략 시 맨 뒤(최대 + 1, 10000 을 넘지 않는다 — 닿으면 같은 값이 여럿일 수 있고 목록은 같은 값끼리 id 순), `adminOnly` 생략 시 false. 검증 전에 DB 에 들어간 범위 밖 값(10000 초과)이 남아 있으면 새 카테고리는 10000 으로 잘려 그 카테고리보다 앞에 온다(맨 뒤가 아닐 수 있다) — 그런 값은 PATCH 로 범위 안으로 고친다 |
 | `PATCH /api/admin/categories/{id}` `{slug?, name?, sortOrder?, adminOnly?}` | 200 같은 모양. 보낸 필드만 바꾼다 — `sortOrder` 를 빼면 기존 값이 범위 밖이어도 검증에 걸리지 않고 그대로 둔다 |
@@ -359,13 +360,14 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 |---|---|
 | 409 `cannot_suspend_self` | 자기 자신을 정지하려 함 (B2) |
 | 409 `cannot_suspend_admin` | 다른 ADMIN을 정지하려 함. 관리자끼리 서로 잠그는 것을 막는다. ADMIN 정지가 꼭 필요하면 DB에서 역할부터 바꾼다 |
+| 409 `cannot_revoke_self`·`cannot_revoke_admin` | 세션 끊기를 자기 자신·다른 ADMIN에게 하려 함(정지와 같은 이유) |
 | 404 `user_not_found` · `post_not_found` · `category_not_found` | 없는 대상 |
 | 409 `slug_taken` | 카테고리 slug 중복(동시 생성의 유니크 위반 `categories_slug_uk`도 같은 409). 다른 DB 오류는 slug_taken으로 바꾸지 않고 공통 매핑(409 `conflict` · 400 `validation` · 500 `internal_error`)을 따른다 |
 | 400 `validation` | slug가 `^[a-z0-9-]{2,30}$`가 아님, name이 비었거나 50자 초과, `sortOrder`가 0~10000 밖(`fields.sortOrder`, 생성·수정 모두), `reason` 500자 초과, 잘못된 `page`·`size`·`status` |
 
 - **정지는 즉시 효과**: 한 트랜잭션에서 `status=SUSPENDED`, 그 사용자의 refresh 토큰 전부(모든 family) 폐기, 감사 로그를 커밋하고, 커밋 뒤 Spring Session JDBC에서 그 사용자의 세션을 모두 지운다. 세션은 `SPRING_SESSION.PRINCIPAL_NAME` 인덱스로 찾는데, Spring Session이 세션의 SecurityContext에서 `Authentication#getName()`(= 사용자 id)을 뽑아 채우므로 세션·소셜·OTP 로그인 세션이 모두 사용자 id로 색인된다. 결과: 기존 세션은 다음 요청부터 익명(보호된 API는 401), refresh는 401, 이미 받은 access JWT는 만료(15분)까지 읽기만 되고 쓰기는 403, 로그인은 403 `suspended`.
-- **세션 삭제 실패(TASK-27#3, BE-38)**: 정지는 이미 커밋됐으므로 되돌리지 않는다. WARN 로그(사용자 id·예외 종류)를 남기고 200 + `warnings:["session_revoke_failed"]` 로 알린다. 남은 세션은 요청마다 DB 의 status 를 보는 필터(TASK-24, `CurrentUserFilter`·`SuspendedUserWriteFilter`)가 막아서 쓰기는 403 `suspended` 다(정지 계정의 읽기 범위는 이미 받은 access JWT 와 같다 — 세션 만료 14일 또는 삭제 재시도까지). 관리자가 같은 정지를 다시 누르면(멱등) 세션 삭제를 다시 시도한다.
-- **감사 로그**: V10 `admin_actions(id, admin_id, action, target_type, target_id, reason, created_at)`. 모든 관리 쓰기(`USER_SUSPEND`·`USER_UNSUSPEND`·`POST_HIDE`·`POST_UNHIDE`·`POST_RESTORE`·`CATEGORY_CREATE`·`CATEGORY_UPDATE`·`CATEGORY_DELETE`)를 그 작업과 같은 트랜잭션에서 한 행씩 남긴다. 상태가 이미 같아 바뀐 게 없어도 호출마다 기록한다. 빈 사유는 null, 카테고리 삭제는 사유에 `slug=...`를 남긴다. `target_id`는 대상이 지워져도 남도록 FK가 없다.
+- **세션 삭제 실패(TASK-27#3, BE-38)**: 정지는 이미 커밋됐으므로 되돌리지 않는다. WARN 로그(사용자 id·예외 종류)를 남기고 200 + `warnings:["session_revoke_failed"]` 로 알린다. 남은 세션은 요청마다 DB 의 status 를 보는 필터(TASK-24, `CurrentUserFilter`·`SuspendedUserWriteFilter`)가 막아서 쓰기는 403 `suspended` 다(정지 계정의 읽기 범위는 이미 받은 access JWT 와 같다 — 세션 만료 14일 또는 삭제 재시도까지). 관리자가 같은 정지를 다시 누르거나(멱등) 정지 상태를 건드리지 않는 `POST /api/admin/users/{id}/sessions/revoke`(TASK-33#5, 프론트의 '세션 끊기 다시 시도')로 세션 삭제를 다시 시도한다.
+- **감사 로그**: V10 `admin_actions(id, admin_id, action, target_type, target_id, reason, created_at)`. 모든 관리 쓰기(`USER_SUSPEND`·`USER_UNSUSPEND`·`USER_SESSIONS_REVOKE`·`POST_HIDE`·`POST_UNHIDE`·`POST_RESTORE`·`CATEGORY_CREATE`·`CATEGORY_UPDATE`·`CATEGORY_DELETE`)를 그 작업과 같은 트랜잭션에서 한 행씩 남긴다. 상태가 이미 같아 바뀐 게 없어도 호출마다 기록한다. 빈 사유는 null, 카테고리 삭제는 사유에 `slug=...`를 남긴다. `target_id`는 대상이 지워져도 남도록 FK가 없다.
 
 ### 보존 기간 정리 (TASK-27)
 

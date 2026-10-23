@@ -52,6 +52,12 @@ public class AdminUserController {
 		return service.unsuspend(admin, id, ReasonRequest.of(body));
 	}
 
+	@PostMapping("/admin/users/{id}/sessions/revoke")
+	public AdminUserService.RevokeSessionsResponse revokeSessions(@PathVariable Long id,
+			@Valid @RequestBody(required = false) ReasonRequest body, @AuthenticationPrincipal AuthUser admin) {
+		return service.revokeSessions(admin, id, ReasonRequest.of(body));
+	}
+
 	static void checkPage(int page, int size) {
 		Paging.check(page, size, MAX_PAGE_SIZE);
 	}

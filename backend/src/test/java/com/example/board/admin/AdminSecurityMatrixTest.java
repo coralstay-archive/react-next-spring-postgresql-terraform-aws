@@ -35,7 +35,8 @@ class AdminSecurityMatrixTest {
 	}
 
 	static final String[][] ENDPOINTS = { { "GET", "/admin/users" }, { "POST", "/admin/users/1/suspend" },
-			{ "POST", "/admin/users/1/unsuspend" }, { "POST", "/admin/posts/1/hide" },
+			{ "POST", "/admin/users/1/unsuspend" }, { "POST", "/admin/users/1/sessions/revoke" },
+			{ "POST", "/admin/posts/1/hide" },
 			{ "POST", "/admin/posts/1/unhide" }, { "POST", "/admin/posts/1/restore" },
 			{ "POST", "/admin/categories" }, { "PATCH", "/admin/categories/1" }, { "DELETE", "/admin/categories/1" },
 			{ "GET", "/admin/actions" } };
