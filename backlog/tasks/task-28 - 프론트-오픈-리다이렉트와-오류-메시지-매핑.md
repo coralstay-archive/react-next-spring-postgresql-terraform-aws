@@ -1,10 +1,10 @@
 ---
 id: TASK-28
 title: '프론트: 오픈 리다이렉트와 오류 메시지 매핑'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-23 05:27'
 labels:
   - frontend
   - security
