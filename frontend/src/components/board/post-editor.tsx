@@ -95,7 +95,37 @@ function doneItems(attachments: Attachment[]): UploadItem[] {
   }));
 }
 
-type FieldErrors = Partial<Record<keyof PostInput | "category" | "tags", string>>;
+type FieldErrors = Partial<Record<keyof PostInput | "category" | "tags" | "attachments", string>>;
+
+/** 서버 `fields` 키(본문 경로)의 첫 이름 → 편집기 칸. `tags[1]`·`attachmentIds[0]` 처럼 원소 경로도 그 칸이다. */
+const FIELD_OF: Record<string, keyof FieldErrors> = {
+  title: "title",
+  content: "content",
+  categorySlug: "category",
+  tags: "tags",
+  attachmentIds: "attachments",
+};
+
+/**
+ * 서버 필드 오류를 칸에 붙인다(TASK-31#3, FE-24). 폼에 없는 키(오타 필드 `titel` 등)는 `unmapped` 로 돌려 폼 위 알림에 보인다 —
+ * 아무 안내 없이 저장만 실패하지 않게. `attachmentIds[n]` 은 n 번째로 보낸 첨부라 `attachmentIndexes` 로도 돌려준다(TASK-31#4).
+ */
+function mapFieldErrors(fields: Record<string, string>) {
+  const mapped: FieldErrors = {};
+  const unmapped: string[] = [];
+  const attachmentIndexes = new Map<number, string>();
+  for (const [key, message] of Object.entries(fields)) {
+    const field = FIELD_OF[key.split(/[[.]/)[0]];
+    if (!field) {
+      unmapped.push(message);
+      continue;
+    }
+    mapped[field] ??= message;
+    const index = field === "attachments" ? /^attachmentIds\[(\d+)\]/.exec(key)?.[1] : undefined;
+    if (index !== undefined) attachmentIndexes.set(Number(index), message);
+  }
+  return { mapped, unmapped, attachmentIndexes };
+}
 
 const TEXTAREA =
   "border-input min-h-64 w-full rounded-lg border bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive";
@@ -200,13 +230,15 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       if (post && (error.status === 404 || error.status === 403)) {
         void client.invalidateQueries({ queryKey: queryKeys.post(post.id) });
       }
-      if (error.fields) setFieldErrors(error.fields as FieldErrors);
+      if (error.fields) setFieldErrors(mapFieldErrors(error.fields).mapped);
       else if (error.code === "invalid_tag" || error.code === "too_many_tags") setFieldErrors({ tags: errorMessage(error) });
       else if (error.code === "unknown_category" || error.code === "category_admin_only")
         setFieldErrors({ category: errorMessage(error) });
     },
   });
-  // 칸에 붙인 오류는 폼 위 알림으로 한 번 더 보이지 않는다.
+  // 칸에 붙인 오류는 폼 위 알림으로 한 번 더 보이지 않는다. 폼에 없는 필드 키만 남았으면 그 메시지를 폼 위에 보인다(TASK-31#3).
+  const unmappedFields =
+    save.isError && isApiError(save.error) && save.error.fields ? mapFieldErrors(save.error.fields).unmapped : [];
   const formError =
     save.isError &&
     !(
@@ -373,7 +405,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           onChange={(e) => setTitle(e.target.value)}
           aria-invalid={fieldErrors.title ? true : undefined}
         />
-        <FieldError message={fieldErrors.title} />
+        <FieldError message={fieldErrors.title} testId="editor-title-error" />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -392,7 +424,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
             </option>
           ))}
         </select>
-        <FieldError message={fieldErrors.category} />
+        <FieldError message={fieldErrors.category} testId="editor-category-error" />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -406,7 +438,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           onChange={(e) => setContent(e.target.value)}
           aria-invalid={fieldErrors.content ? true : undefined}
         />
-        <FieldError message={fieldErrors.content} />
+        <FieldError message={fieldErrors.content} testId="editor-content-error" />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -445,7 +477,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           </p>
         )}
         {/* 입력 중인 값의 오류는 미리보기 줄이 이미 보여 준다. */}
-        {!preview?.error && <FieldError message={fieldErrors.tags} />}
+        {!preview?.error && <FieldError message={fieldErrors.tags} testId="editor-tags-error" />}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -489,9 +521,22 @@ export function PostEditor({ post }: { post?: PostDetail }) {
             </li>
           ))}
         </ul>
+        <FieldError message={fieldErrors.attachments} testId="editor-attachments-error" />
       </div>
 
       {formError && <ApiErrorAlert error={formError} testId="editor-error" />}
+      {unmappedFields.length > 0 && (
+        <Alert variant="destructive" data-testid="editor-error">
+          <AlertDescription>
+            <p>{errorMessage(save.error)}</p>
+            <ul className="list-disc pl-5">
+              {unmappedFields.map((message, index) => (
+                <li key={index}>{message}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex gap-2">
         <Button type="submit" data-testid="editor-submit" disabled={save.isPending || save.isSuccess || uploading}>
@@ -505,7 +550,11 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   );
 }
 
-function FieldError({ message }: { message?: string }) {
+function FieldError({ message, testId }: { message?: string; testId?: string }) {
   if (!message) return null;
-  return <p className="text-destructive text-sm">{message}</p>;
+  return (
+    <p className="text-destructive text-sm" data-testid={testId}>
+      {message}
+    </p>
+  );
 }
