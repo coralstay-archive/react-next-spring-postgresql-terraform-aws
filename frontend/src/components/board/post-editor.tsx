@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDraftAutosave } from "@/hooks/use-draft-autosave";
+import { useLeaveGuard } from "@/hooks/use-leave-guard";
 import { api, isApiError } from "@/lib/api";
 import { useSessionUser } from "@/lib/auth";
 import { useCategories, type Attachment, type PostDetail } from "@/lib/board";
@@ -221,6 +222,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     ...(post && baseUpdatedAt ? { baseUpdatedAt } : {}),
   };
   const pristine = sameDraft(draft, initialDraft(post));
+  const uploading = items.some((item) => item.status === "uploading");
   const autosave = useDraftAutosave({ key: draftKey, ownerId: userId, data: draft, empty: pristine });
 
   const discardDraft = () => {
@@ -303,10 +305,33 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       ? save.error
       : null;
 
+  // 이탈 경고(TASK-31#7, B2: 저장하지 않은 입력이 경고 없이 버려지지 않는다). 저장에 성공해 이동하는 중에는 묻지 않는다.
+  // - 탭 닫기·새로고침: 입력이 있거나 업로드·저장 중이면 경고(탭을 닫으면 sessionStorage 초안도 사라진다).
+  // - 앱 안 이동·취소: 글자 입력은 초안(TASK-29)에 남아 다시 열면 복원되므로 묻지 않는다. 업로드 중(떠나면 끊김)·저장 중(결과를 못 봄)·
+  //   초안 저장 실패(저장 공간)일 때만 묻는다.
+  const leaving = useLeaveGuard({
+    unload: !save.isSuccess && (!pristine || uploading || save.isPending),
+    inAppMessage: () => {
+      if (save.isSuccess) return null;
+      if (uploading) return "이미지를 올리는 중입니다. 이 페이지를 떠나면 업로드가 취소됩니다. 떠날까요?";
+      if (save.isPending) return "저장하는 중입니다. 지금 떠나면 저장됐는지 확인하지 못할 수 있습니다. 떠날까요?";
+      if (!pristine && autosave.saveFailed()) {
+        return "입력한 내용을 임시 저장하지 못했습니다. 이 페이지를 떠나면 입력이 사라집니다. 떠날까요?";
+      }
+      return null;
+    },
+  });
+
+  /** 취소: 확인을 거쳐 뒤로. 새 탭으로 바로 열어 돌아갈 곳이 없으면 목록(/)으로(TASK-31#7, FE-28). */
+  const cancel = () => {
+    if (!leaving.confirmLeave()) return;
+    if (window.history.length > 1) router.back();
+    else router.replace("/");
+  };
+
   const visibleCategories = (categories.data ?? []).filter(
     (category) => !category.adminOnly || isAdmin || category.slug === post?.category?.slug,
   );
-  const uploading = items.some((item) => item.status === "uploading");
   // confirm 만 남은 실패(TASK-31#6)도 자리를 차지한다(다시 시도하면 붙는다).
   const attached = items.filter((item) => item.status !== "error" || item.confirmId !== undefined).length;
 
@@ -670,7 +695,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
         <Button type="submit" data-testid="editor-submit" disabled={save.isPending || save.isSuccess || uploading}>
           {post ? "저장" : "등록"}
         </Button>
-        <Button type="button" variant="outline" onClick={() => router.back()}>
+        <Button type="button" variant="outline" onClick={cancel}>
           취소
         </Button>
       </div>

@@ -48,11 +48,13 @@ export const navigation = {
   search: new URLSearchParams(),
   push: vi.fn(),
   replace: vi.fn(),
+  back: vi.fn(),
   reset(pathname = "/", search = "") {
     this.pathname = pathname;
     this.search = new URLSearchParams(search);
     this.push.mockReset();
     this.replace.mockReset();
+    this.back.mockReset();
   },
 };
 
@@ -61,7 +63,7 @@ export function nextNavigationMock() {
     useRouter: () => ({
       push: navigation.push,
       replace: navigation.replace,
-      back: vi.fn(),
+      back: navigation.back,
       forward: vi.fn(),
       refresh: vi.fn(),
       prefetch: vi.fn(),
