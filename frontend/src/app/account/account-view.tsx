@@ -69,11 +69,9 @@ export function AccountView() {
     <div className="grid w-full max-w-2xl gap-6">
       <h1 className="text-2xl font-semibold">내 계정</h1>
       {notice && (
-        <div role="status" aria-label="알림">
-          <Alert>
-            <AlertDescription>{notice}</AlertDescription>
-          </Alert>
-        </div>
+        <Alert aria-label="알림">
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
       )}
       <FormError message={error} />
       {me.stepUpRequired && <StepUpSection me={me} />}

@@ -12,7 +12,7 @@ import { loginHref } from "@/lib/auth";
 import { errorMessage } from "@/lib/errors";
 
 /**
- * API 오류 한 줄(role="alert"). 제한 세션(403 `step_up_required`)이면 다른 곳과 같은 {@link StepUpNotice}(TASK-32#3)를, 세션이 끝났으면(401)
+ * API 오류 한 줄(destructive, role="alert"). 제한 세션(403 `step_up_required`)이면 다른 곳과 같은 {@link StepUpNotice}(TASK-32#3)를, 세션이 끝났으면(401)
  * 로그인으로 가는 링크를 붙인다. 작성 화면이 하단 재로그인 안내를 띄우고 있으면 로그인 링크는 겹치지 않게 뺀다(TASK-29#3).
  */
 export function ApiErrorAlert({ error, testId }: { error: unknown; testId?: string }) {
@@ -37,7 +37,7 @@ export function ApiErrorAlert({ error, testId }: { error: unknown; testId?: stri
 /**
  * 재조회 실패 배너(TASK-30#4, FE-23). 이미 받은 데이터가 있을 때 백그라운드 재조회가 실패하면 화면을 오류로 바꾸지 않고
  * 기존 데이터 위에 이 작은 안내와 "다시 시도"만 붙인다(목록·상세·댓글·수정·관리자 탭·로그인 수단). 데이터가 없을 때만
- * {@link ApiErrorAlert} 오류 화면이다.
+ * {@link ApiErrorAlert} 오류 화면이다. 기존 내용을 그대로 두는 조용한 안내라 기본 variant(role="status")다(TASK-34#3).
  */
 export function RefetchErrorAlert({
   error,

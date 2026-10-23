@@ -67,8 +67,8 @@ describe("TASK-32#3 step-up 안내 단일 컴포넌트", () => {
     renderWithQuery(<StepUpBanner />);
     const banner = await screen.findByTestId("step-up-banner");
     expectStepUpNotice(banner);
-    // 화면 안 안내는 조용한 status 이고, 상단 배너만 alert 다.
-    expect(banner).toHaveAttribute("role", "alert");
+    // TASK-34#3 role=alert 는 오류에만: 제한 세션은 상태라 상단 배너도 status 다(403 오류로 받은 안내만 alert).
+    expect(banner).toHaveAttribute("role", "status");
   });
 });
 

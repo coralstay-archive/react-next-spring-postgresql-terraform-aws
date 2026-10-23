@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent } from "react";
+import { useId, useRef, useState, type FormEvent } from "react";
 
 import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
 import { StepUpNotice } from "@/components/step-up-notice";
@@ -167,6 +167,7 @@ function CommentEditor({ postId, user, onCreated }: { postId: number; user: Me; 
   const draftKey = draftKeys.comment(postId);
   const [content, setContent] = useState(() => readCommentDraft(postId, user.id));
   const [error, setError] = useState<string | null>(null);
+  const errorId = `${useId()}-error`;
   // 같은 틱의 두 번째 제출(더블 클릭·Enter 연타)은 isPending 이 화면에 반영되기 전이라 ref 로 막는다.
   const submitting = useRef(false);
 
@@ -205,8 +206,13 @@ function CommentEditor({ postId, user, onCreated }: { postId: number; user: Me; 
         value={content}
         onChange={(e) => setContent(e.target.value)}
         aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
       />
-      {error && <p className="text-destructive text-sm">{error}</p>}
+      {error && (
+        <p id={errorId} className="text-destructive text-sm" data-testid="comment-input-error">
+          {error}
+        </p>
+      )}
       {create.isError && <ApiErrorAlert error={create.error} testId="comment-create-error" />}
       {restricted && (
         <StepUpNotice inline testId="comment-step-up">

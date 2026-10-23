@@ -18,6 +18,10 @@ const alertVariants = cva(
   }
 )
 
+/**
+ * role 은 variant 로 정한다(TASK-34#3, FE-36): destructive(오류)만 `alert`(바로 끼어들어 읽음), 기본(안내·성공·상태)은 `status`(공손하게 읽음).
+ * `role` 을 넘기면 그것을 쓴다.
+ */
 function Alert({
   className,
   variant,
@@ -26,7 +30,7 @@ function Alert({
   return (
     <div
       data-slot="alert"
-      role="alert"
+      role={variant === "destructive" ? "alert" : "status"}
       className={cn(alertVariants({ variant }), className)}
       {...props}
     />
