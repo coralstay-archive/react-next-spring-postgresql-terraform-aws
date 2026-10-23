@@ -106,7 +106,9 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   const { user } = useSessionUser();
   const categories = useCategories();
   const isAdmin = user?.role === "ADMIN";
-  const userId = user?.id;
+  // 초안 주인은 편집기를 연 사용자로 고정한다. 계정이 바뀌면 RequireAuth 가 다시 마운트하고, 그 전에도 A 의 입력을 B 의 id 로 쓰지 않는다.
+  const [userId, setUserId] = useState(user?.id);
+  if (userId === undefined && user) setUserId(user.id);
   const draftKey = post ? draftKeys.editPost(post.id) : draftKeys.newPost;
 
   const [restored, setRestored] = useState<PostDraft | null>(() => (user ? readPostDraft(draftKey, user.id) : null));

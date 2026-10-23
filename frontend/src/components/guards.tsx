@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { Fragment, useEffect, type ReactNode } from "react";
 
 import Link from "next/link";
 
@@ -24,9 +24,10 @@ function Loading() {
  *
  * 내용을 한 번 그린 뒤 세션이 끝나면(TASK-29#3, FE-9·FE-32) 로그인으로 보내지 않고 내용을 그대로 둔 채 위에 재로그인 안내를 붙인다 —
  * 작성 중인 입력·첨부·다이얼로그가 언마운트되어 사라지지 않게. 입력은 초안으로도 남는다(lib/drafts.ts).
+ * 사용자가 다른 계정으로 바뀌면 내용을 다시 마운트한다(A 의 입력이 B 화면·B 초안으로 넘어가지 않게).
  */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { data: me, isError, isFetching, refetch, expired } = useSessionUser();
+  const { data: me, user, isError, isFetching, refetch, expired } = useSessionUser();
   const router = useRouter();
   const current = useCurrentPath();
 
@@ -39,10 +40,11 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     if (!me) return <Loading />;
   }
   // 만료 전후로 트리 모양을 같게 둔다(children 위치가 바뀌면 다시 마운트되어 입력이 사라진다).
+  // 다만 계정이 A→B 로 바뀌면(TASK-29#1·#3) 사용자 id key 로 일부러 다시 마운트해 A 의 입력·상태를 버리고 빈 화면으로 연다.
   return (
     <>
       {expired ? <SessionLostNotice /> : null}
-      {children}
+      <Fragment key={user?.id}>{children}</Fragment>
     </>
   );
 }

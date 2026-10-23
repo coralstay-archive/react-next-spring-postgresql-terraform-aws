@@ -134,7 +134,8 @@ function CommentForm({ postId, onCreated }: { postId: number; onCreated: () => v
       </p>
     );
   }
-  return <CommentEditor postId={postId} user={user} onCreated={onCreated} />;
+  // 계정이 A→B 로 바뀌면 다시 마운트해 A 의 입력을 버린다(TASK-29#1·#3).
+  return <CommentEditor key={user.id} postId={postId} user={user} onCreated={onCreated} />;
 }
 
 function readCommentDraft(postId: number, userId: number): string {

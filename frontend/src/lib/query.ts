@@ -1,6 +1,7 @@
 import { hashKey, MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 
 import { isApiError } from "@/lib/api";
+import { clearDraftsOf } from "@/lib/drafts";
 
 /**
  * 쿼리 키 규약: `[도메인, ...세부]` 배열. 무효화는 앞부분으로 한다(예: `["posts"]` 면 모든 글 목록·상세).
@@ -45,7 +46,7 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
 }
 
 /** 로그인 사용자(me 데이터)인가. 익명은 null, 아직 모르면 undefined. */
-function isUser(value: unknown): boolean {
+function isUser(value: unknown): value is { id: number } {
   return value !== null && typeof value === "object";
 }
 
@@ -60,13 +61,21 @@ function isUser(value: unknown): boolean {
  * 직전 me 가 사용자였을 때만 만료로 처리한다: me=null, `["auth", …]` 밖의 모든 쿼리를 reset(데이터를 버리고 화면에 떠 있는 것은
  * 익명으로 다시 받는다 — 서버 `editable` 이 false 가 되어 수정·삭제 버튼이 사라진다, B2), 전역 안내 플래그 {@link SESSION_EXPIRED_KEY}.
  * 리셋 뒤 다시 받은 쿼리가 또 401 이어도 me 가 이미 null 이라 되풀이하지 않는다. 다시 로그인하면(me 가 사용자) 플래그를 내린다.
+ *
+ * 계정 전환(리뷰 결정): me 가 마지막으로 본 사용자(A, 그사이 null 이었어도)와 다른 사용자(B)가 되면 — 다른 탭에서 B 로 로그인한 뒤 이 탭이
+ * me 를 다시 받은 경우 — 안내 없이 `["auth", …]` 밖의 쿼리를 reset 하고(A 의 editable·계정 캐시를 버린다) 이 탭의 A 초안을 지운다.
+ * 작성 화면은 RequireAuth·댓글 폼이 사용자 id 를 key 로 다시 마운트해 빈 상태로 연다. 로그인 성공(`useSessionChanged`)은 그쪽이 이미
+ * reset 하므로 초안만 지운다.
  */
 export function createQueryClient(): QueryClient {
   let lastMe: unknown = undefined;
+  let lastUserId: number | null = null;
+
+  const resetOthers = () => client.resetQueries({ predicate: (query) => query.queryKey[0] !== queryKeys.me[0] });
 
   const expire = () => {
     client.setQueryData(SESSION_EXPIRED_KEY, true);
-    void client.resetQueries({ predicate: (query) => query.queryKey[0] !== queryKeys.me[0] });
+    void resetOthers();
   };
 
   const onSessionError = (error: unknown) => {
@@ -93,6 +102,11 @@ export function createQueryClient(): QueryClient {
     const previous = lastMe;
     lastMe = data;
     if (isUser(data)) {
+      if (lastUserId !== null && lastUserId !== data.id) {
+        clearDraftsOf(lastUserId);
+        if (!event.action.manual) void resetOthers();
+      }
+      lastUserId = data.id;
       if (client.getQueryData(SESSION_EXPIRED_KEY)) client.setQueryData(SESSION_EXPIRED_KEY, false);
     } else if (data === null && isUser(previous) && !event.action.manual) {
       expire();
