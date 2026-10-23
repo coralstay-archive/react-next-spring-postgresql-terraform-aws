@@ -169,6 +169,9 @@ const SELECT = "border-input h-8 w-full rounded-lg border bg-transparent px-2 te
  * - 초안(TASK-29#3, B1): 입력이 멈추면 sessionStorage 에 저장하고(원래 값과 같으면 지움, useDraftAutosave), 다시 열면 복원한다.
  *   수정 초안은 바탕 글의 updatedAt 을 담고, 복원 때 서버 글이 더 새로우면 경고하고 초안 유지·버리기(최신 글)를 고르게 한다. 세션이 끝나도
  *   편집기는 언마운트되지 않는다(RequireAuth). 저장에 성공하면 초안을 지운다.
+ * - 견고성(TASK-31): 제출은 ref 로 잠그고 성공하면 replace 로 상세에 간다(PRG, 버튼 비활성 유지). 서버 필드 오류 키를 칸에 붙이고 남은 키는
+ *   폼 위에, 첨부 연결 오류는 문제 첨부에 표시하고 빼고 다시 저장. 업로드는 정체 30초·전체 5분·취소·언마운트 abort, confirm 만 다시 시도.
+ *   이탈 경고(useLeaveGuard)와 히스토리 없는 취소의 / 이동. 카테고리 목록 오류 표시와 지금 카테고리 유지.
  */
 export function PostEditor({ post }: { post?: PostDetail }) {
   const ids = useId();
