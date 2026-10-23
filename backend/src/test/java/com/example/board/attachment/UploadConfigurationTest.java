@@ -64,6 +64,18 @@ class UploadConfigurationTest {
 	}
 
 	@Test
+	@DisplayName("TASK-26#4 연결 해제·삭제 글 첨부의 유예 기간은 기본 7일, app.uploads.orphan-grace-period 로 바꾸고, 양수가 아니면 기동하지 않는다")
+	void orphanGracePeriod() {
+		runner.withPropertyValues("app.uploads.bucket=b").run(context -> assertThat(
+				context.getBean(UploadProperties.class).orphanGracePeriod())
+			.isEqualTo(Duration.ofDays(7)));
+		runner.withPropertyValues("app.uploads.bucket=b", "app.uploads.orphan-grace-period=P30D").run(context -> assertThat(
+				context.getBean(UploadProperties.class).orphanGracePeriod())
+			.isEqualTo(Duration.ofDays(30)));
+		runner.withPropertyValues("app.uploads.orphan-grace-period=PT0S").run(context -> assertThat(context).hasFailed());
+	}
+
+	@Test
 	@DisplayName("TASK-11#1 공개 URL: public-base-path + uploads/ 뒤의 키 (CloudFront /uploads/* 가 같은 키로 S3 를 읽는다)")
 	void publicUrl() {
 		assertThat(UploadProperties.publicUrl("/uploads/", "uploads/7/a.png")).isEqualTo("/uploads/7/a.png");

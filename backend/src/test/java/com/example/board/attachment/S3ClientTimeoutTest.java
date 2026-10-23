@@ -106,7 +106,8 @@ class S3ClientTimeoutTest {
 		server.start();
 		UploadProperties properties = new UploadProperties("b", "us-east-1",
 				"http://127.0.0.1:" + server.getAddress().getPort(), true, "test", "test", "/uploads/",
-				Duration.ofMinutes(5), Duration.ofHours(24), Duration.ofMillis(1500), Duration.ofMillis(500));
+				Duration.ofMinutes(5), Duration.ofHours(24), Duration.ofMillis(1500), Duration.ofMillis(500),
+				Duration.ofDays(7));
 		try (S3Client client = UploadConfiguration.s3ClientBuilder(properties,
 				StaticCredentialsProvider.create(AwsBasicCredentials.create("test", "test")))
 			.build()) {

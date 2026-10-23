@@ -191,7 +191,8 @@ public class AttachmentService {
 	 * <li>CONFIRMED 여야 한다 → 400 {@code attachment_not_confirmed}</li>
 	 * <li>다른 글에 붙어 있지 않아야 한다 → 400 {@code attachment_in_use}</li>
 	 * </ul>
-	 * 없는 id 는 400 {@code unknown_attachment}. 목록에서 빠진 첨부는 연결을 푼다(객체는 지우지 않는다). 행을 잠그고 바꾸므로 같은
+	 * 없는 id 는 400 {@code unknown_attachment}. 목록에서 빠진 첨부는 연결을 풀고 그 시각을 남긴다(객체는 유예 기간 뒤
+	 * {@link OrphanAttachmentCleanup} 이 지운다, TASK-26#4). 행을 잠그고 바꾸므로 같은
 	 * 첨부를 두 글에 동시에 붙일 수 없다.
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
@@ -219,7 +220,7 @@ public class AttachmentService {
 		}
 		for (Attachment current : attachments.findByPostIdOrderByIdAsc(postId)) {
 			if (!ids.contains(current.getId())) {
-				current.detach();
+				current.detach(clock.instant());
 			}
 		}
 		requested.values().forEach(attachment -> attachment.attachTo(postId));

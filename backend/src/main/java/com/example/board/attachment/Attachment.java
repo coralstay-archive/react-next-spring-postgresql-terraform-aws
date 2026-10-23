@@ -51,6 +51,10 @@ public class Attachment implements OwnedResource {
 	@Column(name = "confirmed_at")
 	private Instant confirmedAt;
 
+	/** 글에서 뗀 시각 (TASK-26#4). 글에 붙어 있으면 null. 유예 기간이 지나면 정리 대상이다. */
+	@Column(name = "detached_at")
+	private Instant detachedAt;
+
 	protected Attachment() {
 	}
 
@@ -79,10 +83,13 @@ public class Attachment implements OwnedResource {
 			throw new IllegalStateException("확정되지 않은 첨부는 글에 붙일 수 없다");
 		}
 		this.postId = postId;
+		this.detachedAt = null;
 	}
 
-	public void detach() {
+	/** 글에서 뗀다. 객체는 바로 지우지 않고 유예 기간 뒤 정리한다 (TASK-26#4). */
+	public void detach(Instant now) {
 		this.postId = null;
+		this.detachedAt = Objects.requireNonNull(now, "now");
 	}
 
 	public Long getId() {
@@ -124,6 +131,10 @@ public class Attachment implements OwnedResource {
 
 	public Instant getConfirmedAt() {
 		return confirmedAt;
+	}
+
+	public Instant getDetachedAt() {
+		return detachedAt;
 	}
 
 }

@@ -47,4 +47,26 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
 	@Query("delete from Attachment a where a.id = :id and a.status = com.example.board.attachment.AttachmentStatus.PENDING and a.createdAt < :cutoff")
 	int deleteExpiredPending(Long id, Instant cutoff);
 
+	/** 글에 붙지 않은 확정 첨부 중 {@code cutoff} 전에 뗐거나(detached_at) 붙인 적 없이 확정한(confirmed_at) 것 (TASK-26#4). */
+	@Query(value = "select a.* from attachments a where a.status = 'CONFIRMED' and a.post_id is null"
+			+ " and coalesce(a.detached_at, a.confirmed_at) < :cutoff order by a.id limit :limit", nativeQuery = true)
+	List<Attachment> findUnlinkedBefore(Instant cutoff, int limit);
+
+	/** {@code cutoff} 전에 삭제된 글의 첨부 (TASK-26#4). */
+	@Query(value = "select a.* from attachments a join posts p on p.id = a.post_id where p.deleted_at < :cutoff"
+			+ " order by a.id limit :limit", nativeQuery = true)
+	List<Attachment> findOfPostsDeletedBefore(Instant cutoff, int limit);
+
+	/**
+	 * 행 하나를 아직 정리 대상일 때만 지운다 (TASK-26#4): 글에 붙지 않은 채 {@code cutoff} 이전부터였거나, 붙은 글이 {@code cutoff} 이전에
+	 * 삭제됐다. 그사이 다시 붙였으면(글 수정이 행을 FOR UPDATE 로 잠근다 — 이 DELETE 는 기다렸다가 바뀐 행으로 조건을 다시 본다) 0. 글은
+	 * FOR SHARE 로 읽어 동시 복구(restore)가 먼저 커밋되면 그 결과를 본다. 지운 행 수 — 1 이면 호출자가 객체를 지운다.
+	 */
+	@Transactional
+	@Modifying
+	@Query(value = "delete from attachments a where a.id = :id and ((a.status = 'CONFIRMED' and a.post_id is null"
+			+ " and coalesce(a.detached_at, a.confirmed_at) < :cutoff)"
+			+ " or a.post_id in (select p.id from posts p where p.deleted_at < :cutoff for share))", nativeQuery = true)
+	int deleteIfOrphanedBefore(Long id, Instant cutoff);
+
 }
