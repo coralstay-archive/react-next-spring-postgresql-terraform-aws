@@ -31,6 +31,7 @@ import com.example.board.attachment.OrphanAttachmentCleanup;
 import com.example.board.attachment.PendingAttachmentCleanup;
 import com.example.board.attachment.StorageProbe;
 import com.example.board.attachment.StorageProbe.Op;
+import com.example.board.retention.RetentionCleanup;
 import com.example.board.support.Api;
 import com.example.board.support.AuthFixtures;
 import com.example.board.support.IntegrationTest;
@@ -67,6 +68,9 @@ class SchedulerLockTest {
 
 	@Autowired
 	OrphanAttachmentCleanup orphanCleanup;
+
+	@Autowired
+	RetentionCleanup retentionCleanup;
 
 	Api api;
 
@@ -187,10 +191,11 @@ class SchedulerLockTest {
 				}
 			}
 		}
-		assertThat(scheduled).contains("PendingAttachmentCleanup.run", "OrphanAttachmentCleanup.run");
+		assertThat(scheduled).contains("PendingAttachmentCleanup.run", "OrphanAttachmentCleanup.run", "RetentionCleanup.run");
 
 		pendingCleanup.run();
 		orphanCleanup.run();
+		retentionCleanup.run();
 		assertThat(jdbc.queryForList("select name from shedlock", String.class)).containsAll(names);
 	}
 

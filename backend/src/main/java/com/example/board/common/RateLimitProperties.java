@@ -1,6 +1,8 @@
 package com.example.board.common;
 
 import java.time.Duration;
+import java.util.Comparator;
+import java.util.stream.Stream;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -36,6 +38,16 @@ public record RateLimitProperties(Policy loginAccount, Policy loginIp, Policy si
 			throw new IllegalArgumentException(
 					"app.rate-limit.max-pending-attachments 는 1 이상이어야 한다: " + maxPendingAttachments);
 		}
+	}
+
+	/**
+	 * 설정된 창 중 가장 긴 것 (TASK-27#5). rate_limit_events 에서 이보다 오래된 행은 어느 한도에도 세이지 않으므로 지워도 된다(TASK-27 B1).
+	 */
+	public Duration longestWindow() {
+		return Stream.of(loginAccount, loginIp, signupIp, stepUp, postMinute, postHour, comment, presign)
+			.map(Policy::window)
+			.max(Comparator.naturalOrder())
+			.orElseThrow();
 	}
 
 	/**
