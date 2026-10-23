@@ -4,7 +4,7 @@ title: '프론트: step-up·계정 화면 일관성'
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 11:50'
+updated_date: '2026-10-23 14:30'
 labels:
   - frontend
   - auth
@@ -48,3 +48,9 @@ documentation:
 4. docs/frontend.md 에 해제 확인·OTP 잠금·제한 세션 작성 컨트롤·StepUpNotice 를 적는다. /account/ 의 if (!me) return null(만료 뒤 내용 사라짐)은 AC 에 필요하지 않으면 범위 밖으로 남긴다.
 5. make test·tsc·eslint 로 확인.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+독립 리뷰(2026-10-23) 반영 결정(유저): 제한 세션에서 글·댓글 삭제는 확인 창 전에 본인 확인 안내(좋아요·관리자 작업은 눌렀을 때 403 안내 유지). 화면 안 안내(편집기·댓글)는 role=status 간략형으로 — 상단 배너만 alert. OTP 재발송 대기는 서버 429 Retry-After 기준 유지. 고칠 것: frontend.md OTP '한계' 문장 정정(실제 어긋남은 서버가 실패를 커밋했는데 클라이언트가 네트워크 오류·타임아웃을 받은 경우 — 잠금 안내가 늦게 나올 뿐), 잠길 때 포커스를 '인증번호 다시 받기' 버튼으로.
+<!-- SECTION:NOTES:END -->

@@ -725,8 +725,8 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       )}
 
       {restricted && (
-        <StepUpNotice testId="editor-step-up">
-          입력한 내용은 이 탭에 임시 저장되므로, 다시 인증한 뒤 이 화면을 다시 열면 이어서 {post ? "저장" : "등록"}할 수 있습니다.
+        <StepUpNotice inline testId="editor-step-up">
+          {post ? "저장" : "등록"}하려면 본인 확인이 필요합니다 · 작성 내용은 임시 저장됩니다
         </StepUpNotice>
       )}
 
