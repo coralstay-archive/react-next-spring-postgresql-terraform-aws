@@ -92,7 +92,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 | `POST /api/auth/signup` `{email, password, nickname}` | 201 + 사용자 요약. 자동 로그인 없음. 비밀번호 8자 이상·72바이트 이하·문자+숫자, 닉네임 2~20자. 같은 이메일(대소문자 무시) 중복은 409. CSRF 필요 |
 | `POST /api/auth/login` `{email, password}` | 세션 로그인: 세션 ID 교체 + `SESSION` 쿠키 + 새 `XSRF-TOKEN` 쿠키, 200 + 사용자 요약. CSRF 필요 |
 | `POST /api/auth/login?token=jwt` | 세션 없이 `{accessToken, refreshToken, tokenType:"Bearer", expiresIn}`. CSRF 면제(쿠키를 만들지 않는 비브라우저 흐름) |
-| `POST /api/auth/token/refresh` `{refreshToken}` | 로테이션: 새 access+refresh. 이미 쓴 refresh를 다시 쓰면 그 로그인(family)의 토큰을 모두 폐기하고 401. 정지 계정이면 그 family 를 폐기하고 403 `suspended`(정지로 이미 폐기된 토큰이면 401 `invalid_refresh_token`). 재사용 감지는 쓴 토큰 행이 남아 있는 동안만이다 — 폐기 7일 뒤(`REFRESH_TOKEN_RETENTION`) 지워진 토큰은 모르는 토큰과 같은 401 이고 family 를 폐기하지 않는다(TASK-27#1). Authorization 헤더는 필요 없다(만료된 access 토큰이 붙어 있으면 무시). CSRF 면제 |
+| `POST /api/auth/token/refresh` `{refreshToken}` | 로테이션: 새 access+refresh. 이미 쓴 refresh를 다시 쓰면 그 로그인(family)의 토큰을 모두 폐기하고 401. 정지 계정이면 그 family 를 폐기하고 403 `suspended`(정지로 이미 폐기된 토큰이면 401 `invalid_refresh_token`). 보존 기간 정리는 refresh 토큰을 family 단위로만 지우고 살아 있는 토큰이 있는 family 는 오래된 로테이션 토큰까지 모두 남기므로, family 가 살아 있는 동안에는 언제 다시 써도 재사용 감지가 동작한다(TASK-27#1). 지워진 family 의 토큰은 모르는 토큰과 같은 401 이다(폐기할 살아 있는 토큰도 없다). Authorization 헤더는 필요 없다(만료된 access 토큰이 붙어 있으면 무시). CSRF 면제 |
 | `POST /api/auth/logout` | 세션: 세션 삭제 + 쿠키 만료(CSRF 필요). Bearer: 본문 `{refreshToken}`이 그 사용자 것이면 그 family 폐기(access 토큰이 만료됐어도). 항상 204, 정지 계정도 가능 |
 | `GET /api/auth/me` | 현재 사용자 `{id, nickname, email, role, status, providers, stepUpRequired, stepUpProviders}` (DB 최신 값). 익명은 401. `stepUpRequired`면 이 세션·토큰은 제한 상태이고 `stepUpProviders`는 다시 인증할 수 있는 수단 |
 
@@ -348,8 +348,8 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | `POST /api/admin/users/{id}/suspend` `{reason?}` | 200 사용자 한 줄(`status:"SUSPENDED"`) + `warnings`(배열, 평소 `[]`). 멱등. 정지 커밋 뒤 세션 삭제가 실패하면 `warnings:["session_revoke_failed"]`(정지는 그대로, TASK-27#3) |
 | `POST /api/admin/users/{id}/unsuspend` `{reason?}` | 200 사용자 한 줄(`status:"ACTIVE"`). 멱등. 끊긴 세션·토큰은 되살리지 않는다(다시 로그인) |
 | `POST /api/admin/posts/{id}/hide` · `/unhide` · `/restore` `{reason?}` | 200 `{id, hidden, deleted, hiddenAt, deletedAt}`. 멱등(다시 숨겨도 처음 숨긴 시각 유지). `restore`는 `deleted_at`만 지우고 숨김은 그대로 둔다. 작성자 수정·삭제와 겹치면 늦은 쪽이 409 `conflict`(위 게시판 동시 수정, TASK-23#3) |
-| `POST /api/admin/categories` `{slug, name, sortOrder?, adminOnly?}` | 201 `{id, slug, name, sortOrder, adminOnly}`. `sortOrder`는 0~10000(TASK-27#4), 생략 시 맨 뒤(최대 + 1, 10000 을 넘지 않는다 — 닿으면 같은 값이 여럿일 수 있고 목록은 같은 값끼리 id 순), `adminOnly` 생략 시 false |
-| `PATCH /api/admin/categories/{id}` `{slug?, name?, sortOrder?, adminOnly?}` | 200 같은 모양. 보낸 필드만 바꾼다 |
+| `POST /api/admin/categories` `{slug, name, sortOrder?, adminOnly?}` | 201 `{id, slug, name, sortOrder, adminOnly}`. `sortOrder`는 0~10000(TASK-27#4), 생략 시 맨 뒤(최대 + 1, 10000 을 넘지 않는다 — 닿으면 같은 값이 여럿일 수 있고 목록은 같은 값끼리 id 순), `adminOnly` 생략 시 false. 검증 전에 DB 에 들어간 범위 밖 값(10000 초과)이 남아 있으면 새 카테고리는 10000 으로 잘려 그 카테고리보다 앞에 온다(맨 뒤가 아닐 수 있다) — 그런 값은 PATCH 로 범위 안으로 고친다 |
+| `PATCH /api/admin/categories/{id}` `{slug?, name?, sortOrder?, adminOnly?}` | 200 같은 모양. 보낸 필드만 바꾼다 — `sortOrder` 를 빼면 기존 값이 범위 밖이어도 검증에 걸리지 않고 그대로 둔다 |
 | `DELETE /api/admin/categories/{id}` | 204. 그 카테고리의 글은 남고 카테고리 없음이 된다(FK `ON DELETE SET NULL`) |
 | `GET /api/admin/actions?page&size` | 감사 로그 최근순 `{items:[{id, adminId, adminNickname, action, targetType, targetId, reason, createdAt}], ...}` |
 
@@ -371,12 +371,13 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 
 | 표 | 지우는 행 | 기준이 이런 이유 |
 |---|---|---|
-| `refresh_tokens` | 만료(`expires_at`) 또는 폐기(`revoked_at`) 뒤 `REFRESH_TOKEN_RETENTION`(기본 `P7D`)이 지난 행 | 살아 있는 토큰(폐기 안 됨·만료 안 됨)은 기간과 상관없이 남는다. 7일 동안은 로테이션된 토큰의 재사용을 감지해 family 를 폐기한다. 그보다 오래된 토큰의 재사용은 모르는 토큰과 같은 401 이고 family 는 폐기되지 않는다(수용한 한계 — 탈취된 옛 토큰은 이미 쓸 수 없고, 같은 family 의 최신 토큰은 로테이션마다 바뀐다) |
+| `refresh_tokens` | **family 단위**: 살아 있는 토큰(폐기 안 됨·만료 안 됨)이 하나도 없고, family 가 끝난 시각 — 토큰마다 끝난 시각 `least(revoked_at, expires_at)`(폐기 안 됐으면 만료 시각)의 최댓값 — 이 `REFRESH_TOKEN_RETENTION`(기본 `P7D`)보다 오래된 family 의 행 전체 | 살아 있는 family 는 오래된 로테이션 토큰까지 모두 남긴다. 탈취된 토큰을 공격자가 먼저 로테이션해도, 피해자가 그 토큰을 (TTL 안에서 언제든) 다시 내면 재사용 감지가 공격자 쪽 최신 토큰까지 폐기한다 — 토큰 행 단위로 지우면 7일 뒤에는 행이 없어 그냥 401 이 되고 공격자 family 가 살아남는다. family 가 죽은 뒤에는 재사용 감지가 폐기할 것이 없고, 죽은 family 에는 새 토큰이 생길 수 없다(로테이션은 살아 있는 토큰에서만). family 를 한 문장으로 지우므로 `replaced_by` FK 순서 문제가 없다. 대가: 오래 쓰는 로그인(계속 로테이션되는 family)은 로테이션마다 한 행씩 쌓이고 family 가 끝날 때까지 지우지 않는다 |
 | `otp_challenges` | 만료 뒤 `OTP_RETENTION`(기본 `P1D`)이 지났고 **그리고** `created_at` 이 발송 한도의 가장 긴 창(24시간·1시간·`app.otp.phone-cooldown` 중 긴 것)보다 오래된 행 | 발송 한도는 이 표의 `created_at` 을 센다. 보존 기간을 짧게 잡아도 창 안의 행은 남아서 지워도 한도가 풀리지 않는다 — 실제 기준은 `max(만료 + OTP_RETENTION, 가장 긴 창)` |
 | `post_views` | `viewed_at` 이 중복 집계 창(30분, 코드 상수)보다 오래된 행 | 창 밖의 방문자는 다음 조회 때 어차피 다시 센다 — 지워도 결과가 같다 |
 | `tags` | 어느 글(삭제·숨김 글 포함)도 쓰지 않는 태그 | 다음 실행에 바로 지운다. 글 저장과의 경쟁은 위 게시판 태그(B3) 참고 |
 | `rate_limit_events` | `occurred_at` 이 설정된 `app.rate-limit.*.window` 중 가장 긴 것(기본 1시간)보다 오래된 행 | 실행 때 설정에서 계산한다 — 창을 늘리면 그만큼 오래 남긴다 |
 
-- DELETE 한 문장은 `app.retention.batch-size`(기본 1000)행까지만 지운다(긴 잠금·긴 트랜잭션 없음). 한 번 실행은 표마다 `app.retention.max-items`(기본 50000)건, 전체 `app.retention.max-duration`(기본 10분, 상한 20분 — 스케줄 락 `lockAtMostFor` 30분보다 짧게)까지만 하고 남은 것은 다음 실행이 지운다.
-- 정리용 인덱스는 V16(`refresh_tokens` 의 `replaced_by`·`expires_at`·`revoked_at`, `otp_challenges.created_at`). 로그에는 표마다 지운 개수만 남긴다.
+- DELETE 한 문장은 `app.retention.batch-size`(기본 1000)행까지만 지운다(`refresh_tokens` 는 family 수 — 한 family 의 행은 한 문장으로)(긴 잠금·긴 트랜잭션 없음). 한 번 실행은 표마다 `app.retention.max-items`(기본 50000)건(`refresh_tokens` 는 family 수), 전체 `app.retention.max-duration`(기본 10분, 상한 20분 — 스케줄 락 `lockAtMostFor` 30분보다 짧게)까지만 하고 남은 것은 다음 실행이 지운다.
+- 정리용 인덱스는 V16(`refresh_tokens` 의 `replaced_by`·`expires_at`·`revoked_at`, `otp_challenges.created_at`)과 V2 의 `refresh_tokens.family_id`(family 안의 살아 있는 토큰 확인·family 삭제). 로그에는 표마다 지운 개수만 남긴다.
+- 표마다 따로: 한 표의 정리가 DB 오류로 실패하면 WARN 로그(표 이름·예외 종류·SQLState — 행 내용·개인정보 없음)만 남기고 다음 표를 정리한다. 그 표의 남은 행은 다음 실행이 다시 시도한다(이미 지운 배치는 커밋돼 있다).
 - 기간이 0·음수이거나 batch-size 가 1~10000 밖, max-items 가 0 이하, max-duration 이 20분 초과면 기동하지 않는다.
