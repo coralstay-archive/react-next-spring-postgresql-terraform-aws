@@ -45,12 +45,12 @@ locals {
       Resource = "${aws_s3_bucket.this.arn}/${local.uploads_prefix}*"
       }, {
       # TASK-26#1 ListBucket 이 없으면 S3 는 없는 키의 HeadObject 에 404 대신 403 을 준다(키 존재 여부를 숨김) → PUT 전 confirm 이
-      # 400 attachment_not_uploaded 가 아니라 503 storage_unavailable 이 된다. 목록 조회는 uploads/ 접두어로만 제한한다
-      Sid       = "BoardUploadsList"
-      Effect    = "Allow"
-      Action    = "s3:ListBucket"
-      Resource  = aws_s3_bucket.this.arn
-      Condition = { StringLike = { "s3:prefix" = "${local.uploads_prefix}*" } }
+      # 400 attachment_not_uploaded 가 아니라 503 storage_unavailable 이 된다. HeadObject 요청에는 s3:prefix 가 없어 접두어 조건을
+      # 붙이면 적용되지 않으므로 조건 없이 이 버킷에만 준다 — 이 버킷에는 uploads/ 객체뿐이라 노출 범위는 같다
+      Sid      = "BoardUploadsList"
+      Effect   = "Allow"
+      Action   = "s3:ListBucket"
+      Resource = aws_s3_bucket.this.arn
     }]
   }
 }
