@@ -1,10 +1,10 @@
 ---
 id: TASK-30
 title: '프론트: 네트워크·오프라인·타임아웃'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-23 08:06'
 labels:
   - frontend
 dependencies:
@@ -37,3 +37,9 @@ documentation:
 - [ ] #3 FE-8 뮤테이션 요청 타임아웃(AbortSignal)
 - [ ] #4 FE-23 재조회 실패 시 기존 데이터 유지 + 작은 오류 배너
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+착수 결정(2026-10-23, 유저): 뮤테이션 요청 타임아웃 35초(백엔드 30초 예산보다 길게). 시간 초과 시 '저장됐는지 확실하지 않으니 확인 후 다시 시도' 안내. S3 업로드는 TASK-31 범위.
+<!-- SECTION:NOTES:END -->
