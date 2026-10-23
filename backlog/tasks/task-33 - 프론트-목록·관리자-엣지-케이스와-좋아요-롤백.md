@@ -1,10 +1,10 @@
 ---
 id: TASK-33
 title: '프론트: 목록·관리자 엣지 케이스와 좋아요 롤백'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 15:21'
+updated_date: '2026-10-23 15:41'
 labels:
   - frontend
   - board
@@ -30,12 +30,12 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FE-20 좋아요 롤백은 해당 필드만 함수형 업데이트, 404면 상세 무효화
-- [ ] #2 FE-22 page 클램프(int, totalPages), 목록 오류에 첫 페이지 링크, 잘못된 q면 '검색어 무시' 표시, 카테고리·태그 오류 표시
-- [ ] #3 FE-33 관리자 페이저 범위 클램프
-- [ ] #4 목록 페이지 이동은 서버 OFFSET 상한(page×size ≤ 10,000, TASK-23#5)을 넘지 않는다 — 넘는 '다음'·페이지 번호는 숨기거나 막는다(TASK-23 리뷰)
-- [ ] #5 관리자 정지 응답의 warnings(session_revoke_failed)를 화면에 표시한다(TASK-27#3)
-- [ ] #6 카테고리 sortOrder 입력 검사를 서버 범위(0~10000, TASK-27#4)와 맞춘다
+- [x] #1 FE-20 좋아요 롤백은 해당 필드만 함수형 업데이트, 404면 상세 무효화
+- [x] #2 FE-22 page 클램프(int, totalPages), 목록 오류에 첫 페이지 링크, 잘못된 q면 '검색어 무시' 표시, 카테고리·태그 오류 표시
+- [x] #3 FE-33 관리자 페이저 범위 클램프
+- [x] #4 목록 페이지 이동은 서버 OFFSET 상한(page×size ≤ 10,000, TASK-23#5)을 넘지 않는다 — 넘는 '다음'·페이지 번호는 숨기거나 막는다(TASK-23 리뷰)
+- [x] #5 관리자 정지 응답의 warnings(session_revoke_failed)를 화면에 표시한다(TASK-27#3)
+- [x] #6 카테고리 sortOrder 입력 검사를 서버 범위(0~10000, TASK-27#4)와 맞춘다
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -55,3 +55,17 @@ documentation:
 <!-- SECTION:NOTES:BEGIN -->
 독립 리뷰(2026-10-24) 반영 결정(유저): '첫 페이지로'는 필터 모두 빼고 / 유지. 정지 경고의 재시도는 백엔드에 세션 삭제 전용 API(정지 상태는 건드리지 않음, 감사 로그는 세션 삭제로 따로)를 추가해 쓴다(이 태스크에서, 백엔드 테스트 포함). 모르는 경고 코드는 일반 한국어 문장만 보이고 코드는 콘솔로(B2 예외 없음). 관리자 목록도 OFFSET 상한 유지. 고칠 것: 좋아요 롤백은 캐시가 아직 낙관적 값일 때만 되돌리기(아니면 상세 무효화), sortOrder '바꾸지 않음' 비교를 숫자로 통일, frontend.md 관리자 cap testid 목록 보완.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+목록·관리자 엣지 케이스와 좋아요 롤백을 정리했다.
+- AC#1 FE-20: 좋아요 실패 시 캐시가 아직 낙관적 값일 때만 likedByMe·likeCount를 되돌리고, 그사이 서버 값이 들어왔으면 상세를 다시 받는다. 404면 상세 무효화 → 없는 글.
+- AC#2 FE-22: page는 1 이상 정수로, totalPages를 넘으면 마지막 쪽으로 replace. 목록 오류에 '첫 페이지로'(필터 모두 제거, 유저 결정), 잘못된 q는 '검색어 무시' 안내, 카테고리·인기 태그 오류와 다시 시도.
+- AC#3 FE-33: 관리자 Pager는 결과가 줄어 범위 밖이면 마지막 쪽으로(placeholder 중에는 보류).
+- AC#4: 목록과 관리자 목록 모두 OFFSET 상한(page×size ≤ 10,000, 20개씩 501쪽)을 넘지 않음(관리자 포함 — 유저 결정).
+- AC#5: 정지 응답 warnings(session_revoke_failed)를 목록 위에 안내하고, 재시도는 새 관리자 API POST /api/admin/users/{id}/sessions/revoke(정지 상태 불변, 세션·refresh 폐기, 감사 USER_SESSIONS_REVOKE, 자기 자신·다른 ADMIN 409)를 쓴다(유저 결정). 모르는 경고 코드는 일반 한국어 문장만, 코드는 콘솔.
+- AC#6: 카테고리 sortOrder는 0~10000 정수만, 바꾸지 않은 값은 숫자 비교로 판단해 PATCH에서 뺀다.
+검증: make test 통과(frontend 558, backend 884, repo 233, deploy 135, terraform 57), tsc·eslint.
+범위 밖: 상한을 넘는 목록의 'N / 실제 totalPages' 표시 방식, 관리자 글 탭 keepPreviousData 없음.
+<!-- SECTION:FINAL_SUMMARY:END -->
