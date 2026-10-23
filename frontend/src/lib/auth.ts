@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
+import { clearAllDrafts } from "@/lib/drafts";
 import { queryKeys } from "@/lib/query";
 
 export type Provider = "LOCAL" | "GOOGLE" | "GITHUB" | "NAVER" | "KAKAO" | "COGNITO" | "PHONE";
@@ -80,11 +81,26 @@ export function useSessionChanged() {
   );
 }
 
+/**
+ * 로그아웃(TASK-29#5, FE-10). 성공(204)이거나 401 `unauthorized`(이미 세션이 없음)일 때만 로그아웃 상태로 바꾸고 초안을 모두 지운다
+ * (같은 탭의 다음 사용자에게 남기지 않는다). 그 밖의 실패(네트워크·5xx·403)는 오류로 남기고 me·캐시·초안을 그대로 둔다 —
+ * 서버 세션이 살아 있는데 로그아웃된 것처럼 보이면 안 된다. 401 을 여기서 성공으로 바꾸므로 전역 만료 안내도 뜨지 않는다.
+ */
 export function useLogout() {
   const sessionChanged = useSessionChanged();
   return useMutation({
-    mutationFn: () => api<void>("/auth/logout", { method: "POST" }),
-    onSettled: () => sessionChanged(null),
+    mutationFn: async () => {
+      try {
+        await api<void>("/auth/logout", { method: "POST" });
+      } catch (error) {
+        if (error instanceof ApiError && error.isSessionExpired) return;
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      clearAllDrafts();
+      sessionChanged(null);
+    },
   });
 }
 

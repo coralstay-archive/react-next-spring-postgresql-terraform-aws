@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useLogout, useMe } from "@/lib/auth";
+import { errorMessage } from "@/lib/errors";
 
 export function SiteHeader() {
   const { data: me } = useMe();
@@ -35,10 +36,16 @@ export function SiteHeader() {
                 variant="outline"
                 size="sm"
                 disabled={logout.isPending}
-                onClick={() => logout.mutate(undefined, { onSettled: () => router.push("/") })}
+                onClick={() => logout.mutate(undefined, { onSuccess: () => router.push("/") })}
               >
                 로그아웃
               </Button>
+              {/* 실패하면 로그인 상태를 그대로 두고 알린다(TASK-29#5). 다시 누를 수 있다. */}
+              {logout.isError && (
+                <span role="alert" className="text-destructive text-xs" data-testid="logout-error">
+                  로그아웃하지 못했습니다. {errorMessage(logout.error)}
+                </span>
+              )}
             </>
           ) : (
             <>

@@ -43,11 +43,6 @@ function isUser(value: unknown): boolean {
   return value !== null && typeof value === "object";
 }
 
-/** 만료 처리를 건너뛸 뮤테이션(예: 로그아웃 — 401 이면 원래 하려던 대로 로그아웃 상태가 될 뿐 "만료"가 아니다). */
-export interface SessionMeta extends Record<string, unknown> {
-  ignoreSessionExpiry?: boolean;
-}
-
 /**
  * 세션 만료(TASK-29#1, FE-5). "로그인 상태였는데 세션이 끝났다"를 두 곳에서 알아챈다.
  *
@@ -68,19 +63,17 @@ export function createQueryClient(): QueryClient {
     void client.resetQueries({ predicate: (query) => query.queryKey[0] !== queryKeys.me[0] });
   };
 
-  const onSessionError = (error: unknown, meta: SessionMeta | undefined) => {
-    if (!isApiError(error) || !error.isSessionExpired || meta?.ignoreSessionExpiry) return;
+  const onSessionError = (error: unknown) => {
+    if (!isApiError(error) || !error.isSessionExpired) return;
     const wasUser = isUser(client.getQueryData(queryKeys.me));
     client.setQueryData(queryKeys.me, null);
     if (wasUser) expire();
   };
 
-  const queryCache = new QueryCache({ onError: (error, query) => onSessionError(error, query.meta) });
+  const queryCache = new QueryCache({ onError: onSessionError });
   const client: QueryClient = new QueryClient({
     queryCache,
-    mutationCache: new MutationCache({
-      onError: (error, _variables, _context, mutation) => onSessionError(error, mutation.meta),
-    }),
+    mutationCache: new MutationCache({ onError: onSessionError }),
     defaultOptions: {
       queries: { retry: shouldRetry, staleTime: 30_000, refetchOnWindowFocus: false },
       mutations: { retry: false },
