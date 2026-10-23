@@ -4,7 +4,7 @@ title: '백엔드: 첨부 정합성'
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 00:10'
+updated_date: '2026-10-23 01:03'
 labels:
   - backend
   - attachments
@@ -68,3 +68,9 @@ documentation:
    - 결정적 테스트: 첫 실행을 객체 삭제 훅에서 멈춘 채 둘째 실행이 건너뛰는지(새 만료 행이 남음), 풀린 뒤 다시 실행되는지.
 6. 문서: docs/api.md(오류 표 410 attachment_expired·503 storage_unavailable, 정리 정책·CloudFront 캐시), README·example.env·deploy/secrets.example.txt(UPLOADS_ORPHAN_GRACE_PERIOD·UPLOADS_API_CALL_*). 마지막에 make test.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+독립 리뷰(2026-10-23) 반영 결정(유저): M2 확정 뒤 같은 presigned URL 재PUT으로 pending 태그가 다시 붙어 CONFIRMED 객체가 lifecycle로 지워지던 B1 위반 → presign에 If-None-Match: * 서명(덮어쓰기 금지), 프론트 업로드가 헤더를 보냄. 앱 IAM에 uploads/ 접두어로 제한한 s3:ListBucket 추가(없는 키 HEAD가 404가 되어 400 attachment_not_uploaded). CloudFront /uploads/* 캐시 24시간은 수용(문서화). 그 밖에 고칠 것: M1 삭제 글 FOR SHARE 서브쿼리를 상관 EXISTS로(1행만 잠금), L1 V13 이전 뗀 첨부 detached_at 백필, L2 태그 없는 고아 WARN 문구, L3 정리 실행당 건수·시간 예산, L4 다시 붙이기·복구 동시성 테스트, L5 7일 넘게 열어 둔 편집기 이미지 소실 문서화.
+<!-- SECTION:NOTES:END -->
