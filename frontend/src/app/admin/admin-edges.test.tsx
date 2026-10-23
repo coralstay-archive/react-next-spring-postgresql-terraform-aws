@@ -1,9 +1,10 @@
-import { screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminView } from "@/app/admin/admin-view";
+import { Pager } from "@/components/admin/pager";
 import type { AdminActionEntry, AdminUser } from "@/lib/admin";
 import { queryKeys } from "@/lib/query";
 import { makeSummary, pageOf } from "@/test/board";
@@ -119,5 +120,28 @@ describe("TASK-33#3 관리자 페이저 범위 클램프", () => {
     await client.invalidateQueries({ queryKey: queryKeys.postLists });
     await waitFor(() => expect(pages.at(-1)).toBe(0));
     expect(await screen.findByTestId("admin-post-row")).toBeInTheDocument();
+  });
+});
+
+// TASK-33#4 관리자 목록도 서버 OFFSET 상한(page × size ≤ 10,000)이 있다(docs/api.md): 20개씩이면 0부터 500쪽까지.
+describe("TASK-33#4 관리자 페이저 OFFSET 상한", () => {
+  it("TASK-33#4 상한 쪽에서는 totalPages 가 더 있어도 '다음' 을 막고 안내한다", () => {
+    const onChange = vi.fn();
+    render(<Pager page={500} totalPages={900} onChange={onChange} testId="t" />);
+    expect(screen.getByTestId("t-next")).toBeDisabled();
+    expect(screen.getByTestId("t-cap")).toHaveTextContent("검색");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("TASK-33#4 상한 바로 앞 쪽은 '다음' 을 누를 수 있다", () => {
+    render(<Pager page={499} totalPages={900} onChange={vi.fn()} testId="t" />);
+    expect(screen.getByTestId("t-next")).toBeEnabled();
+    expect(screen.queryByTestId("t-cap")).not.toBeInTheDocument();
+  });
+
+  it("TASK-33#4 상한을 넘는 쪽이면 상한 쪽으로 옮긴다", () => {
+    const onChange = vi.fn();
+    render(<Pager page={600} totalPages={900} onChange={onChange} testId="t" />);
+    expect(onChange).toHaveBeenCalledWith(500);
   });
 });

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   javaStrip,
+  maxPageCount,
+  MAX_LIST_PAGE,
+  parseListPage,
   listApiQuery,
   listHref,
   parseListFilters,
@@ -87,5 +90,26 @@ describe("TASK-14#1 검색어 검증", () => {
   it("TASK-14#1 javaStrip 은 Java String.strip 과 같이 NBSP 는 남긴다", () => {
     expect(javaStrip("　 a b \t\n")).toBe("a b");
     expect(javaStrip(" a ")).toBe(" a ");
+  });
+});
+
+// TASK-33#4 서버 OFFSET 상한(page × size ≤ 10,000, TASK-23#5): 0부터 500쪽 = 1부터 501쪽까지만 요청할 수 있다.
+describe("TASK-33#4 목록 OFFSET 상한", () => {
+  it("TASK-33#4 상한 쪽 수는 floor(10000 / size) + 1 이다(page 0..floor(10000/size))", () => {
+    expect(maxPageCount(PAGE_SIZE)).toBe(501);
+    expect(maxPageCount(50)).toBe(201);
+    expect(MAX_LIST_PAGE).toBe(501);
+    expect((MAX_LIST_PAGE - 1) * PAGE_SIZE).toBeLessThanOrEqual(10_000);
+    expect(MAX_LIST_PAGE * PAGE_SIZE).toBeGreaterThan(10_000);
+  });
+
+  it("TASK-33#4 상한을 넘는 URL page(아주 큰 수 포함)는 상한 쪽으로 자르고 잘렸음을 알린다", () => {
+    expect(parseListPage("501")).toEqual({ page: 501, capped: false });
+    expect(parseListPage("502")).toEqual({ page: 501, capped: true });
+    expect(parseListPage("99999999999999999999999")).toEqual({ page: 501, capped: true });
+    expect(parseListPage("abc")).toEqual({ page: 1, capped: false });
+    expect(parseListPage(null)).toEqual({ page: 1, capped: false });
+    expect(parseListFilters(new URLSearchParams("page=1000")).page).toBe(501);
+    expect(listApiQuery(parseListFilters(new URLSearchParams("page=1000"))).page).toBe(500);
   });
 });

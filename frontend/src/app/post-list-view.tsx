@@ -14,7 +14,9 @@ import { useMe } from "@/lib/auth";
 import { formatDate, useCategories, usePopularTags, usePostList, type PostSummary } from "@/lib/board";
 import {
   listHref,
+  MAX_LIST_PAGE,
   parseListFilters,
+  parseListPage,
   validateSearch,
   withFilters,
   type ListFilters,
@@ -34,6 +36,7 @@ export function PostListView() {
   const isAdmin = me?.role === "ADMIN";
   const list = usePostList(filters);
   const searchError = validateSearch(filters.q).error;
+  const pageCapped = parseListPage(params.get("page")).capped;
 
   const go = (patch: Partial<ListFilters>) => router.push(listHref(withFilters(filters, patch)));
 
@@ -90,6 +93,12 @@ export function PostListView() {
       )}
 
       <TagChips filters={filters} />
+
+      {pageCapped && !outOfRange && (
+        <p className="text-muted-foreground text-sm" data-testid="page-cap-notice">
+          목록은 {MAX_LIST_PAGE}쪽까지만 볼 수 있어 {MAX_LIST_PAGE}쪽을 보여 줍니다. 더 이전 글은 검색·카테고리·태그로 좁혀 보세요.
+        </p>
+      )}
 
       {list.isError && list.data && (
         <RefetchErrorAlert
@@ -287,39 +296,48 @@ function PostItem({ post }: { post: PostSummary }) {
   );
 }
 
+/** 이전·다음. 서버 OFFSET 상한(TASK-33#4) 너머의 쪽으로는 '다음' 을 두지 않고, 상한에 닿았으면 좁혀 보라고 안내한다. */
 function Pagination({ filters, page, totalPages }: { filters: ListFilters; page: number; totalPages: number }) {
   if (totalPages <= 1) return null;
+  const reachable = Math.min(totalPages, MAX_LIST_PAGE);
   return (
-    <nav aria-label="페이지" className="flex items-center justify-center gap-3 text-sm">
-      {page > 1 ? (
-        <Link
-          href={listHref(withFilters(filters, { page: page - 1 }))}
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-          data-testid="pagination-prev"
-        >
-          이전
-        </Link>
-      ) : (
-        <span className={cn(buttonVariants({ variant: "outline", size: "sm" }), "opacity-50")} aria-hidden>
-          이전
+    <div className="flex flex-col items-center gap-2">
+      <nav aria-label="페이지" className="flex items-center justify-center gap-3 text-sm">
+        {page > 1 ? (
+          <Link
+            href={listHref(withFilters(filters, { page: page - 1 }))}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+            data-testid="pagination-prev"
+          >
+            이전
+          </Link>
+        ) : (
+          <span className={cn(buttonVariants({ variant: "outline", size: "sm" }), "opacity-50")} aria-hidden>
+            이전
+          </span>
+        )}
+        <span data-testid="pagination-current">
+          {page} / {totalPages}
         </span>
+        {page < reachable ? (
+          <Link
+            href={listHref(withFilters(filters, { page: page + 1 }))}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+            data-testid="pagination-next"
+          >
+            다음
+          </Link>
+        ) : (
+          <span className={cn(buttonVariants({ variant: "outline", size: "sm" }), "opacity-50")} aria-hidden>
+            다음
+          </span>
+        )}
+      </nav>
+      {page >= MAX_LIST_PAGE && totalPages > MAX_LIST_PAGE && (
+        <p className="text-muted-foreground text-sm" data-testid="pagination-cap">
+          {MAX_LIST_PAGE}쪽 이후는 볼 수 없습니다. 더 이전 글은 검색·카테고리·태그로 좁혀 보세요.
+        </p>
       )}
-      <span data-testid="pagination-current">
-        {page} / {totalPages}
-      </span>
-      {page < totalPages ? (
-        <Link
-          href={listHref(withFilters(filters, { page: page + 1 }))}
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-          data-testid="pagination-next"
-        >
-          다음
-        </Link>
-      ) : (
-        <span className={cn(buttonVariants({ variant: "outline", size: "sm" }), "opacity-50")} aria-hidden>
-          다음
-        </span>
-      )}
-    </nav>
+    </div>
   );
 }

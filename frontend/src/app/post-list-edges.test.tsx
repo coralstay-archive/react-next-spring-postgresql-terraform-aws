@@ -129,3 +129,57 @@ describe("TASK-33#2 목록 쿼리 엣지", () => {
     expect(screen.queryByTestId("tag-chips-error")).not.toBeInTheDocument();
   });
 });
+
+// TASK-33#4 목록 페이지 이동은 서버 OFFSET 상한(page × size ≤ 10,000)을 넘지 않는다.
+describe("TASK-33#4 목록 OFFSET 상한", () => {
+  beforeEach(() => {
+    navigation.reset("/");
+  });
+
+  it("TASK-33#4 상한을 넘는 URL page 는 상한 쪽(API page=500)으로 요청하고 이유를 안내한다", async () => {
+    navigation.reset("/", "category=free&page=800");
+    const calls: URLSearchParams[] = [];
+    server.use(
+      anonymous(),
+      categoriesHandler(),
+      tagsHandler(),
+      postsHandler(calls, pageOf([makeSummary()], { page: 500, totalPages: 900, totalElements: 18000 })),
+    );
+    renderWithQuery(<PostListView />);
+    await screen.findByTestId("post-item");
+    expect(calls.every((c) => c.get("page") === "500")).toBe(true);
+    const notice = screen.getByTestId("page-cap-notice");
+    expect(notice).toHaveTextContent("501쪽까지");
+    expect(notice).toHaveTextContent("검색");
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  it("TASK-33#4 상한 쪽에서는 totalPages 가 더 있어도 '다음' 링크가 없고 좁혀 보라는 안내를 보인다", async () => {
+    navigation.reset("/", "page=501");
+    server.use(
+      anonymous(),
+      categoriesHandler(),
+      tagsHandler(),
+      postsHandler([], pageOf([makeSummary()], { page: 500, totalPages: 900, totalElements: 18000 })),
+    );
+    renderWithQuery(<PostListView />);
+    const pager = await screen.findByRole("navigation", { name: "페이지" });
+    expect(within(pager).queryByRole("link", { name: "다음" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("pagination-cap")).toHaveTextContent("검색");
+    expect(screen.queryByTestId("page-cap-notice")).not.toBeInTheDocument();
+  });
+
+  it("TASK-33#4 상한 바로 앞 쪽의 '다음' 은 상한 쪽까지다", async () => {
+    navigation.reset("/", "page=500");
+    server.use(
+      anonymous(),
+      categoriesHandler(),
+      tagsHandler(),
+      postsHandler([], pageOf([makeSummary()], { page: 499, totalPages: 900, totalElements: 18000 })),
+    );
+    renderWithQuery(<PostListView />);
+    const pager = await screen.findByRole("navigation", { name: "페이지" });
+    expect(await within(pager).findByRole("link", { name: "다음" })).toHaveAttribute("href", "/?page=501");
+    expect(screen.queryByTestId("pagination-cap")).not.toBeInTheDocument();
+  });
+});
