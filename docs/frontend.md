@@ -15,10 +15,10 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 
 | 경로 | 내용 |
 |---|---|
-| `/login/` | 이메일·비밀번호, 휴대폰 OTP(인증번호 3분 카운트다운, 429면 `Retry-After` 초 동안 다시 받기 대기), 소셜 5종(`/api/oauth2/authorization/{p}`로 페이지 이동). `?next=`로 돌아갈 경로(같은 오리진만 — 아래 `safeNext`) |
+| `/login/` | 이메일·비밀번호, 휴대폰 OTP(인증번호 3분 카운트다운, 429면 `Retry-After` 초 동안 다시 받기 대기, 같은 인증번호를 5번 틀리면 잠금 안내 — 아래 "휴대폰 OTP 잠금"), 소셜 5종(`/api/oauth2/authorization/{p}`로 페이지 이동). `?next=`로 돌아갈 경로(같은 오리진만 — 아래 `safeNext`) |
 | `/signup/` | 서버와 같은 검증(이메일 모양, 비밀번호 8자·72바이트·문자+숫자, 닉네임 2~20자), 409 `email_taken`, 가입 뒤 `/api/auth/login`으로 자동 로그인하고 `next`로 replace 이동. 자동 로그인이 실패하면 폼 대신 "가입은 완료됐습니다" + 로그인 링크(`next` 유지)를 보여 재제출(409)을 막는다(TASK-29#8) |
 | `/auth/callback/` | 소셜 로그인 착지. `?status=ok`면 me를 다시 받아 로그인 전에 기억한 경로(sessionStorage `auth.next`)로, `?error=`면 한국어 안내(oauth2_failed·표준 OAuth 코드 매핑, 모르는 코드는 콜백 전용 문구). 성공이든 실패든 `auth.next`는 한 번 읽고 지우며, 실패 시 "로그인으로 돌아가기" 링크의 `?next=`에 싣는다(TASK-29#7) |
-| `/account/` | 로그인 수단 목록·해제(409 `last_identity`), 소셜 연결(`/api/me/identities/link/{p}` → `?linked=`/`?error=`. `linked`는 알려진 제공자 id만 알린다. `linked`·`error`는 보여 준 뒤 URL에서 지우고 다른 쿼리와 hash는 남긴다), 휴대폰 연결(OTP `?link=true`), 제한 세션 다시 인증(LOCAL 비밀번호 또는 소셜 재로그인) |
+| `/account/` | 로그인 수단 목록·해제(확인 다이얼로그, LOCAL 이면 비밀번호 삭제 경고, 409 `last_identity`는 다이얼로그 안에, 제한 세션이면 비활성 — 아래 "제한 세션(step-up)"), 소셜 연결(`/api/me/identities/link/{p}` → `?linked=`/`?error=`. `linked`는 알려진 제공자 id만 알린다. `linked`·`error`는 보여 준 뒤 URL에서 지우고 다른 쿼리와 hash는 남긴다), 휴대폰 연결(OTP `?link=true`), 제한 세션 다시 인증(LOCAL 비밀번호 또는 소셜 재로그인) |
 
 - **API 클라이언트** `src/lib/api.ts`: `api(path, {method, body, query})`. 같은 오리진 `/api`, `credentials:'include'`. 쓰기 메서드는 `XSRF-TOKEN` 쿠키를
   `X-XSRF-TOKEN` 헤더로 보내고(쿠키가 없으면 `GET /api/auth/csrf` 먼저), 요청마다 쿠키를 다시 읽어 로그인·OTP·step-up·OAuth 뒤 회전을 따라간다.
@@ -30,7 +30,7 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
   헤더·가드가 로그아웃 상태를 따라간다(401 `invalid_credentials`·`invalid_otp`는 제외). 로그인 상태였다면 세션 만료로 처리한다(아래 "세션 만료·초안").
   로그인 계열 성공 뒤에는 `useSessionChanged()`로 me를 바꾸고 다른 쿼리를 초기화한다.
 - **가드** `src/components/guards.tsx`: `RequireAuth`(처음부터 익명 → `/login/?next=<경로>`, me를 못 받으면 오류 + 다시 시도), `RequireAdmin`(USER는 권한 없음 안내).
-  내용을 그린 뒤 세션이 끝나면 언마운트하지 않는다(아래, 단 내용 컴포넌트가 스스로 숨는 `/account/`는 예외). 제한 세션이면 레이아웃의 배너가 `/account/#step-up`으로 안내한다.
+  내용을 그린 뒤 세션이 끝나면 언마운트하지 않는다(아래, 단 내용 컴포넌트가 스스로 숨는 `/account/`는 예외). 제한 세션이면 레이아웃의 배너가 `/account/#step-up`으로 안내하고 작성 컨트롤을 미리 막는다(아래 "제한 세션(step-up)").
 - **헤더**: me를 못 받으면(네트워크·5xx) 로그인·가입 링크가 아니라 "사용자 정보를 불러오지 못했습니다" + 다시 시도(사용자를 이미 알면 재조회 실패에도 표시 유지).
   로그아웃은 성공(204) 또는 401일 때만 로그아웃 상태로 바꾸고 초안을 모두 지운 뒤 `/`로 간다. 그 밖의 실패는 "로그아웃하지 못했습니다 …"를 보이고 상태를 그대로 둔다(TASK-29#5·#6).
 - **오류 문장** `src/lib/errors.ts`: 백엔드·OAuth 오류 코드 → 한국어. `errorMessage`는 형식이 맞고 표에 있으면 표 문구, 표에 없으면 서버 `message`가
@@ -62,7 +62,7 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 - **작성 화면 유지**: `useSessionUser()`는 컴포넌트가 본 마지막 사용자를 기억한다. `RequireAuth`·`RequireAdmin`은 내용을 그린 뒤 세션이 끝나면 로그인으로 보내지 않고 내용을 그대로 둔 채
   화면 아래 고정 안내("로그인이 끊겼습니다" + 다시 로그인 링크)를 붙인다(트리 모양을 바꾸지 않아 입력·첨부·관리 다이얼로그 사유가 언마운트되지 않는다). `RequireAuth` 자신은
   내용을 언마운트하지 않지만, 내용 컴포넌트가 me를 보고 스스로 숨으면 사라진다: `/account/`(`account-view.tsx`의 `if (!me) return null`)는 만료 뒤 내용이 비고
-  연결·step-up 입력이 사라진다(범위 밖, TASK-32). 명시적 로그아웃 성공 뒤(`["auth","loggedOut"]`, 다시 로그인하면 내림)에는 "임시 저장되어 있습니다" 안내가 틀린 말이라
+  연결·step-up 입력과 해제 확인 다이얼로그가 사라진다(범위 밖 — TASK-32에서도 AC에 필요하지 않아 남겼다. 고치려면 하단 안내의 "임시 저장" 문구가 이 화면에 맞지 않는 문제도 함께 정해야 한다). 명시적 로그아웃 성공 뒤(`["auth","loggedOut"]`, 다시 로그인하면 내림)에는 "임시 저장되어 있습니다" 안내가 틀린 말이라
   안내 없이 내용을 비우고 `/`로 간다.
 - **안내는 하나만** (리뷰 결정): 작성 화면이 하단 고정 안내를 띄운 동안에는 상단 `SessionExpiredBanner`(`["auth","sessionLostNotices"]` 수로 판단)와 그 안쪽
   `ApiErrorAlert`의 "로그인하기" 링크를 숨긴다. 다른 화면(상세의 댓글 폼 등)은 상단 배너와 오류 속 로그인 링크를 그대로 보인다. 수정 화면은 처음 받은
@@ -113,7 +113,7 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 - **태그 입력**: `src/lib/tags.ts`가 서버 `TagNames`와 같은 순서로 정규화한다(NFC → Java `strip` → ASCII 공백 축약 → 소문자 → 30자). 입력 중 "저장될 이름"을 미리 보여 주고, Enter·쉼표로 추가하며, 중복은 합치고 5개까지 받는다. 입력칸에 남은 값도 등록할 때 붙인다.
 - **카테고리**: `adminOnly`(공지)는 ADMIN에게만 보인다. 서버도 403 `category_admin_only`로 막는다. 목록을 못 받으면 칸 아래에 "카테고리 목록을 불러오지 못했습니다" + 다시 시도(`editor-categories-error`)를 보인다. 지금 값(수정 중인 글의 카테고리·복원한 초안)이 목록에 없어도(실패·로딩 중·그사이 삭제) 선택지로 남겨 표시와 전송값이 같다(TASK-31#8, FE-30).
 - **이미지 업로드** `src/lib/uploads.ts`: 타입(png·jpeg·webp·gif)·크기(5MB)·개수(10)를 먼저 확인한 뒤 presign → `uploadUrl`로 XHR `PUT`(받은 `headers`를 그대로 보내고, 쿠키·CSRF는 보내지 않는다. 진행률은 `upload.onprogress`) → confirm 순서로 진행한다. 확정된 id를 `attachmentIds`로 보낸다. 파일은 하나씩 올리고, 올리는 동안에는 등록 버튼을 막는다. S3 PUT 실패는 `upload_failed`다. 정체·취소·confirm 재시도는 아래 "편집기 견고성".
-- **권한 UI**: 수정·삭제는 서버가 준 `editable`만 보고, 화면에서 역할이나 작성자를 다시 계산하지 않는다. 403 `forbidden`, 404 `post_not_found`·`comment_not_found`, 403 `step_up_required`(`/account/#step-up` 링크), 401(로그인 링크)은 `ApiErrorAlert`가 그 자리에 보여 준다. `RequireAuth`의 `next`에는 쿼리도 들어간다(`/posts/edit/?id=3`).
+- **권한 UI**: 수정·삭제는 서버가 준 `editable`만 보고, 화면에서 역할이나 작성자를 다시 계산하지 않는다. 403 `forbidden`, 404 `post_not_found`·`comment_not_found`, 403 `step_up_required`(`StepUpNotice`, `/account/#step-up` 링크), 401(로그인 링크)은 `ApiErrorAlert`가 그 자리에 보여 준다. `RequireAuth`의 `next`에는 쿼리도 들어간다(`/posts/edit/?id=3`).
 - **캐시**: 쿼리 키 `["posts", "list"|"detail"|"comments", …]`, `["categories"]`, `["tags", q]`. 좋아요를 누르면 상세 캐시만 바꾸고 목록은 stale로 표시한다. 작성에 성공하면 상세 캐시를 채우지 않고(생성 응답의 조회수는 이번 조회 전 값 0이라, 채우면 상세가 0을 보였다 — TASK-18 이슈, FE-19) 상세 화면이 다시 받는다. 수정 성공은 응답으로 채우되 stale로 표시해 상세가 열리면 다시 받는다. 둘 다 목록·태그를 다시 받는다. 수정 화면도 상세 API를 읽으므로 조회수 규칙(30분에 1회)을 따른다.
 - **E2E용 `data-testid`**: 목록 `post-list`·`post-item`·`post-item-link`·`category-tab`·`tag-chip`·`search-input`·`search-submit`·`sort-select`·`pagination-prev`/`next`·`new-post-link`. 상세 `post-title`·`post-content`·`post-attachments`·`view-count`·`like-button`·`like-count`·`post-edit-link`·`post-delete-button`·`comment-list`·`comment-item`·`comment-input`·`comment-submit`·`comment-delete`·`post-not-found`. 편집기 `post-editor`·`editor-title`·`editor-content`·`editor-category`·`editor-tag-input`·`editor-tag-preview`·`editor-tags`·`editor-file-input`·`editor-attachments`·`editor-upload-progress`·`editor-submit`, 오류 `editor-error`(폼 위)·`editor-title-error`·`editor-content-error`·`editor-category-error`·`editor-tags-error`·`editor-attachments-error`·`editor-attachment-problem`·`editor-categories-error`.
 - **편집기 견고성 (TASK-31)**:
@@ -147,3 +147,26 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 - **확인 다이얼로그**: `window.confirm` 대신 shadcn `alert-dialog`(Base UI, `role="alertdialog"`)를 쓴다. 실패하면 다이얼로그를 연 채로 오류를 보이고, 성공하면 닫는다. 빈 사유는 `{}` 본문으로 보낸다.
 - **캐시**: 쿼리 키 `["admin", "users", query]`, `["admin", "actions", page]`. 관리 쓰기 뒤에는 `["admin", "actions"]`를 무효화한다. 정지·해제 뒤에는 `["admin", "users"]`, 글 처리 뒤에는 `["posts"]`, 카테고리 변경 뒤에는 `["categories"]`와 `["posts"]`(글의 카테고리 이름·slug가 바뀐다)도 무효화한다.
 - **E2E용 `data-testid`**: `admin-view`·`admin-tab-{users|posts|categories|actions}`·`admin-forbidden`. 사용자 `admin-user-search-input`·`admin-user-search-submit`·`admin-user-status-filter`·`admin-user-row`·`admin-user-status`·`admin-user-provider`·`admin-user-role`·`admin-user-suspend`·`admin-user-unsuspend`·`admin-users-prev`/`next`. 글 `admin-post-row`·`admin-post-link`·`admin-post-hide`·`admin-post-unhide`·`admin-post-restore`. 카테고리 `admin-category-row`·`admin-category-admin-only-badge`·`admin-category-edit`·`admin-category-delete`·`admin-category-form`·`admin-category-slug`·`admin-category-name`·`admin-category-sort-order`·`admin-category-admin-only`·`admin-category-submit`·`admin-category-cancel`·`admin-category-{slug|name|sort-order}-error`·`admin-category-error`. 감사 로그 `admin-action-row`·`admin-actions-prev`/`next`. 다이얼로그 `admin-confirm-dialog`·`admin-reason-input`·`admin-confirm-submit`·`admin-confirm-cancel`·`admin-confirm-error`.
+
+### 제한 세션(step-up)·로그인 수단 해제·OTP 잠금 (TASK-32)
+
+- **`StepUpNotice`** (`src/components/step-up-notice.tsx`): 제한 세션 안내의 유일한 표시다. 제목 "다시 인증이 필요합니다", 표준 문구
+  (`ERROR_MESSAGES.step_up_required`), `/account/#step-up` "다시 인증하기" 링크, 자리마다 다른 한 줄(`children`), `data-step-up-notice` 표식.
+  레이아웃 `StepUpBanner`, `ApiErrorAlert`(403 `step_up_required`면 오류 줄 대신 이것을 `testId` 그대로 그린다 — 좋아요·삭제·관리 다이얼로그·해제
+  다이얼로그 등 모든 API 오류 자리), 글 편집기, 댓글 폼이 쓴다. 새 화면도 step-up 안내는 이것으로 한다.
+- **작성 컨트롤 미리 막기**: `me.stepUpRequired`(편집기·댓글은 `useSessionUser`의 마지막 사용자)면
+  - 글 편집기(작성·수정): 등록·저장 버튼과 이미지 선택을 막고 `editor-step-up` 안내. 제출 함수도 막아 Enter 제출이 요청하지 않는다. 입력은 그대로 되고
+    초안(TASK-29)에 남으므로 다시 인증한 뒤(같은 사용자라 초안이 지워지지 않는다) 화면을 다시 열면 이어서 쓴다.
+  - 댓글 폼: 입력은 두고 등록을 막고 `comment-step-up` 안내(입력은 댓글 초안).
+  - 내 계정: 로그인 수단 해제 버튼과 소셜·휴대폰 연결(기존)을 막고 이유를 보인다.
+  - 미리 막지 않는 것: 목록의 "글쓰기" 링크(편집기에서 안내하고 초안을 쓸 수 있다), 좋아요, 글·댓글 삭제, 관리자 작업. 누르면 서버 403이
+    `ApiErrorAlert` → `StepUpNotice`로 같은 안내가 된다. 다른 탭에서 다시 인증하면 me 재조회(창 포커스·5분)로 풀린다.
+- **로그인 수단 해제** (B1: 사용자 확인 없이 해제하지 않는다): "해제"는 확인 다이얼로그(`ConfirmDialog`, alertdialog)를 연다. 확인해야만
+  `DELETE /api/me/identities/{id}`, 취소·Esc는 요청 없음. LOCAL이면 서버가 비밀번호(`local_credentials`)도 지우므로 "저장된 비밀번호도 함께 삭제되어
+  되돌릴 수 없습니다" 경고를 덧붙인다. 오류(409 `last_identity` 등)는 다이얼로그 안에 보이고, 성공하면 닫고 상단에 알린다.
+- **휴대폰 OTP 잠금** (`PhoneOtpForm`): 서버는 틀린 시도 5번(`app.otp.max-attempts`)에 챌린지를 폐기하지만 응답은 그 뒤에도 같은 401 `invalid_otp`라,
+  폼이 지금 챌린지의 `invalid_otp` 수를 센다(`OTP_MAX_ATTEMPTS`=5, 백엔드 기본값과 맞춘다 — 운영에서 바꾸면 함께 바꾼다). 5번째면 인증번호 칸을
+  비우고 입력·확인을 막고 "5번 틀려 … 인증번호를 다시 받으세요"(`otp-locked`)를 보인다. 새 인증번호를 받으면 초기화한다. 다시 받기 대기는 미리
+  계산하지 않고 서버 429 `Retry-After` 카운트다운(기존)을 따르며, 그동안 잠금 안내는 남는다. `invalid_otp`가 아닌 실패(503·409 등 — TASK-25#5로 같은
+  인증번호를 다시 쓸 수 있다)는 세지 않는다. 한계: 횟수는 폼 상태라 폼이 다시 마운트되면(새로고침·화면 이동 등) 0부터 세고, 그 뒤 실패는 서버 폐기 상태와 어긋나
+  일반 `invalid_otp` 문구로 보인다(만료 3분 뒤에는 어차피 다시 받아야 한다).
