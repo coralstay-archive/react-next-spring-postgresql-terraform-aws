@@ -4,7 +4,7 @@ title: 로컬 도구 정리(테스트·E2E·Makefile)
 status: To Do
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-22 05:03'
+updated_date: '2026-10-23 07:26'
 labels:
   - dx
 dependencies:
@@ -31,6 +31,7 @@ documentation:
 - [ ] #2 OPS-39 e2e.sh PID 기반 종료와 KILL 격상
 - [ ] #3 OPS-40 lock 파일이 바뀌면 npm ci
 - [ ] #4 OPS-41 배포 타깃에 .env 전역 export가 섞이지 않게
+- [ ] #5 Next.js를 보안 패치가 반영된 버전으로 올리고 전체 테스트·빌드·E2E 통과 확인(16.4.0 빌드 시 취약점 안내, TASK-29에서 발견)
 <!-- AC:END -->
 
 ## Implementation Notes
