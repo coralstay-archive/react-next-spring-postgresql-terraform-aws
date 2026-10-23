@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
 import { api, ApiError, readCookie } from "@/lib/api";
+import { ERROR_MESSAGES, errorMessage } from "@/lib/errors";
 import { createQueryClient, queryKeys } from "@/lib/query";
 import { csrfHandler, server, setCookie } from "@/test/server";
 
@@ -236,5 +237,53 @@ describe("TASK-13#1 TanStack Query: 401 처리와 재시도 규칙", () => {
     expect(retry(0, new ApiError(503, "http_503", "x"))).toBe(true);
     expect(retry(0, new ApiError(0, "network", "x"))).toBe(true);
     expect(retry(2, new ApiError(0, "network", "x"))).toBe(false);
+  });
+});
+
+// TASK-28#3 FE-3: JSON 을 기대한 2xx 인데 본문이 JSON 이 아니면(CloudFront SPA 폴백의 index.html 등) 데이터로 넘기지 않는다.
+describe("TASK-28#3 2xx 비JSON 응답", () => {
+  it("TASK-28#3 200 HTML 본문은 ApiError bad_response(한국어 문장)", async () => {
+    server.use(
+      http.get("*/api/posts", () =>
+        HttpResponse.html("<!doctype html><html><body>index</body></html>", { status: 200 }),
+      ),
+    );
+
+    const error = (await api("/posts").catch((e) => e)) as ApiError;
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 200, code: "bad_response" });
+    expect(error.message).toMatch(/[가-힣]/);
+    expect(errorMessage(error)).toBe(ERROR_MESSAGES.bad_response);
+    expect(errorMessage(error)).not.toContain("bad_response");
+  });
+
+  it("TASK-28#3 CSRF 재시도 뒤의 2xx 비JSON 도 bad_response", async () => {
+    setCookie("XSRF-TOKEN", "old");
+    let calls = 0;
+    server.use(
+      csrfHandler("new"),
+      http.post("*/api/posts", () => {
+        calls += 1;
+        if (calls === 1) return HttpResponse.json({ status: 403, error: "csrf", message: "x" }, { status: 403 });
+        return HttpResponse.text("OK", { status: 201 });
+      }),
+    );
+
+    await expect(api("/posts", { method: "POST", body: {} })).rejects.toMatchObject({ code: "bad_response" });
+  });
+
+  it("TASK-28#3 204·빈 본문은 undefined, JSON 은 그대로", async () => {
+    server.use(
+      http.delete("*/api/a", () => new HttpResponse(null, { status: 204 })),
+      http.get("*/api/b", () => new HttpResponse("", { status: 200 })),
+      http.get("*/api/c", () => HttpResponse.json([1, 2])),
+      http.get("*/api/d", () => HttpResponse.json(null)),
+    );
+    setCookie("XSRF-TOKEN", "t");
+
+    await expect(api("/a", { method: "DELETE" })).resolves.toBeUndefined();
+    await expect(api("/b")).resolves.toBeUndefined();
+    await expect(api("/c")).resolves.toEqual([1, 2]);
+    await expect(api("/d")).resolves.toBeNull();
   });
 });

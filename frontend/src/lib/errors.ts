@@ -15,6 +15,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   step_up_required: "휴대폰으로 로그인한 세션은 읽기만 할 수 있습니다. 기존 로그인 수단으로 다시 인증하세요.",
   validation: "입력값을 확인하세요.",
   bad_request: "잘못된 요청입니다.",
+  bad_response: "서버 응답을 해석하지 못했습니다. 잠시 후 다시 시도하세요.",
   // 공통(TASK-20·23): 필터·컨테이너·DB 오류
   not_found: "요청한 내용을 찾을 수 없습니다.",
   method_not_allowed: "지원하지 않는 요청입니다. 페이지를 새로 고친 뒤 다시 시도하세요.",

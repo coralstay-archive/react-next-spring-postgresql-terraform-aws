@@ -40,7 +40,10 @@ export function statusMessage(status: number): string {
 
 export class ApiError extends Error {
   readonly status: number;
-  /** 백엔드 `error` 코드(예: `email_taken`). JSON 이 아니면 `http_<status>`, 네트워크 오류는 `network`. */
+  /**
+   * 백엔드 `error` 코드(예: `email_taken`). 오류 본문이 JSON·계약 형식이 아니면 `http_<status>`, 네트워크 오류는 `network`,
+   * 2xx 인데 본문이 JSON 이 아니면 `bad_response`.
+   */
   readonly code: string;
   readonly fields?: Record<string, string>;
   /** 429 의 `Retry-After`(초). */
@@ -185,6 +188,10 @@ async function send(url: string, init: RequestInit): Promise<Response> {
   }
 }
 
+/**
+ * 2xx 본문. 204·빈 본문은 undefined. JSON 이 아니면(CloudFront SPA 폴백의 index.html, 프록시 문구 등) 텍스트를 데이터로
+ * 넘기지 않고 ApiError `bad_response` 로 실패시킨다(TASK-28#3) — 화면이 문자열을 객체로 쓰다 TypeError 가 나지 않게.
+ */
 async function parseBody<T>(response: Response): Promise<T> {
   if (response.status === 204) return undefined as T;
   const text = await response.text();
@@ -192,9 +199,11 @@ async function parseBody<T>(response: Response): Promise<T> {
   try {
     return JSON.parse(text) as T;
   } catch {
-    return text as T;
+    throw new ApiError(response.status, "bad_response", BAD_RESPONSE_MESSAGE);
   }
 }
+
+const BAD_RESPONSE_MESSAGE = "서버 응답을 해석하지 못했습니다. 잠시 후 다시 시도하세요.";
 
 async function toApiError(response: Response): Promise<ApiError> {
   const retryHeader = response.headers.get("Retry-After");
