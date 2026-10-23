@@ -170,11 +170,13 @@ test("TASK-18#5 TASK-21#3 관리자(ADMIN_EMAIL, 기동 시 승격)가 B 를 정
   await expect(page.getByTestId("admin-action-row").first()).toContainText("E2E 정지 시험");
   await ctx.close();
 
-  // B: 정지가 세션을 지웠으므로 열려 있던 화면의 다음 쓰기(댓글)는 401 이다. 앱은 401 unauthorized 면 me 를 null 로 바꿔
-  // 헤더·댓글 폼이 로그아웃 상태("로그인하고 댓글 쓰기")로 바뀐다. 댓글은 생기지 않는다.
+  // B: 정지가 세션을 지웠으므로 열려 있던 화면의 다음 쓰기(댓글)는 401 이다. 헤더는 로그아웃 상태가 되고 세션 만료 안내가 뜨지만,
+  // 댓글 폼은 입력과 오류(로그인 링크)를 그대로 유지한다(TASK-29#4, B1). 댓글은 생기지 않는다.
   await pageB.getByTestId("comment-input").fill("정지 뒤 댓글");
   await pageB.getByTestId("comment-submit").click();
-  await expect(pageB.getByRole("link", { name: "로그인하고 댓글 쓰기" })).toBeVisible();
+  await expect(pageB.getByTestId("comment-create-error")).toContainText("로그인이 필요합니다");
+  await expect(pageB.getByTestId("comment-input")).toHaveValue("정지 뒤 댓글");
+  await expect(pageB.getByTestId("session-expired-banner")).toBeVisible();
   await expect(pageB.getByRole("link", { name: "로그인", exact: true })).toBeVisible();
   await shot(pageB, "10-suspended-write");
   const comments = await (await ctxB.request.get(`/api/posts/${postId}/comments`)).json();
