@@ -180,7 +180,7 @@ public class AdminUserService {
 	 * 정지(멱등). 커밋 뒤 세션 삭제까지 마치고 돌려준다.
 	 *
 	 * <p>세션 삭제 실패 (TASK-27#3, BE-38): 정지는 이미 커밋됐으므로 되돌리지 않고 WARN 로그(사용자 id·예외 종류)를 남긴 뒤 200 +
-	 * {@code warnings: ["session_revoke_failed"]} 로 알린다(관리자는 다시 정지를 눌러 삭제를 재시도할 수 있다 — 멱등). 남은 세션은 요청마다 DB
+	 * {@code warnings: ["session_revoke_failed"]} 로 알린다(관리자는 다시 정지하거나(멱등) 정지를 건드리지 않는 {@link #revokeSessions} 로 삭제를 재시도할 수 있다). 남은 세션은 요청마다 DB
 	 * 의 status 를 보는 필터(TASK-24: CurrentUserFilter·SuspendedUserWriteFilter) 때문에 쓰기는 403 이고, 세션 만료(14일) 또는 다음 정지
 	 * 재시도 때 사라진다.
 	 */
