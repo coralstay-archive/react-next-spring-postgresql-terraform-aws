@@ -119,15 +119,17 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 - **편집기 견고성 (TASK-31)**:
   - **PRG·이중 제출** (FE-29, B1 한 번의 저장 의도 = 글 하나): 제출은 ref로 잠근다(`isPending`은 다시 그려진 뒤에야 버튼을 막아, 같은 틱의 Enter 연타가 요청 여러 개가 됐다). 실패하면 풀고, 성공하면 잠금과 버튼 비활성을 둔 채 `router.replace`로 상세에 간다 — 편집기가 히스토리에서 빠져 뒤로 가기로 돌아와 다시 제출하지 않는다. 초안은 성공 때 지운다. 삭제도 성공하면 `replace("/")`와 버튼 비활성(FE-21).
   - **404·403**: 수정 저장·삭제가 404·403이면 상세 캐시를 무효화해 다시 받는다(삭제 404 → 없는 글 안내, 403 → 수정·삭제 버튼이 사라짐).
-  - **서버 필드 오류** (FE-24): `fields` 키의 첫 이름으로 칸을 정한다 — `title`·`content`, `categorySlug`→카테고리, `tags`·`tags[n]`→태그, `attachmentIds`·`attachmentIds[n]`→첨부. 폼에 없는 키(오타 필드 `titel` 등)가 남으면 폼 위 알림(`editor-error`)에 그 메시지를 보인다.
-  - **첨부 연결 오류** (FE-25): `unknown_attachment`·`attachment_not_confirmed`·`attachment_in_use`(·`attachment_expired`·`attachment_not_found`·`attachment_forbidden`)면 보낸 id 중 문제 첨부를 찾아(`fields`의 `attachmentIds[n]`, 아니면 서버 메시지 끝의 id — 서버가 구조화된 id를 주지 않는다) 그 칸에 표시하고 "문제 이미지 빼고 다시 저장"(남은 첨부로 바로 다시 보냄)을 준다. 못 찾으면(`attachment_forbidden`은 id가 없다) 첨부 칸 아래에 보인다.
+  - **서버 필드 오류** (FE-24): `fields` 키의 첫 이름으로 칸을 정한다 — `title`·`content`, `categorySlug`→카테고리, `tags`·`tags[n]`→태그, `attachmentIds`·`attachmentIds[n]`→첨부(`attachmentIds[n]`이 보낸 n번째 첨부로 풀리면 그 항목에만 보이고 첨부 칸에는 한 번 더 보이지 않는다. 맨 `attachmentIds`나 풀리지 않는 n만 첨부 칸 아래). 폼에 없는 키(오타 필드 `titel` 등)가 남으면 폼 위 알림(`editor-error`)에 그 메시지를 보인다.
+  - **첨부 연결 오류** (FE-25): `unknown_attachment`·`attachment_not_confirmed`·`attachment_in_use`(·`attachment_expired`·`attachment_not_found`·`attachment_forbidden`)면 보낸 id 중 문제 첨부를 찾아 그 칸에 표시하고 "문제 이미지 빼고 다시 저장"(남은 첨부로 바로 다시 보냄)을 준다. 찾는 순서는 `fields`의 `attachmentIds[n]`(서버가 글 연결 오류마다 담는다, `attachment_forbidden` 포함 — `docs/api.md` 첨부), 그다음 `fields`가 없는 옛 응답 모양의 호환으로 서버 메시지 끝의 id다. 못 찾으면 첨부 칸 아래에 보인다.
   - **업로드 정체·상한·취소** (FE-26, 유저 결정): PUT은 XHR이다 — `fetch`에는 업로드 진행 이벤트가 없어 "진행이 멈췄다"를 알 수 없다. 진행 이벤트가 30초(`UPLOAD_STALL_MS`) 동안 없으면 `upload_stalled`, 시작부터 5분(`UPLOAD_MAX_MS`, presigned URL 만료)을 넘기면 `upload_timeout`으로 끊는다(둘 다 서버가 보내지 않는 클라이언트 코드). 올리는 중·차례를 기다리는 항목은 "업로드 취소"(대기 중이면 presign도 안 함), 실패 항목은 "빼기". 편집기가 언마운트되면 진행·대기 업로드를 모두 abort한다. 다시 올리면 presign부터 새로 한다(같은 URL 재PUT은 `If-None-Match: *`라 412).
   - **confirm만 다시** (FE-27): PUT은 됐는데 confirm이 연결·시간 초과·5xx(`storage_unavailable`, 첨부는 PENDING 그대로)·429로 실패하면 그 항목에 "확인 다시 시도"(`confirmAttachment`, 다시 올리지 않음 — 새로 올리면 지금 객체는 PENDING 고아가 된다). 410·404·400(만료·정리됨·불일치)은 다시 올리라고 안내한다. confirm만 남은 항목도 10개 자리를 차지한다.
   - **이탈 경고** (FE-28, B2 저장하지 않은 입력이 경고 없이 버려지지 않는다): `useLeaveGuard`.
     - 탭 닫기·새로고침·주소 이동(`beforeunload`): 입력이 원래와 다르거나 업로드·저장 중이면 브라우저 확인을 띄운다. 탭을 닫으면 sessionStorage 초안도 사라지기 때문이다.
-    - 앱 안 링크(next/link 포함)·취소 버튼: 글자 입력만 있으면 묻지 않는다 — 초안(TASK-29)에 남아 같은 편집기를 다시 열면 복원되므로 버려지지 않는다. 업로드 중(떠나면 끊긴다)·저장 중(결과를 못 본다)·초안 저장 실패(저장 공간·20만 자 초과)일 때만 `window.confirm`으로 묻는다. 저장에 성공해 이동하는 중에는 묻지 않는다.
+    - 앱 안 링크(next/link 포함)·취소 버튼: 글자 입력만 있으면 묻지 않는다 — 초안(TASK-29)에 남아 같은 편집기를 다시 열면 복원되므로 버려지지 않는다. 업로드 중(떠나면 끊긴다)·저장 중·초안 저장 실패(저장 공간·20만 자 초과)일 때만 `window.confirm`으로 묻는다. 저장에 성공해 이동하는 중에는 묻지 않는다.
+    - 저장 중 떠나기를 확인하면: 요청은 취소되지 않고 끝나며(성공하면 초안을 지우고 목록·태그 캐시를 무효화한다) 상세로 끌고 가지 않는다 — 상세 이동(`router.replace`)은 `save.mutate(body, { onSuccess })` 호출 단계 콜백이라 편집기가 언마운트되면 TanStack이 부르지 않는다(훅 단계 `onSuccess`는 언마운트 뒤에도 불린다). 경고 문구도 이대로 알린다.
     - App Router에는 이동을 막는 라우터 이벤트가 없어서 document의 capture 단계 click으로 같은 오리진 `<a href>`를 본다(React 루트보다 먼저 받아 거절하면 `preventDefault` + `stopPropagation`). 새 탭·수정키·다운로드·같은 페이지 `#`은 묻지 않는다.
-    - 한계: 브라우저 뒤로·앞으로(popstate)와 코드의 `router.push`(로그아웃 등)는 막지 못한다. 글자는 초안으로 남고, 진행 중 업로드는 끊긴다.
+    - 한계(유저 수용): 브라우저 뒤로·앞으로(popstate)와 코드의 `router.push`(로그아웃 등)는 막지 못한다. 글자는 초안으로 남고, 진행 중 업로드는 끊긴다.
+    - 한계(유저 수용): 바로 앞 히스토리가 앱 밖(다른 사이트에서 링크로 들어옴)일 때 업로드·저장 중 취소하면 확인을 두 번 받는다 — 앱의 `window.confirm` 뒤 `router.back()`이 문서를 떠나며 `beforeunload` 브라우저 확인이 한 번 더 뜬다. 앞 항목이 앱 안인지 알 방법이 없어 그대로 둔다.
     - 취소: 히스토리가 없으면(새 탭으로 바로 연 편집기 — 예전에는 `router.back()`이 아무 일도 안 했다) `replace("/")`.
 - **로컬 업로드 확인**: `make dev-db && make dev-storage`를 실행하고, `example.env`의 `UPLOADS_*` 값으로 백엔드를 띄운다. 그다음 `make frontend-dev`를 실행한다. MinIO(:9000)가 `http://localhost:3000` 오리진의 PUT preflight를 허용한다.
 
