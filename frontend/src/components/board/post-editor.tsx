@@ -151,8 +151,9 @@ const ATTACHMENT_LINK_ERRORS = [
 ];
 
 /**
- * 첨부 연결 오류의 문제 첨부 id. 서버는 구조화된 id 를 주지 않고 메시지 끝에 붙인다(`없는 첨부입니다: 101`) — 보낸 id 중 하나일 때만 믿는다.
- * 찾지 못하면(attachment_forbidden 등) null.
+ * 첨부 연결 오류의 문제 첨부 id — `fields` 가 없는 옛 응답 모양의 호환 경로. 지금 서버는 `fields` 의 `attachmentIds[i]` 로 알리고
+ * (TASK-31#4, mapFieldErrors 가 먼저 읽는다), 옛 서버는 메시지 끝에 id 를 붙였다(`없는 첨부입니다: 101`) — 보낸 id 중 하나일 때만 믿는다.
+ * 찾지 못하면(옛 attachment_forbidden 등) null.
  */
 function linkErrorAttachmentId(message: string, sentIds: number[]): number | null {
   const match = /(\d+)\s*$/.exec(message);

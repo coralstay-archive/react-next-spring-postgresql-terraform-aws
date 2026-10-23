@@ -56,6 +56,8 @@ public class AttachmentService {
 	/** pending-ttl 이 지나 확정할 수 없다 (TASK-26#2). 410. 다시 presign 해서 올린다. */
 	public static final String EXPIRED = "attachment_expired";
 
+	private static final String FORBIDDEN_MESSAGE = "본인이 올린 첨부만 쓸 수 있습니다";
+
 	/** 미확정(PENDING) 첨부가 한도에 이름 (TASK-22#3). 409. */
 	public static final String TOO_MANY_PENDING = "too_many_pending_attachments";
 
@@ -191,7 +193,9 @@ public class AttachmentService {
 	 * <li>CONFIRMED 여야 한다 → 400 {@code attachment_not_confirmed}</li>
 	 * <li>다른 글에 붙어 있지 않아야 한다 → 400 {@code attachment_in_use}</li>
 	 * </ul>
-	 * 없는 id 는 400 {@code unknown_attachment}. 목록에서 빠진 첨부는 연결을 풀고 그 시각을 남긴다(객체는 유예 기간 뒤
+	 * 없는 id 는 400 {@code unknown_attachment}. 네 오류 모두 {@code fields} 에 {@code {"attachmentIds[i]": 문구}}(i 는 요청 배열에서
+	 * 그 id 가 처음 나온 위치)를 담아 편집기가 문제 첨부를 짚게 한다(TASK-31#4, TASK-20 오류 계약). {@code attachment_forbidden} 은 위치만
+	 * 주고 문구는 일반적이다(남의 첨부인지 따로 드러내지 않는다). 목록에서 빠진 첨부는 연결을 풀고 그 시각을 남긴다(객체는 유예 기간 뒤
 	 * {@link OrphanAttachmentCleanup} 이 지운다, TASK-26#4). 행을 잠그고 바꾸므로 같은
 	 * 첨부를 두 글에 동시에 붙일 수 없다.
 	 */
@@ -203,19 +207,19 @@ public class AttachmentService {
 		for (Long id : ids) {
 			Attachment attachment = requested.get(id);
 			if (attachment == null) {
-				throw new ApiException(HttpStatus.BAD_REQUEST, UNKNOWN, "없는 첨부입니다: " + id);
+				throw linkError(HttpStatus.BAD_REQUEST, UNKNOWN, "없는 첨부입니다", id, requestedIds, true);
 			}
 			if (postId.equals(attachment.getPostId())) {
 				continue;
 			}
 			if (!attachment.getOwnerId().equals(editor.id()) || !attachment.getOwnerId().equals(postOwnerId)) {
-				throw forbidden();
+				throw linkError(HttpStatus.FORBIDDEN, FORBIDDEN, FORBIDDEN_MESSAGE, id, requestedIds, false);
 			}
 			if (!attachment.isConfirmed()) {
-				throw new ApiException(HttpStatus.BAD_REQUEST, NOT_CONFIRMED, "업로드 확정(confirm) 전인 첨부입니다: " + id);
+				throw linkError(HttpStatus.BAD_REQUEST, NOT_CONFIRMED, "업로드 확정(confirm) 전인 첨부입니다", id, requestedIds, true);
 			}
 			if (attachment.getPostId() != null) {
-				throw new ApiException(HttpStatus.BAD_REQUEST, IN_USE, "다른 글에 붙은 첨부입니다: " + id);
+				throw linkError(HttpStatus.BAD_REQUEST, IN_USE, "다른 글에 붙은 첨부입니다", id, requestedIds, true);
 			}
 		}
 		for (Attachment current : attachments.findByPostIdOrderByIdAsc(postId)) {
@@ -257,7 +261,17 @@ public class AttachmentService {
 	}
 
 	static ApiException forbidden() {
-		return new ApiException(HttpStatus.FORBIDDEN, FORBIDDEN, "본인이 올린 첨부만 쓸 수 있습니다");
+		return new ApiException(HttpStatus.FORBIDDEN, FORBIDDEN, FORBIDDEN_MESSAGE);
+	}
+
+	/**
+	 * 글 연결 오류(TASK-31#4). {@code fields} 의 키는 요청 배열에서 그 id 가 처음 나온 위치다. {@code idInMessage} 면 옛 클라이언트(메시지 끝
+	 * id 를 읽는다) 호환으로 메시지 끝에 id 를 붙인다.
+	 */
+	private static ApiException linkError(HttpStatus status, String error, String message, Long id, List<Long> requestedIds,
+			boolean idInMessage) {
+		Map<String, String> fields = Map.of("attachmentIds[" + requestedIds.indexOf(id) + "]", message);
+		return new ApiException(status, error, idInMessage ? message + ": " + id : message, fields);
 	}
 
 }

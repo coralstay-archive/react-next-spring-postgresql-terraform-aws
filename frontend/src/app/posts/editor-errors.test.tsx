@@ -172,7 +172,49 @@ describe("TASK-31#4 첨부 연결 오류면 문제 첨부를 표시하고 그것
     expect(fieldError).not.toHaveTextContent("둘째 첨부 문제");
   });
 
-  it("TASK-31#4 어떤 첨부인지 알 수 없으면(attachment_forbidden) 첨부 칸에 안내하고 빼고 저장 버튼은 없다", async () => {
+  it.each([
+    [400, "unknown_attachment", "없는 첨부입니다: 101", "없는 첨부입니다"],
+    [400, "attachment_not_confirmed", "업로드 확정(confirm) 전인 첨부입니다: 101", "업로드 확정(confirm) 전인 첨부입니다"],
+    [400, "attachment_in_use", "다른 글에 붙은 첨부입니다: 101", "다른 글에 붙은 첨부입니다"],
+    [403, "attachment_forbidden", "본인이 올린 첨부만 쓸 수 있습니다", "본인이 올린 첨부만 쓸 수 있습니다"],
+  ])(
+    "TASK-31#4 백엔드 계약(%i %s + fields attachmentIds[i])이면 그 첨부에만 표시하고 빼고 다시 저장할 수 있다",
+    async (status, code, message, fieldMessage) => {
+      const bodies: { attachmentIds: number[] }[] = [];
+      const uploads = presignHandlers();
+      server.use(
+        meHandler(makeMe()),
+        categoriesHandler(),
+        csrfHandler(),
+        ...uploads.handlers,
+        http.post("*/api/posts", async ({ request }) => {
+          const body = (await request.json()) as { attachmentIds: number[] };
+          bodies.push(body);
+          if (body.attachmentIds.includes(101)) {
+            return apiError(status, code, message, { fields: { "attachmentIds[1]": fieldMessage } });
+          }
+          return HttpResponse.json(makePost({ id: 78, editable: true }), { status: 201 });
+        }),
+      );
+      renderWithQuery(<PostEditor />);
+
+      await uploadTwo();
+      await fillRequired();
+      await userEvent.click(screen.getByTestId("editor-submit"));
+
+      const cells = within(screen.getByTestId("editor-attachments")).getAllByRole("listitem");
+      expect(await within(cells[1]).findByTestId("editor-attachment-problem")).toHaveTextContent(fieldMessage);
+      expect(within(cells[0]).queryByTestId("editor-attachment-problem")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("editor-attachments-error")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("editor-error")).not.toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", { name: "문제 이미지 빼고 다시 저장" }));
+      await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/posts/view/?id=78"));
+      expect(bodies.map((b) => b.attachmentIds)).toEqual([[100, 101], [100]]);
+    },
+  );
+
+  it("TASK-31#4 옛 응답 모양: fields 없는 attachment_forbidden 은 어떤 첨부인지 알 수 없어 첨부 칸에 안내하고 빼고 저장 버튼은 없다", async () => {
     const uploads = presignHandlers();
     server.use(
       meHandler(makeMe()),

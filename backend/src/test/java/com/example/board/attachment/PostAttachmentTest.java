@@ -201,6 +201,62 @@ class PostAttachmentTest {
 		assertThat(error(unknown)).isEqualTo("unknown_attachment");
 	}
 
+	private static JsonNode linkFields(HttpResponse<String> response) {
+		JsonNode fields = AuthClient.json(response).get("fields");
+		assertThat(fields).as(response.body()).isNotNull();
+		assertThat(fields.isObject()).as(response.body()).isTrue();
+		return fields;
+	}
+
+	@Test
+	@DisplayName("TASK-31#4 글 연결 오류는 fields {\"attachmentIds[i]\": 문구} 로 요청의 몇 번째 첨부인지 알린다 — unknown_attachment·attachment_not_confirmed·attachment_in_use")
+	void linkErrorsIdentifyIndex() {
+		String bearer = fixtures.bearer(fixtures.user());
+		long ok = uploads.uploaded(bearer, "image/png", UploadClient.bytes(10));
+		long pending = uploads.presigned(bearer, "image/png", 10).get("attachmentId").asLong();
+		HttpResponse<String> notConfirmed = create(bearer, ok, pending);
+		assertThat(error(notConfirmed)).isEqualTo("attachment_not_confirmed");
+		JsonNode fields = linkFields(notConfirmed);
+		assertThat(fields.propertyNames()).containsExactly("attachmentIds[1]");
+		assertThat(fields.get("attachmentIds[1]").asString()).contains("확정");
+
+		long used = uploads.uploaded(bearer, "image/png", UploadClient.bytes(10));
+		assertThat(create(bearer, used).statusCode()).isEqualTo(201);
+		HttpResponse<String> inUse = create(bearer, used, ok);
+		assertThat(error(inUse)).isEqualTo("attachment_in_use");
+		assertThat(linkFields(inUse).propertyNames()).containsExactly("attachmentIds[0]");
+		assertThat(linkFields(inUse).get("attachmentIds[0]").asString()).contains("다른 글");
+
+		HttpResponse<String> unknown = create(bearer, ok, ok, Long.MAX_VALUE);
+		assertThat(error(unknown)).isEqualTo("unknown_attachment");
+		assertThat(linkFields(unknown).propertyNames()).as("중복을 세어 요청 배열의 위치").containsExactly("attachmentIds[2]");
+		assertThat(linkFields(unknown).get("attachmentIds[2]").asString()).contains("없는 첨부");
+		// 옛 클라이언트 호환: 메시지 끝의 id 는 그대로 둔다.
+		assertThat(AuthClient.json(unknown).get("message").asString()).endsWith(Long.toString(Long.MAX_VALUE));
+
+		long postId = postWithoutAttachments(bearer);
+		HttpResponse<String> patched = patch(bearer, postId, "{\"attachmentIds\":" + ids(ok, Long.MAX_VALUE) + "}");
+		assertThat(error(patched)).isEqualTo("unknown_attachment");
+		assertThat(linkFields(patched).propertyNames()).containsExactly("attachmentIds[1]");
+	}
+
+	@Test
+	@DisplayName("TASK-31#4 attachment_forbidden 도 fields attachmentIds[i] 로 위치를 알리되 문구는 일반적이다(남의 첨부인지 없는지를 더 드러내지 않는다)")
+	void forbiddenIdentifiesIndex() {
+		long othersAttachment = uploads.uploaded(fixtures.bearer(fixtures.user()), "image/png", UploadClient.bytes(10));
+		String bearer = fixtures.bearer(fixtures.user());
+		long mine = uploads.uploaded(bearer, "image/png", UploadClient.bytes(10));
+
+		HttpResponse<String> response = create(bearer, mine, othersAttachment);
+		assertThat(response.statusCode()).isEqualTo(403);
+		assertThat(error(response)).isEqualTo("attachment_forbidden");
+		JsonNode fields = linkFields(response);
+		assertThat(fields.propertyNames()).containsExactly("attachmentIds[1]");
+		assertThat(fields.get("attachmentIds[1]").asString()).isEqualTo("본인이 올린 첨부만 쓸 수 있습니다")
+			.doesNotContain(Long.toString(othersAttachment));
+		assertThat(AuthClient.json(response).get("message").asString()).doesNotContain(Long.toString(othersAttachment));
+	}
+
 	@Test
 	@DisplayName("TASK-11#2 글당 첨부는 10개까지(넘으면 400 validation), null 원소도 400")
 	void limit() {
