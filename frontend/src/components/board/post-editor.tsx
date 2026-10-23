@@ -264,9 +264,8 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       }
       void client.invalidateQueries({ queryKey: queryKeys.postLists });
       void client.invalidateQueries({ queryKey: ["tags"] });
-      // PRG(TASK-31#2): 결과 페이지로 replace — 편집기가 히스토리에서 빠져 뒤로가기·새로고침으로 다시 제출되지 않는다.
-      // 잠금(submitLock)은 풀지 않고 버튼도 비활성으로 둔다(이동이 끝나기 전 재클릭으로 두 번째 글이 생기지 않게, B1).
-      router.replace(`/posts/view/?id=${saved.id}`);
+      // 결과 페이지 이동은 여기서 하지 않는다 — 훅 단계 onSuccess 는 편집기가 사라진 뒤에도 불려, 저장 중 떠난 사용자를 상세로 끌고 간다.
+      // 이동은 mutate 호출 단계 onSuccess(편집기가 마운트돼 있을 때만 불린다)에서 한다(submitWith).
     },
     onError: (error, body) => {
       submitLock.current = false;
@@ -311,13 +310,13 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   // 이탈 경고(TASK-31#7, B2: 저장하지 않은 입력이 경고 없이 버려지지 않는다). 저장에 성공해 이동하는 중에는 묻지 않는다.
   // - 탭 닫기·새로고침: 입력이 있거나 업로드·저장 중이면 경고(탭을 닫으면 sessionStorage 초안도 사라진다).
   // - 앱 안 이동·취소: 글자 입력은 초안(TASK-29)에 남아 다시 열면 복원되므로 묻지 않는다. 업로드 중(떠나면 끊김)·저장 중(결과를 못 봄)·
-  //   초안 저장 실패(저장 공간)일 때만 묻는다.
+  //   초안 저장 실패(저장 공간)일 때만 묻는다. 저장 중 떠나면 요청은 그대로 끝나고(성공하면 초안을 지운다) 상세로 이동하지 않는다.
   const leaving = useLeaveGuard({
     unload: !save.isSuccess && (!pristine || uploading || save.isPending),
     inAppMessage: () => {
       if (save.isSuccess) return null;
       if (uploading) return "이미지를 올리는 중입니다. 이 페이지를 떠나면 업로드가 취소됩니다. 떠날까요?";
-      if (save.isPending) return "저장하는 중입니다. 지금 떠나면 저장됐는지 확인하지 못할 수 있습니다. 떠날까요?";
+      if (save.isPending) return "저장하는 중입니다. 떠나도 저장 요청은 계속되지만 결과 페이지로 이동하지 않습니다(저장됐는지는 목록에서 확인하세요). 떠날까요?";
       if (!pristine && autosave.saveFailed()) {
         return "입력한 내용을 임시 저장하지 못했습니다. 이 페이지를 떠나면 입력이 사라집니다. 떠날까요?";
       }
@@ -505,7 +504,12 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     // 요청 중 세션이 끝나도 마지막 입력이 초안에 있게 기다리지 않고 저장한다.
     autosave.flush();
     submitLock.current = true;
-    save.mutate(body);
+    save.mutate(body, {
+      // PRG(TASK-31#2): 결과 페이지로 replace — 편집기가 히스토리에서 빠져 뒤로가기·새로고침으로 다시 제출되지 않는다.
+      // 잠금(submitLock)은 풀지 않고 버튼도 비활성으로 둔다(이동이 끝나기 전 재클릭으로 두 번째 글이 생기지 않게, B1).
+      // 저장 중 떠나기를 확인해 편집기가 언마운트됐으면 TanStack 이 이 콜백을 부르지 않아, 떠난 페이지에 머문다(TASK-31#7).
+      onSuccess: (saved) => router.replace(`/posts/view/?id=${saved.id}`),
+    });
   };
 
   return (

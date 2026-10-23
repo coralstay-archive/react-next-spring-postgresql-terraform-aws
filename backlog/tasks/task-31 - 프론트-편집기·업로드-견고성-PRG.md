@@ -4,7 +4,7 @@ title: '프론트: 편집기·업로드 견고성 + PRG'
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 10:04'
+updated_date: '2026-10-23 11:28'
 labels:
   - frontend
   - board
@@ -64,4 +64,6 @@ Plan-Review-Go: 아래 계획 → AC마다 red(실패 테스트, 결과를 커�
 
 <!-- SECTION:NOTES:BEGIN -->
 착수 결정(2026-10-23, 유저): S3 업로드는 '진행이 30초 동안 멈추면' 포기(진행 이벤트 기준 stall timeout), 전체 상한은 presigned URL 만료(5분). TASK-26: presigned PUT은 If-None-Match: * 서명이라 같은 URL 재PUT은 412 — 업로드 재시도는 presign부터 새로, AC#6은 confirm만 다시 시도.
+
+독립 리뷰(2026-10-23) 반영 결정(유저): 글자만 바뀐 상태의 앱 안 이동은 묻지 않음(초안 복원) 유지, 브라우저 뒤로가기·코드 router.push는 막지 않는 한계로 수용(문서화). 백엔드 첨부 연결 오류(unknown_attachment·attachment_expired·attachment_forbidden 등)는 fields {"attachmentIds[i]": 문구}로 문제 첨부를 알려 준다(이 태스크에서, 백엔드 테스트 포함). 고칠 것: 저장 중 이탈 확인 뒤 저장 성공 시 router.replace로 끌려가던 문제(이동은 mutate 호출 단계 onSuccess로), 같은 첨부 오류 중복 표시, 외부에서 들어온 뒤 취소 시 이중 확인은 문서화.
 <!-- SECTION:NOTES:END -->

@@ -125,6 +125,43 @@ describe("TASK-31#7 작성·업로드 중 이탈 경고(FE-28)", () => {
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/posts/view/?id=9"));
     expect(beforeUnloadBlocked()).toBe(false);
   });
+  it("TASK-31#7 TASK-31#2 저장 중 앱 안 링크로 떠나기를 확인하면, 나중에 저장이 성공해도 상세로 끌고 가지 않는다(초안은 지운다)", async () => {
+    let respond: () => void = () => {};
+    const responded = new Promise<void>((resolve) => {
+      respond = resolve;
+    });
+    let handled = false;
+    server.use(
+      meHandler(makeMe()),
+      categoriesHandler(),
+      csrfHandler(),
+      http.post("*/api/posts", async () => {
+        await responded;
+        handled = true;
+        return HttpResponse.json(makePost({ id: 9, editable: true }), { status: 201 });
+      }),
+    );
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { navigate, unmount } = renderWithLink();
+
+    await fill(screen.getByTestId("editor-title"), "제목");
+    await fill(screen.getByTestId("editor-content"), "본문");
+    await userEvent.click(screen.getByTestId("editor-submit"));
+    await waitFor(() => expect(screen.getByTestId("editor-submit")).toBeDisabled());
+
+    fireEvent.click(screen.getByRole("link", { name: "내 계정" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("저장하는 중입니다"));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("이동하지 않습니다"));
+    expect(navigate).toHaveBeenCalledTimes(1);
+    // 앱 안 이동으로 편집기가 사라진다.
+    unmount();
+
+    respond();
+    await waitFor(() => expect(handled).toBe(true));
+    await waitFor(() => expect(loadDraft(draftKeys.newPost, 1)).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
 });
 
 describe("TASK-31#7 취소 버튼", () => {
