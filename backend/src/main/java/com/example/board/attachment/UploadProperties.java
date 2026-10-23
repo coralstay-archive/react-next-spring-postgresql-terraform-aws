@@ -18,13 +18,32 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * {@code /uploads/*} 라 기본 {@code /uploads/}(같은 오리진 상대 경로). 로컬 MinIO 는
  * {@code http://localhost:9000/<bucket>/uploads/}
  * @param presignTtl presigned PUT URL 유효 시간
- * @param pendingTtl 이보다 오래된 PENDING 첨부는 정리한다(S3 lifecycle 1일과 맞춘다)
+ * @param pendingTtl 이보다 오래된 PENDING 첨부는 정리한다(S3 lifecycle 1일과 맞춘다). 지난 첨부의 confirm 은 410
+ * {@code attachment_expired}(TASK-26#2)
+ * @param apiCallTimeout S3 호출 하나(재시도 포함)의 상한 (기본 5초, TASK-26#3 BE-35). 넘으면 503 {@code storage_unavailable}
+ * @param apiCallAttemptTimeout HTTP 시도 하나의 상한 (기본 2초). 연결·소켓 타임아웃도 이 값이다. 전체보다 길 수 없다
  */
 @ConfigurationProperties("app.uploads")
 public record UploadProperties(@DefaultValue("") String bucket, @DefaultValue("us-east-1") String region,
 		@DefaultValue("") String endpoint, @DefaultValue("false") boolean pathStyle, @DefaultValue("") String accessKey,
 		@DefaultValue("") String secretKey, @DefaultValue("/uploads/") String publicBasePath,
-		@DefaultValue("PT5M") Duration presignTtl, @DefaultValue("PT24H") Duration pendingTtl) {
+		@DefaultValue("PT5M") Duration presignTtl, @DefaultValue("PT24H") Duration pendingTtl,
+		@DefaultValue("5s") Duration apiCallTimeout, @DefaultValue("2s") Duration apiCallAttemptTimeout) {
+
+	public UploadProperties {
+		positive(apiCallTimeout, "api-call-timeout");
+		positive(apiCallAttemptTimeout, "api-call-attempt-timeout");
+		if (apiCallAttemptTimeout.compareTo(apiCallTimeout) > 0) {
+			throw new IllegalArgumentException("app.uploads.api-call-attempt-timeout(" + apiCallAttemptTimeout
+					+ ") 은 api-call-timeout(" + apiCallTimeout + ") 보다 길 수 없다");
+		}
+	}
+
+	private static void positive(Duration value, String name) {
+		if (value == null || value.isZero() || value.isNegative()) {
+			throw new IllegalArgumentException("app.uploads." + name + " 는 양수여야 한다: " + value);
+		}
+	}
 
 	/** 객체 키 접두어. CloudFront {@code /uploads/*} 경로와 S3 lifecycle 필터가 이 접두어를 쓴다. */
 	public static final String KEY_PREFIX = "uploads/";

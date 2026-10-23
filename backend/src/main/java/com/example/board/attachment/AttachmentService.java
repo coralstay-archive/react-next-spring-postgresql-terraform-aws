@@ -15,8 +15,10 @@ import org.slf4j.LoggerFactory;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.example.board.auth.AuthUser;
 import com.example.board.attachment.AttachmentResponses.AttachmentView;
@@ -77,8 +79,12 @@ public class AttachmentService {
 
 	private final RateLimitProperties rateLimits;
 
+	private final TransactionTemplate tx;
+
 	public AttachmentService(AttachmentRepository attachments, UploadStorage storage, UploadProperties properties,
-			Clock clock, RateLimiter rateLimiter, RateLimitProperties rateLimits) {
+			Clock clock, RateLimiter rateLimiter, RateLimitProperties rateLimits,
+			PlatformTransactionManager transactionManager) {
+		this.tx = new TransactionTemplate(transactionManager);
 		this.rateLimiter = rateLimiter;
 		this.rateLimits = rateLimits;
 		this.attachments = attachments;
@@ -92,10 +98,13 @@ public class AttachmentService {
 	 * 타입에서 정하고 파일명은 쓰지 않는다. 행은 PENDING 으로 남고 confirm 하지 않으면 정리 대상이 된다.
 	 *
 	 * <p>할당량 (TASK-22#3): 사용자별 시간당 presign 한도를 넘으면 429, 미확정(PENDING) 첨부가 한도에 이르렀으면 409
-	 * {@value #TOO_MANY_PENDING}. 한도 기록과 개수 확인은 같은 사용자 잠금(이 트랜잭션) 안이라 동시 presign 으로 넘길 수 없고,
+	 * {@value #TOO_MANY_PENDING}. 한도 기록과 개수 확인·행 저장은 같은 사용자 잠금(한 트랜잭션) 안이라 동시 presign 으로 넘길 수 없고,
 	 * 거절(롤백)된 presign 은 시간당 한도를 소모하지 않는다.
+	 *
+	 * <p>트랜잭션 밖 서명 (TASK-26#3, BE-35): 서명은 SDK 자격 증명 조회(운영은 IMDS 네트워크 호출일 수 있다)를 하므로 DB 커넥션을 잡기 전에
+	 * 한다. 키는 서명 전에 정한다. 서명이 실패하면 503 {@code storage_unavailable} 이고 행·한도를 쓰지 않는다. 서명하고 한도에 걸린 URL 은
+	 * 응답하지 않으므로 쓰이지 않는다.
 	 */
-	@Transactional
 	public Presigned presign(AuthUser user, AttachmentRequests.Presign request) {
 		String contentType = ImageTypes.normalize(request.contentType());
 		String extension = ImageTypes.extension(contentType)
@@ -108,14 +117,17 @@ public class AttachmentService {
 		if (!storage.available()) {
 			throw DisabledUploadStorage.unavailable();
 		}
-		rateLimiter.hit(new RateLimiter.Rule(PRESIGN, String.valueOf(user.id()), rateLimits.presign()));
-		if (attachments.countByOwnerIdAndStatus(user.id(), AttachmentStatus.PENDING) >= rateLimits.maxPendingAttachments()) {
-			throw new ApiException(HttpStatus.CONFLICT, TOO_MANY_PENDING, "업로드를 마치지 않은 이미지가 너무 많습니다. 올리던 이미지를"
-					+ " 마무리하거나 잠시 후 다시 시도하세요");
-		}
 		String key = UploadProperties.KEY_PREFIX + user.id() + "/" + UUID.randomUUID() + "." + extension;
-		Attachment attachment = attachments.saveAndFlush(Attachment.pending(user.id(), key, contentType, size, clock.instant()));
 		PresignedUpload upload = storage.presignPut(key, contentType, size, properties.presignTtl());
+		Attachment attachment = tx.execute(status -> {
+			rateLimiter.hit(new RateLimiter.Rule(PRESIGN, String.valueOf(user.id()), rateLimits.presign()));
+			if (attachments.countByOwnerIdAndStatus(user.id(), AttachmentStatus.PENDING) >= rateLimits
+				.maxPendingAttachments()) {
+				throw new ApiException(HttpStatus.CONFLICT, TOO_MANY_PENDING, "업로드를 마치지 않은 이미지가 너무 많습니다. 올리던 이미지를"
+						+ " 마무리하거나 잠시 후 다시 시도하세요");
+			}
+			return attachments.saveAndFlush(Attachment.pending(user.id(), key, contentType, size, clock.instant()));
+		});
 		return new Presigned(attachment.getId(), key, upload.url(), "PUT", upload.headers(), upload.expiresAt());
 	}
 
