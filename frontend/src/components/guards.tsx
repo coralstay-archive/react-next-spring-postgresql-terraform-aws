@@ -6,6 +6,7 @@ import { useEffect, type ReactNode } from "react";
 import Link from "next/link";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { useCurrentPath } from "@/hooks/use-current-path";
 import { loginHref, useSessionUser } from "@/lib/auth";
 
@@ -25,7 +26,7 @@ function Loading() {
  * 작성 중인 입력·첨부·다이얼로그가 언마운트되어 사라지지 않게. 입력은 초안으로도 남는다(lib/drafts.ts).
  */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { data: me, isError, expired } = useSessionUser();
+  const { data: me, isError, isFetching, refetch, expired } = useSessionUser();
   const router = useRouter();
   const current = useCurrentPath();
 
@@ -34,7 +35,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   }, [me, expired, router, current]);
 
   if (!expired) {
-    if (me === undefined && isError) return <LoadError />;
+    if (me === undefined && isError) return <LoadError retrying={isFetching} onRetry={() => void refetch()} />;
     if (!me) return <Loading />;
   }
   // 만료 전후로 트리 모양을 같게 둔다(children 위치가 바뀌면 다시 마운트되어 입력이 사라진다).
@@ -97,11 +98,17 @@ function AdminOnly({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-function LoadError() {
+/** me 를 못 받았을 때(네트워크·5xx). 로그인으로 보내지 않고 다시 시도를 준다(TASK-29#6, FE-11). */
+function LoadError({ retrying, onRetry }: { retrying: boolean; onRetry: () => void }) {
   return (
     <Alert variant="destructive">
       <AlertTitle>사용자 정보를 불러오지 못했습니다</AlertTitle>
-      <AlertDescription>잠시 후 다시 시도하세요.</AlertDescription>
+      <AlertDescription>
+        <p>잠시 후 다시 시도하세요.</p>
+        <Button variant="outline" size="sm" disabled={retrying} onClick={onRetry}>
+          다시 시도
+        </Button>
+      </AlertDescription>
     </Alert>
   );
 }
