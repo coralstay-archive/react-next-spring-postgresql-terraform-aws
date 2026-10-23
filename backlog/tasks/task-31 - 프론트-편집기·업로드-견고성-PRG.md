@@ -1,10 +1,10 @@
 ---
 id: TASK-31
 title: '프론트: 편집기·업로드 견고성 + PRG'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 11:28'
+updated_date: '2026-10-23 11:44'
 labels:
   - frontend
   - board
@@ -35,14 +35,14 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FE-19 작성 후 상세는 캐시 대신 재조회(조회수 반영)
-- [ ] #2 FE-29·FE-21 성공 후 버튼 비활성 유지 + replace 이동(PRG), 404·403 시 상세 무효화
-- [ ] #3 FE-24 표시되지 않는 서버 필드 오류 키 매핑(categorySlug, attachmentIds*), 미매핑 키가 있으면 상단 알림
-- [ ] #4 FE-25 첨부 연결 오류 시 문제 첨부를 표시하고 그것만 빼고 다시 저장
-- [ ] #5 FE-26 업로드 timeout·취소·삭제, 언마운트 시 abort
-- [ ] #6 FE-27 confirm만 다시 시도
-- [ ] #7 FE-28 작성·업로드 중 이탈 경고, 히스토리가 없을 때 취소는 /로
-- [ ] #8 FE-30 카테고리 목록 오류 표시, 현재 카테고리를 선택지에 유지
+- [x] #1 FE-19 작성 후 상세는 캐시 대신 재조회(조회수 반영)
+- [x] #2 FE-29·FE-21 성공 후 버튼 비활성 유지 + replace 이동(PRG), 404·403 시 상세 무효화
+- [x] #3 FE-24 표시되지 않는 서버 필드 오류 키 매핑(categorySlug, attachmentIds*), 미매핑 키가 있으면 상단 알림
+- [x] #4 FE-25 첨부 연결 오류 시 문제 첨부를 표시하고 그것만 빼고 다시 저장
+- [x] #5 FE-26 업로드 timeout·취소·삭제, 언마운트 시 abort
+- [x] #6 FE-27 confirm만 다시 시도
+- [x] #7 FE-28 작성·업로드 중 이탈 경고, 히스토리가 없을 때 취소는 /로
+- [x] #8 FE-30 카테고리 목록 오류 표시, 현재 카테고리를 선택지에 유지
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -67,3 +67,19 @@ Plan-Review-Go: 아래 계획 → AC마다 red(실패 테스트, 결과를 커�
 
 독립 리뷰(2026-10-23) 반영 결정(유저): 글자만 바뀐 상태의 앱 안 이동은 묻지 않음(초안 복원) 유지, 브라우저 뒤로가기·코드 router.push는 막지 않는 한계로 수용(문서화). 백엔드 첨부 연결 오류(unknown_attachment·attachment_expired·attachment_forbidden 등)는 fields {"attachmentIds[i]": 문구}로 문제 첨부를 알려 준다(이 태스크에서, 백엔드 테스트 포함). 고칠 것: 저장 중 이탈 확인 뒤 저장 성공 시 router.replace로 끌려가던 문제(이동은 mutate 호출 단계 onSuccess로), 같은 첨부 오류 중복 표시, 외부에서 들어온 뒤 취소 시 이중 확인은 문서화.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+편집기·업로드를 견고하게 하고 PRG를 넣었다(TASK-18 '작성 직후 조회수 0' 해결).
+- AC#1 FE-19: 작성 성공 때 상세 캐시를 채우지 않아 상세가 다시 받은 조회수를 보인다. 수정 성공은 채우되 stale.
+- AC#2 FE-29·FE-21: ref 잠금으로 이중 제출 차단(Enter 연타로 글 3개 생기던 버그), 성공하면 버튼 비활성 유지 + replace 이동. 이동은 mutate 호출 단계라 저장 중 떠난 뒤 늦은 성공이 사용자를 끌고 가지 않음. 404·403은 상세 무효화. B1.
+- AC#3 FE-24: 서버 필드 오류 키(categorySlug, attachmentIds[n] 등)를 칸에 붙이고 남는 키는 상단 알림.
+- AC#4 FE-25: 백엔드가 첨부 연결 오류 4종에 fields {"attachmentIds[i]"}를 담고(forbidden은 id 미노출), 프론트는 문제 첨부에 표시 + '문제 이미지 빼고 다시 저장'.
+- AC#5 FE-26: XHR PUT, 진행 정체 30초·전체 5분 제한(유저 결정), 업로드 취소·빼기, 언마운트 시 abort.
+- AC#6 FE-27: confirm이 0·429·5xx로 실패하면 confirm만 다시 시도, 410·404·400은 다시 올리기 안내.
+- AC#7 FE-28: beforeunload + 앱 안 링크 가로채기(업로드·저장 중·초안 저장 실패 때만 확인, 글자만이면 초안 복원으로 묻지 않음 — 유저 결정). 히스토리 없으면 취소는 /로. B2. 브라우저 뒤로가기·코드 이동은 막지 않는 한계(유저 수용).
+- AC#8 FE-30: 카테고리 목록 오류 표시, 현재 카테고리를 선택지에 유지.
+검증: make test 통과(frontend 506, backend 876, repo 233, deploy 135, terraform 57), tsc·eslint, make e2e 8/8(리뷰에서).
+범위 밖: 연달아 파일 선택 시 업로드 루프 병행(한도는 지켜짐).
+<!-- SECTION:FINAL_SUMMARY:END -->
