@@ -1,10 +1,10 @@
 ---
 id: TASK-29
 title: '프론트: 세션 만료·정지 시 입력 보존과 캐시 리셋'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-23 06:10'
 labels:
   - frontend
   - auth
@@ -45,3 +45,9 @@ documentation:
 - [ ] #7 FE-13 콜백 실패 시 저장된 next 정리, 돌아가기 링크에 next 유지
 - [ ] #8 FE-14 가입 성공 후 로그인 실패 시 폼 대신 로그인 링크(재제출 방지)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+착수 결정(2026-10-23, 유저): me 재조회는 창 포커스 때 + 탭이 보일 때 5분마다.
+<!-- SECTION:NOTES:END -->
