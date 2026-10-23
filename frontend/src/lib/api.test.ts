@@ -2,7 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api, ApiError, MUTATION_TIMEOUT_MS, readCookie } from "@/lib/api";
+import { api, ApiError, CSRF_TOKEN_TIMEOUT_MS, MUTATION_TIMEOUT_MS, readCookie } from "@/lib/api";
 import { ERROR_MESSAGES, errorMessage } from "@/lib/errors";
 import { createQueryClient, queryKeys } from "@/lib/query";
 import { csrfHandler, server, setCookie } from "@/test/server";
@@ -316,8 +316,10 @@ describe("TASK-30#2 쿠키가 막혀 CSRF 쿠키가 계속 없으면 cookies_blo
   it("TASK-30#2 403 csrf 재시도 때 다시 받은 쿠키가 없어도 같은 오류로 끝난다(재시도 루프 없음)", async () => {
     setCookie("XSRF-TOKEN", "stale");
     let writes = 0;
+    let csrfCalls = 0;
     server.use(
       http.get("*/api/auth/csrf", () => {
+        csrfCalls++;
         // 서버는 새 토큰을 주지만 브라우저가 저장하지 못하고, 옛 쿠키도 지워졌다.
         document.cookie = "XSRF-TOKEN=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
         return HttpResponse.json({});
@@ -330,6 +332,8 @@ describe("TASK-30#2 쿠키가 막혀 CSRF 쿠키가 계속 없으면 cookies_blo
 
     await expect(api("/posts", { method: "POST" })).rejects.toMatchObject({ code: "cookies_blocked" });
     expect(writes).toBe(1);
+    // 재시도 경로에서 토큰 GET 은 한 번만(명시적 재발급 + csrfToken() 의 재요청 중복 없음).
+    expect(csrfCalls).toBe(1);
   });
 });
 
@@ -434,5 +438,128 @@ describe("TASK-30#3 쓰기 요청 타임아웃(AbortSignal)", () => {
     expect(result.settled).toBe(false);
     controller.abort();
     await vi.waitFor(() => expect(result.settled).toBe(true));
+  });
+
+  it("TASK-30#3 35초는 호출 전체 예산이다: 403 csrf 재시도·토큰 재발급까지 합쳐 35초에 timeout", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    setCookie("XSRF-TOKEN", "stale");
+    let writes = 0;
+    let csrfCalls = 0;
+    const retry = { aborted: false };
+    server.use(
+      http.get("*/api/auth/csrf", async () => {
+        csrfCalls++;
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        setCookie("XSRF-TOKEN", "fresh");
+        return HttpResponse.json({});
+      }),
+      http.post("*/api/posts", async ({ request }) => {
+        writes++;
+        if (writes === 1) {
+          await new Promise((resolve) => setTimeout(resolve, 20_000));
+          return HttpResponse.json({ status: 403, error: "csrf", message: "x" }, { status: 403 });
+        }
+        return new Promise<Response>(() => {
+          request.signal.addEventListener("abort", () => {
+            retry.aborted = true;
+          });
+        });
+      }),
+    );
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, "addEventListener");
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+
+    const result = track(api("/posts", { method: "POST", signal: controller.signal }));
+    await vi.advanceTimersByTimeAsync(25_000);
+    // vi.waitFor 는 가짜 타이머를 앞당기므로 쓰지 않는다 — 시계를 정확히 맞춘다.
+    expect(writes).toBe(2);
+    expect(csrfCalls).toBe(1);
+    expect(result.settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(34_999 - 25_000);
+    expect(result.settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(result.settled).toBe(true));
+    expect(result.error).toMatchObject({ status: 0, code: "timeout" });
+    await vi.waitFor(() => expect(retry.aborted).toBe(true));
+    // 타이머·호출자 signal 리스너가 남지 않는다.
+    expect(vi.getTimerCount()).toBe(0);
+    const abortAdds = add.mock.calls.filter(([type]) => type === "abort").length;
+    const abortRemoves = remove.mock.calls.filter(([type]) => type === "abort").length;
+    expect(abortAdds).toBeGreaterThan(0);
+    expect(abortRemoves).toBe(abortAdds);
+  });
+
+  it("TASK-30#3 403 csrf 재시도 경로에서 토큰 GET 은 한 번만 보낸다", async () => {
+    setCookie("XSRF-TOKEN", "stale");
+    let csrfCalls = 0;
+    let writes = 0;
+    const headers: (string | null)[] = [];
+    server.use(
+      csrfHandler("fresh", () => csrfCalls++),
+      http.post("*/api/posts", ({ request }) => {
+        writes++;
+        headers.push(request.headers.get("X-XSRF-TOKEN"));
+        if (writes === 1) return HttpResponse.json({ status: 403, error: "csrf", message: "x" }, { status: 403 });
+        return HttpResponse.json({ id: 1 });
+      }),
+    );
+
+    await expect(api("/posts", { method: "POST" })).resolves.toEqual({ id: 1 });
+    expect(csrfCalls).toBe(1);
+    expect(headers).toEqual(["stale", "fresh"]);
+  });
+
+  it("TASK-30#3 CSRF 토큰 GET 이 멈추면 10초에 끊고 network 로 끝내며(쓰기는 안 보냄), 다음 쓰기는 토큰을 다시 받는다", async () => {
+    expect(CSRF_TOKEN_TIMEOUT_MS).toBe(10_000);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let csrfCalls = 0;
+    let writes = 0;
+    const token = { aborted: false };
+    server.use(
+      http.get("*/api/auth/csrf", ({ request }) => {
+        csrfCalls++;
+        return new Promise<Response>(() => {
+          request.signal.addEventListener("abort", () => {
+            token.aborted = true;
+          });
+        });
+      }),
+      http.post("*/api/posts", () => {
+        writes++;
+        return HttpResponse.json({ id: 1 });
+      }),
+    );
+
+    const result = track(api("/posts", { method: "POST" }));
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(result.settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(result.settled).toBe(true));
+    // 쓰기 요청은 보내지지 않았으므로 '처리 여부 확인' 이 아니라 연결 오류 안내다.
+    expect(result.error).toMatchObject({ status: 0, code: "network" });
+    expect(errorMessage(result.error)).toBe(ERROR_MESSAGES.network);
+    expect(writes).toBe(0);
+    await vi.waitFor(() => expect(token.aborted).toBe(true));
+    expect(vi.getTimerCount()).toBe(0);
+
+    vi.useRealTimers();
+    server.use(csrfHandler("t", () => csrfCalls++));
+    await expect(api("/posts", { method: "POST" })).resolves.toEqual({ id: 1 });
+    expect(csrfCalls).toBe(2);
+    expect(writes).toBe(1);
+  });
+
+  it("TASK-30#3 공유 토큰 GET 을 기다리는 쓰기도 자기 예산(timeoutMs)을 지킨다", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    server.use(http.get("*/api/auth/csrf", () => new Promise<Response>(() => {})));
+
+    const result = track(api("/posts", { method: "POST", timeoutMs: 3_000 }));
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.waitFor(() => expect(result.settled).toBe(true));
+    expect(result.error).toMatchObject({ code: "timeout" });
+    await vi.advanceTimersByTimeAsync(CSRF_TOKEN_TIMEOUT_MS);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

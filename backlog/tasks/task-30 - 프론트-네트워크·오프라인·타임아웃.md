@@ -4,7 +4,7 @@ title: '프론트: 네트워크·오프라인·타임아웃'
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 08:09'
+updated_date: '2026-10-23 08:41'
 labels:
   - frontend
 dependencies:
@@ -52,4 +52,6 @@ documentation:
 
 <!-- SECTION:NOTES:BEGIN -->
 착수 결정(2026-10-23, 유저): 뮤테이션 요청 타임아웃 35초(백엔드 30초 예산보다 길게). 시간 초과 시 '저장됐는지 확실하지 않으니 확인 후 다시 시도' 안내. S3 업로드는 TASK-31 범위.
+
+독립 리뷰(2026-10-23) 반영 결정(유저): 쓰기 타임아웃은 호출 전체 35초(403 csrf 재시도·토큰 재발급 포함), CSRF 토큰 GET에도 10초 제한. 처음부터 오프라인이면 배너 없이 조회 재시도 뒤 오류 화면 — 그대로(navigator.onLine은 크롬 오탐 때문에 읽지 않음). 관리자 탭 페이지 이동 실패 시 이전 페이지가 사라지는 동작(keepPreviousData는 pending에만 적용)은 문서화.
 <!-- SECTION:NOTES:END -->
