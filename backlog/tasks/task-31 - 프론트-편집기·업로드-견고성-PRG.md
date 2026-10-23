@@ -1,10 +1,10 @@
 ---
 id: TASK-31
 title: '프론트: 편집기·업로드 견고성 + PRG'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-23 08:56'
 labels:
   - frontend
   - board
@@ -44,3 +44,9 @@ documentation:
 - [ ] #7 FE-28 작성·업로드 중 이탈 경고, 히스토리가 없을 때 취소는 /로
 - [ ] #8 FE-30 카테고리 목록 오류 표시, 현재 카테고리를 선택지에 유지
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+착수 결정(2026-10-23, 유저): S3 업로드는 '진행이 30초 동안 멈추면' 포기(진행 이벤트 기준 stall timeout), 전체 상한은 presigned URL 만료(5분). TASK-26: presigned PUT은 If-None-Match: * 서명이라 같은 URL 재PUT은 412 — 업로드 재시도는 presign부터 새로, AC#6은 confirm만 다시 시도.
+<!-- SECTION:NOTES:END -->
