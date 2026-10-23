@@ -20,12 +20,21 @@ import { draftKeys, loadDraft } from "@/lib/drafts";
 import { errorMessage } from "@/lib/errors";
 import { queryKeys } from "@/lib/query";
 import { addTag, MAX_TAGS, normalizeTag } from "@/lib/tags";
-import { ALLOWED_IMAGE_TYPES, MAX_ATTACHMENTS, uploadImage, validateImageFile } from "@/lib/uploads";
+import {
+  ALLOWED_IMAGE_TYPES,
+  confirmAttachment,
+  isRetryableConfirmError,
+  isRetryableConfirmFailure,
+  MAX_ATTACHMENTS,
+  uploadImage,
+  validateImageFile,
+} from "@/lib/uploads";
 
 type UploadItem =
   | { key: string; name: string; status: "uploading"; progress: number }
   | { key: string; name: string; status: "done"; attachment: Attachment }
-  | { key: string; name: string; status: "error"; error: string };
+  // confirmId: 올리기는 됐고 confirm 만 다시 하면 되는 첨부(TASK-31#6).
+  | { key: string; name: string; status: "error"; error: string; confirmId?: number };
 
 /**
  * 글 초안(TASK-29#3). 업로드가 끝난 첨부만 담는다(진행 중·실패한 것은 다시 올려야 한다).
@@ -298,7 +307,8 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     (category) => !category.adminOnly || isAdmin || category.slug === post?.category?.slug,
   );
   const uploading = items.some((item) => item.status === "uploading");
-  const attached = items.filter((item) => item.status !== "error").length;
+  // confirm 만 남은 실패(TASK-31#6)도 자리를 차지한다(다시 시도하면 붙는다).
+  const attached = items.filter((item) => item.status !== "error" || item.confirmId !== undefined).length;
 
   // --- 태그 ---
   const commitTag = (raw: string) => {
@@ -377,11 +387,35 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       } catch (error) {
         // 취소는 항목을 이미 뺐다.
         if (!controller.signal.aborted) {
-          updateItem(key, { key, name: file.name, status: "error", error: errorMessage(error) });
+          updateItem(key, {
+            key,
+            name: file.name,
+            status: "error",
+            error: errorMessage(error),
+            confirmId: isRetryableConfirmError(error) ? error.attachmentId : undefined,
+          });
         }
       } finally {
         uploadControllers.current.delete(key);
       }
+    }
+  };
+
+  /** confirm 만 다시(TASK-31#6). 다시 올리지 않는다 — 같은 URL 재PUT 은 412 고, 새로 올리면 지금 객체가 고아가 된다. */
+  const retryConfirm = async (key: string, name: string, attachmentId: number) => {
+    const controller = new AbortController();
+    uploadControllers.current.set(key, controller);
+    updateItem(key, { key, name, status: "uploading", progress: 100 });
+    try {
+      const attachment = await confirmAttachment(attachmentId, controller.signal);
+      updateItem(key, { key, name, status: "done", attachment });
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        const confirmId = isRetryableConfirmFailure(error) ? attachmentId : undefined;
+        updateItem(key, { key, name, status: "error", error: errorMessage(error), confirmId });
+      }
+    } finally {
+      uploadControllers.current.delete(key);
     }
   };
 
@@ -591,6 +625,16 @@ export function PostEditor({ post }: { post?: PostDetail }) {
                 <p className="text-destructive" role="alert">
                   {item.name}: {item.error}
                 </p>
+              )}
+              {item.status === "error" && item.confirmId !== undefined && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={() => void retryConfirm(item.key, item.name, item.confirmId!)}
+                >
+                  첨부 이미지 {index + 1} 확인 다시 시도
+                </Button>
               )}
               <Button type="button" variant="ghost" size="xs" onClick={() => removeItem(item.key)}>
                 첨부 이미지 {index + 1} {item.status === "uploading" ? "업로드 취소" : "빼기"}

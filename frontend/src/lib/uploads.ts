@@ -1,4 +1,4 @@
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, isApiError } from "@/lib/api";
 import type { Attachment } from "@/lib/board";
 import { ERROR_MESSAGES } from "@/lib/errors";
 
@@ -74,7 +74,42 @@ export async function uploadImage(file: File, options: UploadOptions = {}): Prom
   });
   await putObject(presigned, file, options);
   onProgress?.(100);
-  return api<Attachment>(`/attachments/${presigned.attachmentId}/confirm`, { method: "POST", signal });
+  try {
+    return await confirmAttachment(presigned.attachmentId, signal);
+  } catch (error) {
+    throw isApiError(error) ? new UploadConfirmError(error, presigned.attachmentId) : error;
+  }
+}
+
+/**
+ * 객체는 올라갔는데 confirm 이 실패했다(TASK-31#6, FE-27). `attachmentId` 로 {@link confirmAttachment} 만 다시 하면 된다 — 다시 올리면
+ * 새 presign·새 객체가 되고 이 객체는 고아(PENDING, 24시간 뒤 정리)로 남는다. `retryable` 은 다시 해서 될 수 있는 실패
+ * (연결·시간 초과·5xx(`storage_unavailable`: 첨부는 PENDING 그대로)·429)다. 410·404·400(만료·정리됨·불일치)은 다시 올려야 한다.
+ */
+export class UploadConfirmError extends ApiError {
+  readonly attachmentId: number;
+  readonly retryable: boolean;
+
+  constructor(cause: ApiError, attachmentId: number) {
+    super(cause.status, cause.code, cause.message, { fields: cause.fields, retryAfter: cause.retryAfter });
+    this.name = "UploadConfirmError";
+    this.attachmentId = attachmentId;
+    this.retryable = isRetryableConfirmFailure(cause);
+  }
+}
+
+/** confirm 실패 중 같은 confirm 을 다시 해서 될 수 있는 것: 연결·시간 초과(0)·429·5xx. */
+export function isRetryableConfirmFailure(error: unknown): boolean {
+  return isApiError(error) && (error.status === 0 || error.status === 429 || error.status >= 500);
+}
+
+export function isRetryableConfirmError(error: unknown): error is UploadConfirmError {
+  return error instanceof UploadConfirmError && error.retryable;
+}
+
+/** `POST /api/attachments/{id}/confirm`. 이미 확정된 첨부면 그대로 200 이라 다시 해도 안전하다. */
+export function confirmAttachment(attachmentId: number, signal?: AbortSignal): Promise<Attachment> {
+  return api<Attachment>(`/attachments/${attachmentId}/confirm`, { method: "POST", signal });
 }
 
 function abortReason(signal: AbortSignal): unknown {

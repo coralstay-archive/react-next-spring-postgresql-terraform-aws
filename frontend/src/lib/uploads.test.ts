@@ -1,8 +1,10 @@
-import { http } from "msw";
+import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { isApiError } from "@/lib/api";
 import {
+  confirmAttachment,
+  isRetryableConfirmError,
   MAX_IMAGE_BYTES,
   UPLOAD_MAX_MS,
   UPLOAD_STALL_MS,
@@ -181,5 +183,43 @@ describe("TASK-31#5 업로드 정체 timeout·전체 상한·취소(FE-26)", () 
     const outcome = await result;
     expect(outcome.ok).toBe(true);
     expect(calls.confirmed).toEqual([100]);
+  });
+});
+
+// TASK-31#6 PUT 은 됐는데 confirm 이 실패: 같은 URL 재PUT 은 If-None-Match: * 라 412 이므로 confirm 만 다시 한다.
+describe("TASK-31#6 confirm 만 다시 시도(FE-27)", () => {
+  it.each([
+    ["503 storage_unavailable", () => apiError(503, "storage_unavailable")],
+    ["네트워크 오류", () => HttpResponse.error()],
+    ["429 rate_limited", () => apiError(429, "rate_limited")],
+  ])("TASK-31#6 confirm 이 %s 면 attachmentId 를 담은 '다시 시도할 수 있는' 오류이고, confirmAttachment 로 확정된다", async (_name, fail) => {
+    const calls = presignHandlers();
+    let confirms = 0;
+    server.use(
+      csrfHandler(),
+      http.post("*/api/attachments/:id/confirm", () => (confirms++ === 0 ? fail() : undefined)),
+      ...calls.handlers,
+    );
+
+    const error = await uploadImage(png()).catch((e: unknown) => e);
+    expect(isRetryableConfirmError(error)).toBe(true);
+    expect(isRetryableConfirmError(error) && error.attachmentId).toBe(100);
+
+    const attachment = await confirmAttachment(100);
+    expect(attachment).toMatchObject({ id: 100, status: "CONFIRMED" });
+    expect(calls.putSize).toBe(8);
+  });
+
+  it.each([
+    [410, "attachment_expired"],
+    [404, "attachment_not_found"],
+    [400, "attachment_mismatch"],
+  ])("TASK-31#6 confirm 이 %i %s 면 다시 시도할 수 없다(다시 올려야 한다)", async (status, code) => {
+    const calls = presignHandlers();
+    server.use(csrfHandler(), http.post("*/api/attachments/:id/confirm", () => apiError(status, code)), ...calls.handlers);
+
+    const error = await uploadImage(png()).catch((e: unknown) => e);
+    expect(isApiError(error) && error.code).toBe(code);
+    expect(isRetryableConfirmError(error)).toBe(false);
   });
 });

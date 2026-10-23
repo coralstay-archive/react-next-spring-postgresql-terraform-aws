@@ -130,3 +130,70 @@ describe("TASK-31#5 편집기 업로드 취소·빼기·정체·언마운트 abo
     expect(uploads.confirmed).toEqual([]);
   });
 });
+
+describe("TASK-31#6 편집기: confirm 만 다시 시도(FE-27)", () => {
+  beforeEach(() => {
+    navigation.reset("/posts/new/");
+  });
+
+  it("TASK-31#6 PUT 뒤 confirm 이 503 이면 '확인 다시 시도'로 confirm 만 다시 해서 붙인다(presign·PUT 은 한 번)", async () => {
+    const uploads = presignHandlers();
+    let presigns = 0;
+    let puts = 0;
+    let confirms = 0;
+    const bodies: unknown[] = [];
+    server.use(
+      meHandler(makeMe()),
+      categoriesHandler(),
+      csrfHandler(),
+      http.post("*/api/attachments/presign", () => {
+        presigns++;
+        return undefined;
+      }),
+      http.put("http://storage.test/bucket/*", () => {
+        puts++;
+        return undefined;
+      }),
+      http.post("*/api/attachments/:id/confirm", () =>
+        confirms++ === 0 ? HttpResponse.json({ status: 503, error: "storage_unavailable", message: "x" }, { status: 503 }) : undefined,
+      ),
+      ...uploads.handlers,
+      http.post("*/api/posts", async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json(makePost({ id: 8, editable: true }), { status: 201 });
+      }),
+    );
+    renderWithQuery(<PostEditor />);
+
+    await userEvent.upload(screen.getByTestId("editor-file-input"), png("a.png"));
+    expect(await screen.findByText(/이미지 저장소에 일시적인 문제가 있습니다/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "첨부 이미지 1 확인 다시 시도" }));
+
+    await waitFor(() => expect(within(screen.getByTestId("editor-attachments")).getAllByRole("img")).toHaveLength(1));
+    expect({ presigns, puts, confirms }).toEqual({ presigns: 1, puts: 1, confirms: 2 });
+
+    await fill(screen.getByTestId("editor-title"), "제목");
+    await fill(screen.getByTestId("editor-content"), "본문");
+    await userEvent.click(screen.getByTestId("editor-submit"));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ attachmentIds: [100] });
+  });
+
+  it("TASK-31#6 confirm 이 410 attachment_expired 면 다시 올리라고 안내하고 '확인 다시 시도'는 없다", async () => {
+    const uploads = presignHandlers();
+    server.use(
+      meHandler(makeMe()),
+      categoriesHandler(),
+      csrfHandler(),
+      http.post("*/api/attachments/:id/confirm", () =>
+        HttpResponse.json({ status: 410, error: "attachment_expired", message: "x" }, { status: 410 }),
+      ),
+      ...uploads.handlers,
+    );
+    renderWithQuery(<PostEditor />);
+
+    await userEvent.upload(screen.getByTestId("editor-file-input"), png("a.png"));
+    expect(await screen.findByText(/만료된 이미지입니다. 다시 올려 주세요/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /확인 다시 시도/ })).not.toBeInTheDocument();
+  });
+});
