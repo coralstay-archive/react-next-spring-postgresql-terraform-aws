@@ -19,7 +19,7 @@ output "uploads_prefix" {
 }
 
 output "app_policy_json" {
-  description = "앱(EC2 role)에 붙일 IAM 정책 JSON: uploads/* 의 Put/Get/Delete Object(+Tagging)"
+  description = "앱(EC2 role)에 붙일 IAM 정책 JSON: uploads/* 의 Put/Get/Delete Object(+Tagging) + uploads/ 접두어 ListBucket"
   value       = jsonencode(local.app_policy)
 }
 

@@ -43,6 +43,14 @@ locals {
         "s3:PutObject", "s3:PutObjectTagging", "s3:GetObject", "s3:GetObjectTagging", "s3:DeleteObject", "s3:DeleteObjectTagging",
       ]
       Resource = "${aws_s3_bucket.this.arn}/${local.uploads_prefix}*"
+      }, {
+      # TASK-26#1 ListBucket 이 없으면 S3 는 없는 키의 HeadObject 에 404 대신 403 을 준다(키 존재 여부를 숨김) → PUT 전 confirm 이
+      # 400 attachment_not_uploaded 가 아니라 503 storage_unavailable 이 된다. 목록 조회는 uploads/ 접두어로만 제한한다
+      Sid       = "BoardUploadsList"
+      Effect    = "Allow"
+      Action    = "s3:ListBucket"
+      Resource  = aws_s3_bucket.this.arn
+      Condition = { StringLike = { "s3:prefix" = "${local.uploads_prefix}*" } }
     }]
   }
 }

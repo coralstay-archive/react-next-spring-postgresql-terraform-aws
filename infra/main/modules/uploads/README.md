@@ -43,8 +43,12 @@ CloudFront: 오리진 `bucket_regional_domain_name` + OAC(sigv4, always), 동작
 | 출력 | 쓰는 곳 |
 |---|---|
 | `bucket_name` | `UPLOADS_BUCKET` (`UPLOADS_REGION` 은 버킷 리전, `UPLOADS_PUBLIC_BASE_PATH` 는 기본 `/uploads/`) |
-| `app_policy_json` | EC2 role 인라인 정책 (uploads/* Put/Get/Delete Object + Tagging) |
+| `app_policy_json` | EC2 role 인라인 정책 (uploads/* Put/Get/Delete Object + Tagging, 버킷 `s3:ListBucket`(`s3:prefix` = `uploads/*`) — 없는 키 HeadObject 가 403 이 아니라 404) |
 | `bucket_regional_domain_name`, `bucket_arn` | CloudFront 오리진·OAC (TASK-16) |
+
+배포 뒤 확인: 앱 권한의 `s3:ListBucket` 은 `s3:prefix` 조건(`uploads/*`)이 붙어 있다. HeadObject 의 404/403 판단에 이 조건이
+어떻게 평가되는지는 mock 테스트로 확인할 수 없으니, 운영에서 PUT 전에 confirm 해 400 `attachment_not_uploaded` 가 나오는지 본다.
+503 `storage_unavailable`(로그 `op=head status=403`)이면 조건 없는 버킷 `s3:ListBucket` 이 필요하다.
 
 ## 테스트
 

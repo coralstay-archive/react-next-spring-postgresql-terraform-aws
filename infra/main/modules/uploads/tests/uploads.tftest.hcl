@@ -156,6 +156,7 @@ run "policy_with_cloudfront_oac" {
 }
 
 # TASK-11#4 앱(EC2 role)에 붙일 IAM 정책 출력: uploads/* 에 PutObject(+태그)·GetObject(HeadObject)·DeleteObject·DeleteObjectTagging
+# TASK-26#1 + 버킷 ListBucket(s3:prefix uploads/*)
 run "app_policy_output" {
   command = apply
 
@@ -167,6 +168,20 @@ run "app_policy_output" {
       && jsondecode(output.app_policy_json).Statement[0].Resource == "arn:aws:s3:::board-test-uploads/uploads/*"
     )
     error_message = "앱 정책은 uploads/* 에 필요한 동작만"
+  }
+  # TASK-26#1 s3:ListBucket(uploads/ 접두어로 제한): 없으면 S3 가 없는 키의 HeadObject 에 404 대신 403 을 줘서 PUT 전 confirm 이
+  # 400 attachment_not_uploaded 가 아니라 503 storage_unavailable 이 된다
+  assert {
+    condition = anytrue([
+      for s in jsondecode(output.app_policy_json).Statement :
+      s.Effect == "Allow" && s.Action == "s3:ListBucket" && s.Resource == "arn:aws:s3:::board-test-uploads"
+      && s.Condition.StringLike["s3:prefix"] == "uploads/*"
+    ])
+    error_message = "앱 정책은 버킷에 s3:ListBucket 을 uploads/* 접두어로만 허용한다(없는 키 HEAD → 404)"
+  }
+  assert {
+    condition     = length(jsondecode(output.app_policy_json).Statement) == 2
+    error_message = "앱 정책은 객체 동작(uploads/*)과 접두어 제한 ListBucket 두 문장뿐"
   }
   assert {
     condition     = output.bucket_name == "board-test-uploads" && output.uploads_prefix == "uploads/"
