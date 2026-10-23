@@ -32,9 +32,22 @@ export async function fetchMe(): Promise<Me | null> {
   }
 }
 
-/** 현재 사용자. `data` 가 undefined 면 아직 모름(로딩), null 이면 익명. */
+/** me 주기 재조회 간격(TASK-29#2, 유저 결정: 탭이 보일 때 5분마다). */
+export const ME_REFETCH_INTERVAL = 5 * 60_000;
+
+/**
+ * 현재 사용자. `data` 가 undefined 면 아직 모름(로딩), null 이면 익명.
+ * 세션 만료를 쓰기 전에 알아채도록(TASK-29#2, FE-6) 창 포커스 때와 탭이 보이는 동안 5분마다 다시 받는다. 포커스 재조회는 기본
+ * staleTime(30초) 안이면 건너뛴다. 사용자 → null 로 바뀌면 query.ts 가 만료로 처리한다(TASK-29#1).
+ */
 export function useMe() {
-  return useQuery({ queryKey: queryKeys.me, queryFn: fetchMe });
+  return useQuery({
+    queryKey: queryKeys.me,
+    queryFn: fetchMe,
+    refetchOnWindowFocus: true,
+    refetchInterval: ME_REFETCH_INTERVAL,
+    refetchIntervalInBackground: false,
+  });
 }
 
 /**

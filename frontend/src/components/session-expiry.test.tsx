@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { focusManager, useMutation } from "@tanstack/react-query";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -7,10 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostDetailView } from "@/app/posts/view/post-detail-view";
 import { SessionExpiredBanner } from "@/components/session-expired-banner";
 import { api } from "@/lib/api";
+import { ME_REFETCH_INTERVAL, useMe } from "@/lib/auth";
 import { queryKeys, SESSION_EXPIRED_KEY } from "@/lib/query";
 import { commentsHandler, makeComment, makePost } from "@/test/board";
 import { apiError, csrfHandler, server } from "@/test/server";
-import { makeMe, navigation, renderWithQuery } from "@/test/utils";
+import { makeMe, meHandler, navigation, renderWithQuery } from "@/test/utils";
 
 vi.mock("next/navigation", async () => (await import("@/test/utils")).nextNavigationMock());
 
@@ -159,5 +160,62 @@ describe("TASK-29#1 세션 만료 401: me 외 쿼리 리셋 + 전역 안내", ()
     state.loggedIn = true;
     act(() => client.setQueryData(queryKeys.me, makeMe()));
     await waitFor(() => expect(screen.queryByTestId("session-expired-banner")).not.toBeInTheDocument());
+  });
+});
+
+describe("TASK-29#2 me 재조회: 창 포커스 + 탭이 보일 때 5분마다", () => {
+  function MeProbe() {
+    const { data } = useMe();
+    return <p>{data === undefined ? "모름" : data ? data.nickname : "익명"}</p>;
+  }
+
+  afterEach(() => {
+    focusManager.setFocused(undefined);
+  });
+
+  it("TASK-29#2 useMe 는 포커스 재조회와 5분 주기(백그라운드 탭 제외)를 켠다", async () => {
+    server.use(meHandler(makeMe()));
+    const { client } = renderWithQuery(<MeProbe />);
+    await screen.findByText("테스터");
+    const options = client.getQueryCache().find({ queryKey: queryKeys.me })!.observers[0].options;
+    expect(options.refetchOnWindowFocus).toBe(true);
+    expect(options.refetchInterval).toBe(ME_REFETCH_INTERVAL);
+    expect(ME_REFETCH_INTERVAL).toBe(5 * 60_000);
+    expect(options.refetchIntervalInBackground).toBe(false);
+  });
+
+  it("TASK-29#2 창에 포커스가 돌아오면 me 를 다시 받고, 세션이 끝났으면 만료로 처리한다", async () => {
+    let loggedIn = true;
+    let calls = 0;
+    server.use(
+      http.get("*/api/auth/me", () => {
+        calls++;
+        return loggedIn ? HttpResponse.json(makeMe()) : apiError(401, "unauthorized", "인증이 필요합니다");
+      }),
+    );
+    const { client } = renderWithQuery(<MeProbe />);
+    // 기본 staleTime(30초)이 지난 것처럼 본다.
+    client.setDefaultOptions({ queries: { retry: false, staleTime: 0 } });
+    client.setQueryData(queryKeys.categories, []);
+    await screen.findByText("테스터");
+    expect(calls).toBe(1);
+
+    loggedIn = false;
+    act(() => focusManager.setFocused(false));
+    act(() => focusManager.setFocused(true));
+
+    await screen.findByText("익명");
+    expect(calls).toBe(2);
+    expect(client.getQueryData(SESSION_EXPIRED_KEY)).toBe(true);
+    expect(client.getQueryData(queryKeys.categories)).toBeUndefined();
+  });
+
+  it("TASK-29#2 로그아웃처럼 직접 null 로 바꾼 것은 만료가 아니다", async () => {
+    server.use(meHandler(makeMe()));
+    const { client } = renderWithQuery(<MeProbe />);
+    await screen.findByText("테스터");
+    act(() => client.setQueryData(queryKeys.me, null));
+    await screen.findByText("익명");
+    expect(client.getQueryData(SESSION_EXPIRED_KEY)).toBeUndefined();
   });
 });
