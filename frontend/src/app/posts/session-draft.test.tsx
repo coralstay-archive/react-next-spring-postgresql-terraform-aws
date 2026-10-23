@@ -1,3 +1,4 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -6,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostEditView } from "@/app/posts/edit/post-edit-view";
 import { PostEditor } from "@/components/board/post-editor";
 import { RequireAdmin, RequireAuth } from "@/components/guards";
+import { SessionExpiredBanner } from "@/components/session-expired-banner";
 import { draftKeys, loadDraft, saveDraft } from "@/lib/drafts";
 import { queryKeys } from "@/lib/query";
 import { categoriesHandler, makePost } from "@/test/board";
@@ -172,3 +174,37 @@ describe("TASK-29#3 세션이 끝나도 작성 화면을 유지하고 초안을 
     expect(navigation.replace).not.toHaveBeenCalled();
   });
 });
+
+describe("TASK-29#3 작성 화면에서는 세션 안내를 하단 고정 안내 하나만 보인다", () => {
+  beforeEach(() => {
+    navigation.reset("/posts/new/");
+  });
+
+  it("TASK-29#3 상단 만료 배너와 오류 속 '로그인하기' 링크를 숨기고, 작성 화면을 떠나면 상단 배너가 다시 보인다", async () => {
+    server.use(...backend().handlers);
+    const { client, rerender } = renderWithQuery(
+      <>
+        <SessionExpiredBanner />
+        <NewPost />
+      </>,
+    );
+
+    await fill(await screen.findByTestId("editor-title"), "제목");
+    await fill(screen.getByTestId("editor-content"), "본문");
+    await userEvent.click(screen.getByTestId("editor-submit"));
+
+    await screen.findByTestId("session-lost-notice");
+    expect(await screen.findByTestId("editor-error")).toHaveTextContent("로그인이 필요합니다");
+    expect(screen.queryByTestId("session-expired-banner")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "로그인하기" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: /로그인/ })).toHaveLength(1);
+
+    rerender(
+      <QueryClientProvider client={client}>
+        <SessionExpiredBanner />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId("session-expired-banner")).toBeInTheDocument();
+  });
+});
+

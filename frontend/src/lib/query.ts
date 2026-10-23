@@ -31,6 +31,12 @@ export const queryKeys = {
 export const SESSION_EXPIRED_KEY = ["auth", "sessionExpired"] as const;
 
 /**
+ * 지금 화면에 떠 있는 작성 화면 안내(RequireAuth 의 `SessionLostNotice`) 수. 1 이상이면 상단 `SessionExpiredBanner` 를 숨긴다
+ * (작성 화면에서는 안내를 하나만 보인다, TASK-29#3 리뷰 결정).
+ */
+export const SESSION_LOST_NOTICES_KEY = ["auth", "sessionLostNotices"] as const;
+
+/**
  * 명시적 로그아웃 중 플래그(TASK-29#5). 로그아웃 성공 때 true, 다시 로그인하면(me 가 사용자) false.
  * 작성 화면은 이 동안 "로그인이 끊겼습니다(임시 저장됨)" 안내를 띄우지 않고, 언마운트돼도 초안을 다시 만들지 않는다.
  */

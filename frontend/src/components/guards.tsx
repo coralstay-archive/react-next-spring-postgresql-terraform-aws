@@ -1,7 +1,8 @@
 "use client";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { Fragment, useEffect, type ReactNode } from "react";
+import { createContext, Fragment, useContext, useEffect, type ReactNode } from "react";
 
 import Link from "next/link";
 
@@ -9,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useCurrentPath } from "@/hooks/use-current-path";
 import { loginHref, useAuthFlag, useSessionUser } from "@/lib/auth";
-import { LOGGED_OUT_KEY } from "@/lib/query";
+import { LOGGED_OUT_KEY, SESSION_LOST_NOTICES_KEY } from "@/lib/query";
 
 function Loading() {
   return (
@@ -19,6 +20,37 @@ function Loading() {
   );
 }
 
+/** 이 화면이 하단 고정 재로그인 안내를 띄우고 있는가. 안쪽 오류 알림(`ApiErrorAlert`)은 로그인 링크를 겹쳐 보이지 않는다. */
+const SessionLostNoticeShown = createContext(false);
+
+export function useSessionLostNoticeShown(): boolean {
+  return useContext(SessionLostNoticeShown);
+}
+
+/** 하단 안내가 떠 있는 동안 상단 만료 배너를 숨기도록 수를 센다(언마운트·안내가 사라지면 뺀다). */
+function useRegisterSessionLostNotice(active: boolean) {
+  const client = useQueryClient();
+  useEffect(() => {
+    if (!active) return;
+    const add = (delta: number) => {
+      client.setQueryData<number>(SESSION_LOST_NOTICES_KEY, (count = 0) => Math.max(0, count + delta));
+    };
+    add(1);
+    return () => add(-1);
+  }, [active, client]);
+}
+
+/** 작성 화면 안내가 몇 개 떠 있는가(상단 배너가 숨을지 정한다). */
+export function useSessionLostNoticeCount(): number {
+  const { data } = useQuery({
+    queryKey: SESSION_LOST_NOTICES_KEY,
+    queryFn: () => 0,
+    enabled: false,
+    staleTime: Infinity,
+  });
+  return data ?? 0;
+}
+
 /**
  * 로그인이 필요한 화면. 익명이면 `/login/?next=<현재 경로+쿼리>` 로 보낸다(정적 export 라 클라이언트에서 판단).
  * 쿼리(`/posts/edit/?id=3`)까지 담으려고 `useSearchParams` 를 쓰므로 `<Suspense>` 안에서 쓴다.
@@ -26,12 +58,15 @@ function Loading() {
  * 내용을 한 번 그린 뒤 세션이 끝나면(TASK-29#3, FE-9·FE-32) 로그인으로 보내지 않고 내용을 그대로 둔 채 위에 재로그인 안내를 붙인다 —
  * 작성 중인 입력·첨부·다이얼로그가 언마운트되어 사라지지 않게. 입력은 초안으로도 남는다(lib/drafts.ts).
  * 사용자가 다른 계정으로 바뀌면 내용을 다시 마운트한다(A 의 입력이 B 화면·B 초안으로 넘어가지 않게).
+ * 안내는 이 하단 고정 안내 하나만 보인다: 그동안 상단 만료 배너와 안쪽 오류 알림의 "로그인하기" 링크는 숨는다.
  */
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { data: me, user, isError, isFetching, refetch, expired } = useSessionUser();
   const router = useRouter();
   const current = useCurrentPath();
   const loggedOut = useAuthFlag(LOGGED_OUT_KEY);
+  const showNotice = expired && !loggedOut;
+  useRegisterSessionLostNotice(showNotice);
 
   useEffect(() => {
     if (me === null && !expired) router.replace(loginHref(current));
@@ -47,10 +82,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   // 만료 전후로 트리 모양을 같게 둔다(children 위치가 바뀌면 다시 마운트되어 입력이 사라진다).
   // 다만 계정이 A→B 로 바뀌면(TASK-29#1·#3) 사용자 id key 로 일부러 다시 마운트해 A 의 입력·상태를 버리고 빈 화면으로 연다.
   return (
-    <>
-      {expired ? <SessionLostNotice /> : null}
+    <SessionLostNoticeShown.Provider value={showNotice}>
+      {showNotice ? <SessionLostNotice /> : null}
       <Fragment key={user?.id}>{children}</Fragment>
-    </>
+    </SessionLostNoticeShown.Provider>
   );
 }
 
