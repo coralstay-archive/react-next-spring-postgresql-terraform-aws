@@ -26,6 +26,7 @@ export interface AdminUser {
 export type AdminActionType =
   | "USER_SUSPEND"
   | "USER_UNSUSPEND"
+  | "USER_SESSIONS_REVOKE"
   | "POST_HIDE"
   | "POST_UNHIDE"
   | "POST_RESTORE"
@@ -48,6 +49,7 @@ export interface AdminActionEntry {
 export const ACTION_LABELS: Record<string, string> = {
   USER_SUSPEND: "사용자 정지",
   USER_UNSUSPEND: "사용자 정지 해제",
+  USER_SESSIONS_REVOKE: "사용자 세션 끊기",
   POST_HIDE: "글 숨김",
   POST_UNHIDE: "글 숨김 해제",
   POST_RESTORE: "글 복구",
@@ -99,16 +101,26 @@ export type UserStatusResult = AdminUser & { warnings?: string[] };
 
 export const SESSION_REVOKE_FAILED = "session_revoke_failed";
 
-/** 정지 경고 문장(TASK-33#5). 모르는 코드는 코드를 그대로 보인다(서버가 새 경고를 더해도 무음이 되지 않게). */
+/**
+ * 정지 경고 문장(TASK-33#5). 모르는 코드는 코드 없이 일반 문장만 보인다(코드는 {@link reportUnknownWarnings} 가 콘솔로 남긴다) —
+ * 서버가 새 경고를 더해도 무음이 되지 않고, 화면에 내부 코드가 드러나지도 않는다.
+ */
 export function suspendWarningMessage(code: string, user: { nickname: string; id: number }): string {
   const who = `${user.nickname}(#${user.id})`;
   if (code === SESSION_REVOKE_FAILED) {
     return (
       `${who} 정지는 적용됐지만 로그인 세션을 모두 끊지 못했을 수 있습니다. 남은 세션으로도 글·댓글 쓰기는 막히지만, 읽기는 그 세션이 끝날 때까지 될 수 있습니다. ` +
-      "다시 정지하면(이미 정지된 상태는 그대로, 감사 로그에 한 줄 더 남습니다) 세션 끊기를 다시 시도합니다."
+      "'세션 끊기 다시 시도'는 정지 상태는 그대로 두고 세션만 다시 끊습니다(감사 로그에 세션 끊기로 한 줄 남습니다)."
     );
   }
-  return `${who} 정지는 적용됐지만 서버가 경고를 보냈습니다: ${code}`;
+  return `${who} 정지는 적용됐지만 서버가 확인이 필요한 경고를 보냈습니다.`;
+}
+
+/** 모르는 경고 코드를 콘솔에 남긴다(화면에는 일반 문장만, TASK-33#5). */
+export function reportUnknownWarnings(codes: readonly string[]) {
+  for (const code of codes) {
+    if (code !== SESSION_REVOKE_FAILED) console.warn(`알 수 없는 관리자 경고 코드: ${code}`);
+  }
 }
 
 export function useUserStatusAction() {
@@ -120,6 +132,24 @@ export function useUserStatusAction() {
       void client.invalidateQueries({ queryKey: queryKeys.adminUsers });
       void invalidateActions(client);
     },
+  });
+}
+
+/** 세션 끊기 응답(TASK-33#5): 정지 응답과 같은 `warnings` 모양. */
+export interface RevokeSessionsResult {
+  warnings: string[];
+}
+
+/**
+ * 세션 끊기(TASK-33#5): 정지 상태는 그대로 두고 그 사용자의 세션·refresh 토큰만 끊는다(멱등, 서버
+ * `POST /admin/users/{id}/sessions/revoke`). 정지 경고의 '세션 끊기 다시 시도'가 쓴다. 감사 로그가 한 줄 늘어난다.
+ */
+export function useRevokeSessions() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      api<RevokeSessionsResult>(`/admin/users/${id}/sessions/revoke`, { method: "POST", body: reasonBody(reason) }),
+    onSuccess: () => void invalidateActions(client),
   });
 }
 

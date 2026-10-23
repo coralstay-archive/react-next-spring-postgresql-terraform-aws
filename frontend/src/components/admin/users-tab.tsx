@@ -10,8 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  reportUnknownWarnings,
+  SESSION_REVOKE_FAILED,
   suspendWarningMessage,
   useAdminUsers,
+  useRevokeSessions,
   useUserStatusAction,
   type AdminUser,
   type UserFilters,
@@ -21,7 +24,10 @@ import { formatDate } from "@/lib/board";
 import { javaStrip } from "@/lib/board-query";
 
 type Pending = { user: AdminUser; action: "suspend" | "unsuspend" };
-/** 정지는 됐지만 서버가 경고(warnings)를 보낸 대상. 다시 시도는 같은 사유로 정지를 다시 보낸다(멱등). */
+/**
+ * 정지는 됐지만 서버가 경고(warnings)를 보낸 대상. 다시 시도는 정지를 다시 보내지 않고 세션 끊기 API 를 같은 사유로 부른다(멱등, 정지
+ * 상태는 그대로 — TASK-33#5).
+ */
 type SuspendWarning = { user: AdminUser; reason: string; codes: string[] };
 
 /** 사용자 탭 (TASK-15#1): 검색(닉네임·이메일·전화), 상태 필터, 페이지, 정지·해제(확인 + 사유). */
@@ -35,7 +41,7 @@ export function UsersTab() {
   const list = useAdminUsers(filters);
   const mutation = useUserStatusAction();
   const [warning, setWarning] = useState<SuspendWarning | null>(null);
-  const retry = useUserStatusAction();
+  const retry = useRevokeSessions();
 
   const search = (event: FormEvent) => {
     event.preventDefault();
@@ -64,6 +70,7 @@ export function UsersTab() {
             setWarning((w) => (w?.user.id === user.id ? null : w));
             return;
           }
+          reportUnknownWarnings(codes);
           retry.reset();
           setWarning({ user, reason, codes });
         },
@@ -71,14 +78,21 @@ export function UsersTab() {
     );
   };
 
-  const retrySuspend = () => {
+  const retryRevoke = () => {
     if (!warning) return;
     const target = warning;
+    // 최신 목록에서 그 사용자가 더는 정지 상태가 아니면(그사이 해제됨) 이 안내는 끝난 일이다 — 다시 시도하지 않고 닫는다.
+    const latest = list.data?.items.find((u) => u.id === target.user.id);
+    if (latest && latest.status !== "SUSPENDED") {
+      setWarning(null);
+      return;
+    }
     retry.mutate(
-      { id: target.user.id, action: "suspend", reason: target.reason },
+      { id: target.user.id, reason: target.reason },
       {
         onSuccess: (result) => {
           const codes = result.warnings ?? [];
+          reportUnknownWarnings(codes);
           setWarning(codes.length > 0 ? { ...target, codes } : null);
         },
       },
@@ -125,15 +139,17 @@ export function UsersTab() {
             ))}
             <ApiErrorAlert error={retry.error} testId="admin-suspend-retry-error" />
             <div className="flex gap-2">
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={retry.isPending}
-                onClick={retrySuspend}
-                data-testid="admin-suspend-retry"
-              >
-                세션 끊기 다시 시도
-              </Button>
+              {warning.codes.includes(SESSION_REVOKE_FAILED) && (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={retry.isPending}
+                  onClick={retryRevoke}
+                  data-testid="admin-suspend-retry"
+                >
+                  세션 끊기 다시 시도
+                </Button>
+              )}
               <Button size="xs" variant="ghost" onClick={() => setWarning(null)} data-testid="admin-suspend-warning-close">
                 닫기
               </Button>

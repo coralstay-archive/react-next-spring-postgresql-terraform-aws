@@ -149,76 +149,104 @@ describe("TASK-33#4 관리자 페이저 OFFSET 상한", () => {
 });
 
 // TASK-33#5 정지 응답의 warnings(TASK-27#3): session_revoke_failed 면 정지는 됐지만 세션을 다 끊지 못했을 수 있음을 알리고 재시도를 준다.
+// 재시도는 정지를 다시 보내지 않고 세션 끊기 전용 API(POST /admin/users/{id}/sessions/revoke)를 부른다.
 describe("TASK-33#5 정지 경고(warnings)", () => {
   beforeEach(() => navigation.reset("/admin/"));
 
-  function suspendFlow(responses: string[][]) {
-    const bodies: unknown[] = [];
-    let status: AdminUser["status"] = "ACTIVE";
+  function suspendFlow(suspendWarnings: string[], revokeResponses: string[][] = [[]]) {
+    const calls = { suspend: [] as unknown[], revoke: [] as unknown[] };
+    const state = { status: "ACTIVE" as AdminUser["status"] };
     server.use(
       meHandler(ADMIN),
       csrfHandler(),
-      http.get("*/api/admin/users", () => HttpResponse.json(pageOf([makeUser({ status })]))),
+      http.get("*/api/admin/users", () => HttpResponse.json(pageOf([makeUser({ status: state.status })]))),
       http.post("*/api/admin/users/:id/suspend", async ({ request }) => {
-        bodies.push(await request.json());
-        status = "SUSPENDED";
-        const warnings = responses[Math.min(bodies.length - 1, responses.length - 1)];
-        return HttpResponse.json({ ...makeUser({ status }), warnings });
+        calls.suspend.push(await request.json());
+        state.status = "SUSPENDED";
+        return HttpResponse.json({ ...makeUser({ status: state.status }), warnings: suspendWarnings });
+      }),
+      http.post("*/api/admin/users/:id/sessions/revoke", async ({ request, params }) => {
+        calls.revoke.push({ id: params.id, body: await request.json() });
+        const warnings = revokeResponses[Math.min(calls.revoke.length - 1, revokeResponses.length - 1)];
+        return HttpResponse.json({ warnings });
       }),
     );
-    return bodies;
+    return { calls, state };
   }
 
   async function suspend(reason: string) {
-    renderAdmin("users");
+    const rendered = renderAdmin("users");
     await userEvent.click(await screen.findByTestId("admin-user-suspend"));
     const dialog = await screen.findByRole("alertdialog");
     if (reason) await userEvent.type(within(dialog).getByTestId("admin-reason-input"), reason);
     await userEvent.click(within(dialog).getByTestId("admin-confirm-submit"));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    return rendered;
   }
 
   it("TASK-33#5 session_revoke_failed 면 다이얼로그를 닫은 뒤 정지는 적용됐고 세션이 남았을 수 있다고 안내한다", async () => {
-    suspendFlow([["session_revoke_failed"]]);
+    suspendFlow(["session_revoke_failed"]);
     await suspend("스팸");
     const warning = await screen.findByTestId("admin-suspend-warning");
     expect(warning).toHaveTextContent("회원(#5)");
     expect(warning).toHaveTextContent("정지는 적용됐지만");
     expect(warning).toHaveTextContent("세션");
-    expect(warning).toHaveTextContent("다시 정지");
+    expect(warning).toHaveTextContent("정지 상태는 그대로");
     expect(within(warning).getByRole("button", { name: "세션 끊기 다시 시도" })).toBeInTheDocument();
   });
 
-  it("TASK-33#5 다시 시도는 같은 사유로 정지를 다시 보내고(멱등), 경고가 없으면 안내를 닫는다", async () => {
-    const bodies = suspendFlow([["session_revoke_failed"], []]);
+  it("TASK-33#5 다시 시도는 정지가 아니라 세션 끊기 API 를 같은 사유로 부르고, 경고가 없으면 안내를 닫는다", async () => {
+    const { calls } = suspendFlow(["session_revoke_failed"], [[]]);
     await suspend("스팸");
     const warning = await screen.findByTestId("admin-suspend-warning");
     await userEvent.click(within(warning).getByRole("button", { name: "세션 끊기 다시 시도" }));
     await waitFor(() => expect(screen.queryByTestId("admin-suspend-warning")).not.toBeInTheDocument());
-    expect(bodies).toEqual([{ reason: "스팸" }, { reason: "스팸" }]);
+    expect(calls.suspend).toEqual([{ reason: "스팸" }]);
+    expect(calls.revoke).toEqual([{ id: "5", body: { reason: "스팸" } }]);
   });
 
   it("TASK-33#5 다시 시도도 경고면 안내를 그대로 둔다", async () => {
-    const bodies = suspendFlow([["session_revoke_failed"]]);
+    const { calls } = suspendFlow(["session_revoke_failed"], [["session_revoke_failed"]]);
     await suspend("스팸");
     const warning = await screen.findByTestId("admin-suspend-warning");
     await userEvent.click(within(warning).getByRole("button", { name: "세션 끊기 다시 시도" }));
-    await waitFor(() => expect(bodies).toHaveLength(2));
+    await waitFor(() => expect(calls.revoke).toHaveLength(1));
     await waitFor(() => expect(within(warning).getByRole("button", { name: "세션 끊기 다시 시도" })).toBeEnabled());
     expect(screen.getByTestId("admin-suspend-warning")).toHaveTextContent("정지는 적용됐지만");
+    expect(calls.suspend).toHaveLength(1);
   });
 
-  it("TASK-33#5 모르는 경고 코드는 코드를 그대로 알리고, 닫을 수 있다", async () => {
-    suspendFlow([["something_new"]]);
+  it("TASK-33#5 최신 목록에서 그 사용자가 더는 정지 상태가 아니면 다시 시도하지 않고 안내를 닫는다", async () => {
+    const { calls, state } = suspendFlow(["session_revoke_failed"]);
+    const { client } = await suspend("스팸");
+    const warning = await screen.findByTestId("admin-suspend-warning");
+    expect(await screen.findByTestId("admin-user-unsuspend")).toBeInTheDocument();
+
+    // 다른 관리자가 그사이 정지를 해제했다 — 목록을 다시 받으면 ACTIVE.
+    state.status = "ACTIVE";
+    await client.invalidateQueries({ queryKey: queryKeys.adminUsers });
+    expect(await screen.findByTestId("admin-user-suspend")).toBeInTheDocument();
+
+    await userEvent.click(within(warning).getByRole("button", { name: "세션 끊기 다시 시도" }));
+    await waitFor(() => expect(screen.queryByTestId("admin-suspend-warning")).not.toBeInTheDocument());
+    expect(calls.revoke).toHaveLength(0);
+  });
+
+  it("TASK-33#5 모르는 경고 코드는 일반 문장만 보이고 코드는 콘솔로 남기며, 닫을 수 있다", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    suspendFlow(["something_new"]);
     await suspend("");
     const warning = await screen.findByTestId("admin-suspend-warning");
-    expect(warning).toHaveTextContent("something_new");
+    expect(warning).toHaveTextContent("서버가 확인이 필요한 경고를 보냈습니다");
+    expect(warning).not.toHaveTextContent("something_new");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("something_new"));
     await userEvent.click(within(warning).getByRole("button", { name: "닫기" }));
     expect(screen.queryByTestId("admin-suspend-warning")).not.toBeInTheDocument();
+    warn.mockRestore();
   });
 
   it("TASK-33#5 warnings 가 비었으면 안내가 없다", async () => {
-    suspendFlow([[]]);
+    suspendFlow([]);
     await suspend("스팸");
     expect(await screen.findByTestId("admin-user-unsuspend")).toBeInTheDocument();
     expect(screen.queryByTestId("admin-suspend-warning")).not.toBeInTheDocument();
