@@ -341,3 +341,137 @@ describe("TASK-28#4 OAuth 콜백 오류 코드", () => {
     expect(screen.getByRole("alert")).not.toHaveTextContent("brand_new_provider_error");
   });
 });
+
+// TASK-32#2 FE-18: 서버는 틀린 시도 5번에 챌린지를 폐기하지만 응답은 계속 같은 401 invalid_otp 다. 폼이 지금 챌린지의 실패를 세어
+// 5번째면 인증번호 칸을 비우고 막은 뒤 다시 받기를 안내한다.
+describe("TASK-32#2 OTP 5회 실패 뒤 다시 받기 안내", () => {
+  function otpHandlers({ verify }: { verify: () => Response }) {
+    const sent: string[] = [];
+    const verified: unknown[] = [];
+    let next = 1;
+    return {
+      sent,
+      verified,
+      handlers: [
+        csrfHandler(),
+        http.post("*/api/auth/phone/otp", () => {
+          const challengeId = `ch-${next++}`;
+          sent.push(challengeId);
+          return HttpResponse.json({ challengeId, expiresIn: 180 }, { status: 202 });
+        }),
+        http.post("*/api/auth/phone/verify", async ({ request }) => {
+          verified.push(await request.json());
+          return verify();
+        }),
+      ],
+    };
+  }
+
+  async function failTimes(times: number) {
+    for (let i = 0; i < times; i++) {
+      const input = screen.getByLabelText("인증번호");
+      await userEvent.clear(input);
+      await userEvent.type(input, "000000");
+      await userEvent.click(screen.getByRole("button", { name: "확인" }));
+      await screen.findByRole("alert");
+    }
+  }
+
+  it("TASK-32#2 5번째 invalid_otp 면 인증번호 칸을 비우고 막으며 다시 받으라고 안내한다", async () => {
+    const otp = otpHandlers({ verify: () => apiError(401, "invalid_otp", "인증번호가 올바르지 않습니다") });
+    server.use(...otp.handlers);
+    renderWithQuery(<PhoneOtpForm onVerified={vi.fn()} />);
+
+    await userEvent.type(screen.getByLabelText("휴대폰 번호"), "01012345678");
+    await userEvent.click(screen.getByRole("button", { name: "인증번호 받기" }));
+    await screen.findByLabelText("인증번호");
+
+    await failTimes(4);
+    expect(screen.getByLabelText("인증번호")).toBeEnabled();
+    expect(screen.queryByTestId("otp-locked")).not.toBeInTheDocument();
+
+    await failTimes(1);
+    const locked = await screen.findByTestId("otp-locked");
+    expect(locked).toHaveTextContent("5번 틀려");
+    expect(locked).toHaveTextContent("인증번호를 다시 받으세요");
+    expect(screen.getByLabelText("인증번호")).toHaveValue("");
+    expect(screen.getByLabelText("인증번호")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "확인" })).toBeDisabled();
+    expect(screen.queryByRole("timer")).not.toBeInTheDocument();
+    expect(otp.verified).toHaveLength(5);
+  });
+
+  it("TASK-32#2 잠긴 뒤 인증번호를 다시 받으면 새 챌린지로 다시 확인할 수 있다", async () => {
+    let ok = false;
+    const otp = otpHandlers({
+      verify: () => (ok ? HttpResponse.json(makeMe({ providers: ["PHONE"] })) : apiError(401, "invalid_otp", "x")),
+    });
+    server.use(...otp.handlers);
+    const onVerified = vi.fn();
+    renderWithQuery(<PhoneOtpForm onVerified={onVerified} />);
+
+    await userEvent.type(screen.getByLabelText("휴대폰 번호"), "01012345678");
+    await userEvent.click(screen.getByRole("button", { name: "인증번호 받기" }));
+    await screen.findByLabelText("인증번호");
+    await failTimes(5);
+    await screen.findByTestId("otp-locked");
+
+    await userEvent.click(screen.getByRole("button", { name: "인증번호 다시 받기" }));
+    await waitFor(() => expect(screen.queryByTestId("otp-locked")).not.toBeInTheDocument());
+    expect(otp.sent).toEqual(["ch-1", "ch-2"]);
+    const input = screen.getByLabelText("인증번호");
+    expect(input).toBeEnabled();
+
+    ok = true;
+    await userEvent.type(input, "123456");
+    await userEvent.click(screen.getByRole("button", { name: "확인" }));
+    await waitFor(() => expect(onVerified).toHaveBeenCalled());
+    expect(otp.verified.at(-1)).toEqual({ challengeId: "ch-2", code: "123456" });
+  });
+
+  it("TASK-32#2 잠긴 뒤 다시 받기가 429 면 남은 시간 동안 버튼을 막고 잠금 안내는 남긴다", async () => {
+    const otp = otpHandlers({ verify: () => apiError(401, "invalid_otp", "x") });
+    let limited = false;
+    server.use(...otp.handlers);
+    // 나중에 넣은 핸들러가 먼저 맞는다(발송을 429 로 덮는다).
+    server.use(
+      http.post("*/api/auth/phone/otp", () =>
+        limited
+          ? HttpResponse.json(
+              { status: 429, error: "rate_limited", message: "잠시 후" },
+              { status: 429, headers: { "Retry-After": "40" } },
+            )
+          : HttpResponse.json({ challengeId: "ch-1", expiresIn: 180 }, { status: 202 }),
+      ),
+    );
+    renderWithQuery(<PhoneOtpForm onVerified={vi.fn()} />);
+
+    await userEvent.type(screen.getByLabelText("휴대폰 번호"), "01012345678");
+    await userEvent.click(screen.getByRole("button", { name: "인증번호 받기" }));
+    await screen.findByLabelText("인증번호");
+    await failTimes(5);
+    await screen.findByTestId("otp-locked");
+
+    limited = true;
+    await userEvent.click(screen.getByRole("button", { name: "인증번호 다시 받기" }));
+    const send = await screen.findByRole("button", { name: /초 후 다시 시도/ });
+    expect(send).toBeDisabled();
+    expect(screen.getByTestId("otp-locked")).toBeInTheDocument();
+    expect(screen.getByLabelText("인증번호")).toBeDisabled();
+  });
+
+  it("TASK-32#2 인증번호 오류가 아닌 실패(503 등)는 세지 않는다", async () => {
+    const otp = otpHandlers({ verify: () => apiError(503, "db_unavailable", "x") });
+    server.use(...otp.handlers);
+    renderWithQuery(<PhoneOtpForm onVerified={vi.fn()} />);
+
+    await userEvent.type(screen.getByLabelText("휴대폰 번호"), "01012345678");
+    await userEvent.click(screen.getByRole("button", { name: "인증번호 받기" }));
+    await screen.findByLabelText("인증번호");
+    await failTimes(5);
+
+    expect(screen.queryByTestId("otp-locked")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("인증번호")).toBeEnabled();
+    expect(screen.getByLabelText("인증번호")).toHaveValue("000000");
+  });
+});
