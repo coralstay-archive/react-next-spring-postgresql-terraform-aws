@@ -127,6 +127,26 @@ function mapFieldErrors(fields: Record<string, string>) {
   return { mapped, unmapped, attachmentIndexes };
 }
 
+/** 글 저장 때 첨부 연결이 거절된 코드(TASK-31#4, FE-25). 문제 첨부를 편집기에서 표시하고 그것만 빼고 다시 저장하게 한다. */
+const ATTACHMENT_LINK_ERRORS = [
+  "unknown_attachment",
+  "attachment_not_confirmed",
+  "attachment_in_use",
+  "attachment_expired",
+  "attachment_not_found",
+  "attachment_forbidden",
+];
+
+/**
+ * 첨부 연결 오류의 문제 첨부 id. 서버는 구조화된 id 를 주지 않고 메시지 끝에 붙인다(`없는 첨부입니다: 101`) — 보낸 id 중 하나일 때만 믿는다.
+ * 찾지 못하면(attachment_forbidden 등) null.
+ */
+function linkErrorAttachmentId(message: string, sentIds: number[]): number | null {
+  const match = /(\d+)\s*$/.exec(message);
+  const id = match ? Number(match[1]) : NaN;
+  return sentIds.includes(id) ? id : null;
+}
+
 const TEXTAREA =
   "border-input min-h-64 w-full rounded-lg border bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive";
 const SELECT = "border-input h-8 w-full rounded-lg border bg-transparent px-2 text-sm sm:w-64";
@@ -165,6 +185,8 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   const [tagText, setTagText] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [items, setItems] = useState<UploadItem[]>(() => doneItems(start.attachments));
+  // 저장 때 연결이 거절된 첨부 id → 안내(TASK-31#4).
+  const [problems, setProblems] = useState<Record<number, string>>({});
   const nextKey = useRef(0);
   // 한 번의 저장 의도 = 요청 하나(TASK-31#2 B1). 상태(isPending)는 다시 그려진 뒤에야 버튼을 막으므로, 같은 틱의 연속 제출(Enter 연타)은
   // ref 로 막는다. 실패하면 풀고, 성공하면 이동할 때까지 잠근 채 둔다.
@@ -223,15 +245,27 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       // 잠금(submitLock)은 풀지 않고 버튼도 비활성으로 둔다(이동이 끝나기 전 재클릭으로 두 번째 글이 생기지 않게, B1).
       router.replace(`/posts/view/?id=${saved.id}`);
     },
-    onError: (error) => {
+    onError: (error, body) => {
       submitLock.current = false;
       if (!isApiError(error)) return;
+      const sentIds = Array.isArray(body.attachmentIds) ? (body.attachmentIds as number[]) : [];
       // 그사이 삭제됐거나(404) 권한이 바뀐(403) 글: 상세 캐시를 다시 받게 한다(FE-21).
       if (post && (error.status === 404 || error.status === 403)) {
         void client.invalidateQueries({ queryKey: queryKeys.post(post.id) });
       }
-      if (error.fields) setFieldErrors(mapFieldErrors(error.fields).mapped);
-      else if (error.code === "invalid_tag" || error.code === "too_many_tags") setFieldErrors({ tags: errorMessage(error) });
+      if (error.fields) {
+        const { mapped, attachmentIndexes } = mapFieldErrors(error.fields);
+        setFieldErrors(mapped);
+        const found: Record<number, string> = {};
+        for (const [index, message] of attachmentIndexes) {
+          if (sentIds[index] !== undefined) found[sentIds[index]] = message;
+        }
+        setProblems(found);
+      } else if (ATTACHMENT_LINK_ERRORS.includes(error.code)) {
+        const id = linkErrorAttachmentId(error.message, sentIds);
+        if (id !== null) setProblems({ [id]: errorMessage(error) });
+        else setFieldErrors({ attachments: errorMessage(error) });
+      } else if (error.code === "invalid_tag" || error.code === "too_many_tags") setFieldErrors({ tags: errorMessage(error) });
       else if (error.code === "unknown_category" || error.code === "category_admin_only")
         setFieldErrors({ category: errorMessage(error) });
     },
@@ -244,7 +278,9 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     !(
       isApiError(save.error) &&
       (save.error.fields ||
-        ["invalid_tag", "too_many_tags", "unknown_category", "category_admin_only"].includes(save.error.code))
+        ["invalid_tag", "too_many_tags", "unknown_category", "category_admin_only", ...ATTACHMENT_LINK_ERRORS].includes(
+          save.error.code,
+        ))
     )
       ? save.error
       : null;
@@ -331,10 +367,23 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   };
 
   const removeItem = (key: string) => setItems((current) => current.filter((item) => item.key !== key));
+  const problemOf = (item: UploadItem) => (item.status === "done" ? problems[item.attachment.id] : undefined);
+  const hasProblems = items.some((item) => problemOf(item));
 
   // --- 제출 ---
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    submitWith(items);
+  };
+
+  /** 문제 첨부만 빼고 다시 저장(TASK-31#4). 칸에서 빼고, 같은 목록으로 바로 보낸다(상태 반영을 기다리지 않는다). */
+  const saveWithoutProblems = () => {
+    const remaining = items.filter((item) => !problemOf(item));
+    setItems(remaining);
+    submitWith(remaining);
+  };
+
+  const submitWith = (current: UploadItem[]) => {
     const errors: FieldErrors = validatePost({ title, content });
     let finalTags = tags;
     if (tagText.trim()) {
@@ -350,7 +399,8 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     if (submitLock.current) return;
     if (Object.values(errors).some(Boolean) || uploading) return;
 
-    const attachmentIds = items.flatMap((item) => (item.status === "done" ? [item.attachment.id] : []));
+    setProblems({});
+    const attachmentIds = current.flatMap((item) => (item.status === "done" ? [item.attachment.id] : []));
     const body: Record<string, unknown> = { title, content };
     // 작성: 카테고리 없음이면 생략. 수정: "" 는 카테고리를 뺀다(PATCH 규약).
     if (post) body.categorySlug = categorySlug;
@@ -508,6 +558,11 @@ export function PostEditor({ post }: { post?: PostDetail }) {
                   className="w-full"
                 />
               )}
+              {problemOf(item) && (
+                <p className="text-destructive" role="alert" data-testid="editor-attachment-problem">
+                  첨부 이미지 {index + 1}: {problemOf(item)}
+                </p>
+              )}
               {item.status === "error" && (
                 <p className="text-destructive" role="alert">
                   {item.name}: {item.error}
@@ -522,6 +577,13 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           ))}
         </ul>
         <FieldError message={fieldErrors.attachments} testId="editor-attachments-error" />
+        {hasProblems && (
+          <div>
+            <Button type="button" variant="outline" size="sm" disabled={save.isPending} onClick={saveWithoutProblems}>
+              문제 이미지 빼고 다시 저장
+            </Button>
+          </div>
+        )}
       </div>
 
       {formError && <ApiErrorAlert error={formError} testId="editor-error" />}
