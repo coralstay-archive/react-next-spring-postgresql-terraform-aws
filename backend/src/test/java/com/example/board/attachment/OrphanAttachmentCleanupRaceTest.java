@@ -83,6 +83,8 @@ class OrphanAttachmentCleanupRaceTest {
 		api = new Api(port);
 		uploads = new UploadClient(api);
 		s3 = UploadClient.s3(minio);
+		// 배포(V15) 직후의 유예는 따로 시험한다(AttachmentCleanupMigrationTest·startGrace). 여기서는 오래전에 배포한 것으로 둔다
+		jdbc.update("update attachment_cleanup_start set started_at = ?", ago(Duration.ofDays(365)));
 		pool = Executors.newSingleThreadExecutor();
 	}
 

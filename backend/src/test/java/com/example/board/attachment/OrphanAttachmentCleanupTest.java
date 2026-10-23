@@ -65,6 +65,8 @@ class OrphanAttachmentCleanupTest {
 		api = new Api(port);
 		uploads = new UploadClient(api);
 		s3 = UploadClient.s3(minio);
+		// 배포(V15) 직후의 유예는 따로 시험한다(AttachmentCleanupMigrationTest·startGrace). 여기서는 오래전에 배포한 것으로 둔다
+		jdbc.update("update attachment_cleanup_start set started_at = ?", ago(Duration.ofDays(365)));
 	}
 
 	@AfterEach
@@ -228,6 +230,28 @@ class OrphanAttachmentCleanupTest {
 
 		assertThat(detailAttachments(bearer, postId)).containsExactly(attachment);
 		assertThat(objectExists(key)).isTrue();
+	}
+
+	@Test
+	@DisplayName("TASK-26#4 TASK-26#B2 배포(V15) 전에 삭제된 글의 첨부도 배포 시각부터 유예 기간을 준다 — 배포 직후 첫 정리에 지우지 않는다")
+	void deletedBeforeDeployGetsGraceFromDeploy() {
+		String bearer = fixtures.bearer(fixtures.user());
+		long attachment = uploads.uploaded(bearer, "image/png", UploadClient.bytes(10));
+		String key = key(attachment);
+		long postId = post(bearer, attachment);
+		assertThat(api.delete("/posts/" + postId).bearer(bearer).send().statusCode()).isEqualTo(204);
+		ageConfirmed(attachment, Duration.ofDays(60));
+		ageDeleted(postId, Duration.ofDays(30));
+
+		jdbc.update("update attachment_cleanup_start set started_at = ?", ago(Duration.ofDays(6)));
+		cleanup.run();
+		assertThat(rowExists(attachment)).as("배포 6일째: 유예 안").isTrue();
+		assertThat(objectExists(key)).isTrue();
+
+		jdbc.update("update attachment_cleanup_start set started_at = ?", ago(Duration.ofDays(8)));
+		cleanup.run();
+		assertThat(rowExists(attachment)).as("배포 8일째: 유예 지남").isFalse();
+		assertThat(objectExists(key)).isFalse();
 	}
 
 	@Test

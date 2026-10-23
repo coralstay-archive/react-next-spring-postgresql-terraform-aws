@@ -15,6 +15,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
 
+	/** 정리 시작 시각(V15, 배포 시각)이 {@code cutoff} 전이다 — 그 전에는 삭제 글 첨부를 지우지 않는다(TASK-26#4). 행이 없으면 참. */
+	String STARTED_BEFORE_CUTOFF = "not exists (select 1 from attachment_cleanup_start s where s.started_at >= :cutoff)";
+
 	/** 사용자의 상태별 첨부 수 (TASK-22#3 미확정 개수 한도). */
 	long countByOwnerIdAndStatus(Long ownerId, AttachmentStatus status);
 
@@ -52,9 +55,12 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
 			+ " and coalesce(a.detached_at, a.confirmed_at) < :cutoff order by a.id limit :limit", nativeQuery = true)
 	List<Attachment> findUnlinkedBefore(Instant cutoff, int limit);
 
-	/** {@code cutoff} 전에 삭제된 글의 첨부 (TASK-26#4). */
+	/**
+	 * {@code cutoff} 전에 삭제된 글의 첨부 (TASK-26#4). 정리 시작 시각(V15 {@code attachment_cleanup_start}, 배포 시각)이 {@code cutoff}
+	 * 이후면 없다 — 배포 전에 삭제된 글도 배포 시각부터 유예를 준다.
+	 */
 	@Query(value = "select a.* from attachments a join posts p on p.id = a.post_id where p.deleted_at < :cutoff"
-			+ " order by a.id limit :limit", nativeQuery = true)
+			+ " and " + STARTED_BEFORE_CUTOFF + " order by a.id limit :limit", nativeQuery = true)
 	List<Attachment> findOfPostsDeletedBefore(Instant cutoff, int limit);
 
 	/**
@@ -67,8 +73,8 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
 	@Modifying
 	@Query(value = "delete from attachments a where a.id = :id and ((a.status = 'CONFIRMED' and a.post_id is null"
 			+ " and coalesce(a.detached_at, a.confirmed_at) < :cutoff)"
-			+ " or exists (select 1 from posts p where p.id = a.post_id and p.deleted_at < :cutoff for share))",
-			nativeQuery = true)
+			+ " or (" + STARTED_BEFORE_CUTOFF + " and exists (select 1 from posts p where p.id = a.post_id"
+			+ " and p.deleted_at < :cutoff for share)))", nativeQuery = true)
 	int deleteIfOrphanedBefore(Long id, Instant cutoff);
 
 }

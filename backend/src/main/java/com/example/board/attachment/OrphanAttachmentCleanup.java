@@ -21,7 +21,8 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
  * <li>삭제된(soft delete) 글의 첨부: 글의 삭제 시각부터. 유예 안에 관리자가 복구하면 손대지 않으므로 이미지가 그대로다(B2). 유예 뒤 복구한
  * 글에는 이미지가 없다</li>
  * </ul>
- * 숨김 글의 첨부는 대상이 아니다(숨김 해제가 흔하다).
+ * 숨김 글의 첨부는 대상이 아니다(숨김 해제가 흔하다). 배포 전 데이터도 배포 시각부터 유예한다(V15): 그 전에 뗀 첨부는 {@code detached_at} 을
+ * 배포 시각으로 채웠고, 삭제 글 첨부는 정리 시작 시각({@code attachment_cleanup_start}) + 유예 전에는 지우지 않는다.
  *
  * <p>공개 URL({@code /uploads/...})은 CloudFront 가 S3 의 같은 키를 읽어 주므로 객체를 지우면 열리지 않는다. 단 엣지에 이미 캐시된 사본은
  * CloudFront 캐시 TTL(CachingOptimized 기본 24시간) 동안 더 나갈 수 있다(docs/api.md).
