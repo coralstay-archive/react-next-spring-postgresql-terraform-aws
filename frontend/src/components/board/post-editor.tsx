@@ -178,7 +178,12 @@ export function PostEditor({ post }: { post?: PostDetail }) {
         : api<PostDetail>("/posts", { method: "POST", body }),
     onSuccess: (saved) => {
       autosave.discard();
-      client.setQueryData(queryKeys.post(saved.id), saved);
+      // FE-19(TASK-31#1): 작성 응답(조회수 0, 이번 조회 전)으로 상세 캐시를 채우지 않는다 — 상세 화면이 GET 으로 받아 조회수가 맞다.
+      // 수정은 바뀐 내용을 바로 보이게 응답으로 채우되 stale 로 표시해 상세가 열리면 다시 받는다.
+      if (post) {
+        client.setQueryData(queryKeys.post(saved.id), saved);
+        void client.invalidateQueries({ queryKey: queryKeys.post(saved.id), refetchType: "none" });
+      }
       void client.invalidateQueries({ queryKey: queryKeys.postLists });
       void client.invalidateQueries({ queryKey: ["tags"] });
       router.push(`/posts/view/?id=${saved.id}`);
