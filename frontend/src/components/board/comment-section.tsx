@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 
 import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
+import { StepUpNotice } from "@/components/step-up-notice";
 import { Button } from "@/components/ui/button";
 import { useCurrentPath } from "@/hooks/use-current-path";
 import { useDraftAutosave } from "@/hooks/use-draft-autosave";
@@ -162,9 +163,12 @@ function CommentEditor({ postId, user, onCreated }: { postId: number; user: Me; 
   // 초안(TASK-29#3·#4, B1): 입력이 있으면 (멈춘 뒤) 저장, 비면 지운다.
   const autosave = useDraftAutosave({ key: draftKey, ownerId: user.id, data: { content }, empty: !content });
 
+  // 제한 세션(TASK-32#3): 서버가 403 step_up_required 로 막으므로 등록을 미리 막는다. 입력은 그대로 되고 초안으로 남는다.
+  const restricted = user.stepUpRequired;
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (submitting.current) return;
+    if (submitting.current || restricted) return;
     const invalid = validateComment(content);
     setError(invalid);
     if (invalid) return;
@@ -194,8 +198,11 @@ function CommentEditor({ postId, user, onCreated }: { postId: number; user: Me; 
       />
       {error && <p className="text-destructive text-sm">{error}</p>}
       {create.isError && <ApiErrorAlert error={create.error} testId="comment-create-error" />}
+      {restricted && (
+        <StepUpNotice testId="comment-step-up">쓰던 댓글은 이 탭에 임시 저장됩니다.</StepUpNotice>
+      )}
       <div>
-        <Button type="submit" data-testid="comment-submit" disabled={create.isPending}>
+        <Button type="submit" data-testid="comment-submit" disabled={create.isPending || restricted}>
           댓글 등록
         </Button>
       </div>

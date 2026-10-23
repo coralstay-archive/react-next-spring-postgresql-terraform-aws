@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 
 import { ApiErrorAlert } from "@/components/board/api-error-alert";
+import { StepUpNotice } from "@/components/step-up-notice";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -185,6 +186,8 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   const { user } = useSessionUser();
   const categories = useCategories();
   const isAdmin = user?.role === "ADMIN";
+  // 제한 세션(TASK-32#3, FE-31): 저장·이미지 올리기는 서버가 403 step_up_required 로 막으므로 미리 막고 안내한다. 입력은 되고 초안으로 남는다.
+  const restricted = user?.stepUpRequired === true;
   // 초안 주인은 편집기를 연 사용자로 고정한다. 계정이 바뀌면 RequireAuth 가 다시 마운트하고, 그 전에도 A 의 입력을 B 의 id 로 쓰지 않는다.
   const [userId, setUserId] = useState(user?.id);
   if (userId === undefined && user) setUserId(user.id);
@@ -490,7 +493,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       }
     }
     setFieldErrors(errors);
-    if (submitLock.current) return;
+    if (submitLock.current || restricted) return;
     if (Object.values(errors).some(Boolean) || uploading) return;
 
     setProblems({});
@@ -651,7 +654,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           type="file"
           multiple
           accept={ALLOWED_IMAGE_TYPES.join(",")}
-          disabled={attached >= MAX_ATTACHMENTS}
+          disabled={restricted || attached >= MAX_ATTACHMENTS}
           onChange={onFiles}
           className="text-sm"
         />
@@ -721,8 +724,18 @@ export function PostEditor({ post }: { post?: PostDetail }) {
         </Alert>
       )}
 
+      {restricted && (
+        <StepUpNotice testId="editor-step-up">
+          입력한 내용은 이 탭에 임시 저장되므로, 다시 인증한 뒤 이 화면을 다시 열면 이어서 {post ? "저장" : "등록"}할 수 있습니다.
+        </StepUpNotice>
+      )}
+
       <div className="flex gap-2">
-        <Button type="submit" data-testid="editor-submit" disabled={save.isPending || save.isSuccess || uploading}>
+        <Button
+          type="submit"
+          data-testid="editor-submit"
+          disabled={restricted || save.isPending || save.isSuccess || uploading}
+        >
           {post ? "저장" : "등록"}
         </Button>
         <Button type="button" variant="outline" onClick={cancel}>
