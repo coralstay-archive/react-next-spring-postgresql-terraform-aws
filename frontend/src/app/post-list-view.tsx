@@ -3,7 +3,7 @@
 import { Eye, Heart } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
 import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
 import { PostFlags } from "@/components/board/post-flags";
@@ -36,6 +36,13 @@ export function PostListView() {
   const searchError = validateSearch(filters.q).error;
 
   const go = (patch: Partial<ListFilters>) => router.push(listHref(withFilters(filters, patch)));
+
+  // 범위 밖 page(TASK-33#2, FE-22): 응답의 totalPages 를 알면 마지막 쪽(0건이면 1쪽)으로 URL 을 바로잡는다. 뒤로 가기에 남지 않게 replace.
+  const totalPages = list.data?.totalPages;
+  const outOfRange = totalPages !== undefined && filters.page > Math.max(totalPages, 1);
+  useEffect(() => {
+    if (outOfRange) router.replace(listHref(withFilters(filters, { page: Math.max(totalPages, 1) })));
+  }, [outOfRange, totalPages, filters, router]);
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -78,7 +85,7 @@ export function PostListView() {
 
       {searchError && (
         <p className="text-destructive text-sm" data-testid="search-error">
-          {searchError}
+          <span className="font-medium">검색어 무시:</span> <span>{searchError}</span> 검색어 없이 목록을 보여 줍니다.
         </p>
       )}
 
@@ -93,7 +100,15 @@ export function PostListView() {
         />
       )}
       {list.isError && !list.data ? (
-        <ApiErrorAlert error={list.error} testId="post-list-error" />
+        <div className="flex flex-col items-start gap-2">
+          <ApiErrorAlert error={list.error} testId="post-list-error" />
+          {/* 필터·쪽 때문에 실패했을 수 있으니 모두 뺀 첫 화면으로 가는 길을 둔다(TASK-33#2). 이미 / 면 같은 화면이라 뺀다. */}
+          {listHref(filters) !== "/" && (
+            <Link href="/" className={buttonVariants({ variant: "outline", size: "sm" })} data-testid="post-list-first-page">
+              첫 페이지로
+            </Link>
+          )}
+        </div>
       ) : list.isPending ? (
         <p role="status" className="text-muted-foreground text-sm">
           불러오는 중…
@@ -116,28 +131,58 @@ export function PostListView() {
 }
 
 function CategoryTabs({ filters }: { filters: ListFilters }) {
-  const { data: categories } = useCategories();
+  const query = useCategories();
+  const categories = query.data;
   const tabs = [{ slug: undefined, name: "전체" }, ...(categories ?? [])];
   return (
-    <nav aria-label="카테고리" data-testid="category-tabs" className="flex flex-wrap gap-1 border-b">
-      {tabs.map((tab) => {
-        const active = filters.category === tab.slug;
-        return (
-          <Link
-            key={tab.slug ?? ""}
-            href={listHref(withFilters(filters, { category: tab.slug }))}
-            aria-current={active ? "page" : undefined}
-            data-testid="category-tab"
-            className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm",
-              active ? "border-foreground font-medium" : "text-muted-foreground border-transparent",
-            )}
-          >
-            {tab.name}
-          </Link>
-        );
-      })}
-    </nav>
+    <div className="flex flex-col gap-1">
+      <nav aria-label="카테고리" data-testid="category-tabs" className="flex flex-wrap gap-1 border-b">
+        {tabs.map((tab) => {
+          const active = filters.category === tab.slug;
+          return (
+            <Link
+              key={tab.slug ?? ""}
+              href={listHref(withFilters(filters, { category: tab.slug }))}
+              aria-current={active ? "page" : undefined}
+              data-testid="category-tab"
+              className={cn(
+                "-mb-px border-b-2 px-3 py-2 text-sm",
+                active ? "border-foreground font-medium" : "text-muted-foreground border-transparent",
+              )}
+            >
+              {tab.name}
+            </Link>
+          );
+        })}
+      </nav>
+      {query.isError && !categories && (
+        <LoadError testId="category-tabs-error" retrying={query.isFetching} onRetry={() => void query.refetch()}>
+          카테고리를 불러오지 못했습니다.
+        </LoadError>
+      )}
+    </div>
+  );
+}
+
+/** 보조 목록(카테고리 탭·인기 태그) 조회 실패 한 줄(TASK-33#2, FE-22). 목록은 그대로 쓸 수 있으니 alert 가 아닌 조용한 안내다. */
+function LoadError({
+  children,
+  onRetry,
+  retrying,
+  testId,
+}: {
+  children: ReactNode;
+  onRetry: () => void;
+  retrying: boolean;
+  testId: string;
+}) {
+  return (
+    <p className="text-muted-foreground flex items-center gap-2 text-sm" data-testid={testId}>
+      {children}
+      <Button variant="outline" size="xs" disabled={retrying} onClick={onRetry}>
+        다시 시도
+      </Button>
+    </p>
   );
 }
 
@@ -179,7 +224,8 @@ function SearchForm({ filters, onSearch }: { filters: ListFilters; onSearch: (q:
 }
 
 function TagChips({ filters }: { filters: ListFilters }) {
-  const { data: tags } = usePopularTags();
+  const query = usePopularTags();
+  const tags = query.data;
   return (
     <div className="flex flex-wrap items-center gap-2">
       {filters.tag && (
@@ -203,6 +249,11 @@ function TagChips({ filters }: { filters: ListFilters }) {
               </Link>
             ))}
         </nav>
+      )}
+      {query.isError && !tags && (
+        <LoadError testId="tag-chips-error" retrying={query.isFetching} onRetry={() => void query.refetch()}>
+          인기 태그를 불러오지 못했습니다.
+        </LoadError>
       )}
     </div>
   );
