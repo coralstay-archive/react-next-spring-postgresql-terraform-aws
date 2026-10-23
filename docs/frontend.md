@@ -33,8 +33,9 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
   (`errors.test.ts`가 전수 확인 — 백엔드 코드를 더하면 그 목록에도 더한다). OAuth 콜백 `?error=`는 `oauthErrorMessage(code, "login"|"link")`로,
   모르는 코드는 로그인·연결 각각의 콜백 전용 문구다. (TASK-28#2·#4)
 - **이동 경로** `safeNext`(`src/lib/auth.ts`): `?next=`·sessionStorage `auth.next`는 원문에 제어 문자(탭·개행)·역슬래시·공백이 없고, `/`로 시작하거나 현재
-  오리진의 절대 URL이며, `new URL(next, origin)`의 오리진이 같을 때만 쓴다. 쓰는 값은 `pathname+search+hash`뿐이고, 결과가 `//`로 시작하거나 경로를
-  디코드했을 때 역슬래시·제어 문자·`//`가 나오면(`/%2F/evil.com`) 버린다. 로그인·휴대폰 로그인·소셜 시작·OAuth 콜백·가입이 모두 이 함수를 거친다. (TASK-28#1)
+  오리진의 절대 URL이며, `new URL(next, origin)`의 오리진이 같을 때만 쓴다. 쓰는 값은 `pathname+search+hash`뿐이고, 결과가 `//`로 시작하면 버린다. 이어서
+  `pathname`을 `decodeURIComponent`로 한 번 디코드해, 디코드에 실패하거나 디코드한 경로가 `//`로 시작하거나(`/%2F/evil.com`) 역슬래시·제어
+  문자를 담으면(`/%5Cevil.com`) 버린다. 이 디코드 검사에서는 공백을 지운 뒤 문자를 보므로, 인코딩된 공백(`%20`)은 경로에 남아도 된다(원문의 생 공백은 위에서 이미 거부). 로그인·휴대폰 로그인·소셜 시작·OAuth 콜백·가입이 모두 이 함수를 거친다. (TASK-28#1)
 - **테스트**: Vitest + Testing Library + MSW(`src/test/server.ts`, 모르는 요청은 실패). 쿠키는 jsdom `document.cookie`로 흉내 낸다.
 
 ### 게시판 화면 (TASK-14)
