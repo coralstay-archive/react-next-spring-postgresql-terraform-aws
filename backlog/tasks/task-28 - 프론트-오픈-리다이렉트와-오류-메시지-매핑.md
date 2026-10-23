@@ -4,7 +4,7 @@ title: '프론트: 오픈 리다이렉트와 오류 메시지 매핑'
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 05:30'
+updated_date: '2026-10-23 05:54'
 labels:
   - frontend
   - security
@@ -51,3 +51,9 @@ documentation:
 5. (AC#5 FE-17) account-view: linked 는 SOCIAL_PROVIDERS id 일 때만 알림, 모르는 값은 표시하지 않음. 읽은 뒤 router.replace 로 linked 만 뺀 URL 로 바꿔 새로고침 시 반복되지 않게(다른 쿼리·hash 유지).
 6. docs/frontend.md 갱신, make test 전체 통과 확인.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+독립 리뷰(2026-10-23) 반영 결정(유저): 표에 없는 코드는 서버 message가 한국어(한글 포함, <> 없음)일 때만 보여 준다(유지, 같은 오리진 신뢰 경계). 계정 화면 ?error= 도 linked처럼 표시 후 주소에서 지운다(이 태스크에서). 입력칸 fields 문구는 백엔드 테스트로 막는다 — 모든 Bean Validation 제약에 한국어 message가 있는지 검사(B2). 그 밖에 연결 모드 전용 문구(oauth2_failed·server_error·invalid_request 등), linked 제거 시 hash 보존, frontend.md safeNext 설명 정정.
+<!-- SECTION:NOTES:END -->

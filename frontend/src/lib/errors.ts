@@ -109,6 +109,27 @@ export const OAUTH_LOGIN_FALLBACK = "소셜 로그인을 완료하지 못했습�
 /** 계정 연결 콜백(`/account/?error=`)이 모르는 코드일 때. */
 export const OAUTH_LINK_FALLBACK = "계정을 연결하지 못했습니다. 다시 시도하세요.";
 
+/**
+ * 계정 연결 콜백(`/account/?error=`) 전용 문장(TASK-28#4). 같은 OAuth 코드라도 로그인 문구("로그인을 …")가 아니라
+ * 계정 연결 문구로 보인다. 여기 없는 코드는 ERROR_MESSAGES 문장을 그대로 쓴다(로그인을 말하지 않는 문장들).
+ */
+export const OAUTH_LINK_MESSAGES: Record<string, string> = {
+  access_denied: "계정 연결을 취소했습니다.",
+  authorization_request_not_found: "계정 연결 요청이 만료되었습니다. 처음부터 다시 시도하세요.",
+  invalid_state_parameter: "계정 연결 요청이 만료되었습니다. 처음부터 다시 시도하세요.",
+  oauth2_failed: "계정 연결을 완료하지 못했습니다. 처음부터 다시 시도하세요.",
+  server_error: "계정 연결을 처리하는 중 오류가 났습니다. 잠시 후 다시 시도하세요.",
+  temporarily_unavailable: "연결할 제공자가 일시적으로 응답하지 않습니다. 잠시 후 다시 연결하세요.",
+  invalid_request: "계정 연결 요청이 올바르지 않습니다. 처음부터 다시 시도하세요.",
+  unauthorized_client: "이 로그인 수단의 설정에 문제가 있어 연결할 수 없습니다. 관리자에게 문의하세요.",
+  unsupported_response_type: "이 로그인 수단의 설정에 문제가 있어 연결할 수 없습니다. 관리자에게 문의하세요.",
+  invalid_client: "이 로그인 수단의 설정에 문제가 있어 연결할 수 없습니다. 관리자에게 문의하세요.",
+  unsupported_grant_type: "이 로그인 수단의 설정에 문제가 있어 연결할 수 없습니다. 관리자에게 문의하세요.",
+  login_required: "제공자 화면에서 인증을 마친 뒤 다시 연결하세요.",
+  consent_required: "정보 제공에 동의해야 계정을 연결할 수 있습니다. 다시 시도하세요.",
+  interaction_required: "제공자 화면에서 인증을 마친 뒤 다시 연결하세요.",
+};
+
 /** 소셜 로그인 시작 전에 돌아올 경로를 기억하는 sessionStorage 키(OAuth 왕복은 next 를 실어 나르지 못한다). */
 export const NEXT_STORAGE_KEY = "auth.next";
 
@@ -122,10 +143,13 @@ function mapped(code: string): string | null {
 
 /**
  * OAuth 콜백 `?error=<코드>`(TASK-28#4). 형식이 맞고 표에 있으면 표 문구, 아니면 콜백 전용 fallback.
- * 코드는 URL 에서 온 값이라 그대로 보이지 않는다.
+ * 연결 모드(`link`)는 OAUTH_LINK_MESSAGES 가 로그인 문구를 덮는다. 코드는 URL 에서 온 값이라 그대로 보이지 않는다.
  */
 export function oauthErrorMessage(code: string, mode: "login" | "link" = "login"): string {
-  return mapped(code) ?? (mode === "link" ? OAUTH_LINK_FALLBACK : OAUTH_LOGIN_FALLBACK);
+  const known = mapped(code);
+  if (mode === "login") return known ?? OAUTH_LOGIN_FALLBACK;
+  if (known === null) return OAUTH_LINK_FALLBACK;
+  return Object.hasOwn(OAUTH_LINK_MESSAGES, code) ? OAUTH_LINK_MESSAGES[code] : known;
 }
 
 export function errorMessage(error: unknown): string {

@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 
 import { api, ApiError } from "@/lib/api";
-import { ERROR_MESSAGES, errorMessage } from "@/lib/errors";
+import { ERROR_MESSAGES, errorMessage, OAUTH_LINK_MESSAGES, oauthErrorMessage } from "@/lib/errors";
 import { server } from "@/test/server";
 
 const HANGUL = /[가-힣]/;
@@ -184,5 +184,60 @@ describe("TASK-28#2 문서화된 백엔드 오류 코드 전수 매핑", () => {
   it("TASK-28#2 429 rate_limited 는 Retry-After 초를, 없으면 일반 문구를 쓴다", () => {
     expect(errorMessage(new ApiError(429, "rate_limited", "x", { retryAfter: 12 }))).toContain("12초");
     expect(errorMessage(new ApiError(429, "rate_limited", "x"))).toBe(ERROR_MESSAGES.rate_limited);
+  });
+});
+
+// TASK-28#4 FE-12: 계정 연결 콜백(/account/?error=)은 같은 코드라도 "로그인" 대신 "계정 연결" 문구를 쓴다.
+const OAUTH_CALLBACK_CODES = [
+  "access_denied",
+  "authorization_request_not_found",
+  "invalid_id_token",
+  "invalid_nonce",
+  "invalid_grant",
+  "invalid_token_response",
+  "invalid_user_info_response",
+  "invalid_user_info",
+  "unknown_provider",
+  "oauth2_failed",
+  "server_error",
+  "temporarily_unavailable",
+  "invalid_request",
+  "unauthorized_client",
+  "unsupported_response_type",
+  "invalid_client",
+  "unsupported_grant_type",
+  "invalid_scope",
+  "invalid_state_parameter",
+  "client_registration_not_found",
+  "login_required",
+  "consent_required",
+  "interaction_required",
+  "missing_signature_verifier",
+];
+
+describe("TASK-28#4 계정 연결 모드 OAuth 오류 문구", () => {
+  it.each(["oauth2_failed", "server_error", "invalid_request", "access_denied", "temporarily_unavailable"])(
+    "TASK-28#4 link 모드 %s 는 계정 연결 전용 문구다",
+    (code) => {
+      const message = oauthErrorMessage(code, "link");
+      expect(message).toBe(OAUTH_LINK_MESSAGES[code]);
+      expect(message).toContain("연결");
+      expect(message).not.toContain("로그인");
+      expectKoreanOnly(message, code);
+    },
+  );
+
+  it.each(OAUTH_CALLBACK_CODES)("TASK-28#4 link 모드 %s 는 로그인 문구를 쓰지 않는다('로그인 수단' 명사만 허용)", (code) => {
+    const message = oauthErrorMessage(code, "link");
+    expect(message.replaceAll("로그인 수단", "")).not.toContain("로그인");
+    expectKoreanOnly(message, code);
+  });
+
+  it("TASK-28#4 login 모드는 기존 표 문구 그대로, 연결 전용 표는 표에 있는 코드만 덮는다", () => {
+    expect(oauthErrorMessage("oauth2_failed")).toBe(ERROR_MESSAGES.oauth2_failed);
+    for (const code of Object.keys(OAUTH_LINK_MESSAGES)) {
+      expect(ERROR_MESSAGES[code]).toBeDefined();
+    }
+    expect(oauthErrorMessage("identity_in_use", "link")).toBe(ERROR_MESSAGES.identity_in_use);
   });
 });

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountView } from "@/app/account/account-view";
 import type { Identity } from "@/lib/identities";
-import { ERROR_MESSAGES, OAUTH_LINK_FALLBACK } from "@/lib/errors";
+import { ERROR_MESSAGES, OAUTH_LINK_FALLBACK, OAUTH_LINK_MESSAGES } from "@/lib/errors";
 import { queryKeys } from "@/lib/query";
 import { apiError, csrfHandler, server } from "@/test/server";
 import { makeMe, meHandler, navigation, renderWithQuery } from "@/test/utils";
@@ -196,11 +196,12 @@ describe("TASK-13#5 내 계정: step-up(제한 세션 다시 인증)", () => {
 });
 
 describe("TASK-28#4 계정 연결 실패 ?error=", () => {
-  it("TASK-28#4 oauth2_failed 는 전용 문장, 모르는 코드는 연결 전용 fallback(코드 원문은 보이지 않는다)", async () => {
+  it("TASK-28#4 oauth2_failed 는 연결 전용 문장, 모르는 코드는 연결 전용 fallback(코드 원문은 보이지 않는다)", async () => {
     navigation.reset("/account/", "error=oauth2_failed");
     server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
     const { unmount } = renderWithQuery(<AccountView />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(ERROR_MESSAGES.oauth2_failed);
+    expect(await screen.findByRole("alert")).toHaveTextContent(OAUTH_LINK_MESSAGES.oauth2_failed);
+    expect(screen.getByRole("alert")).not.toHaveTextContent("로그인");
     unmount();
 
     navigation.reset("/account/", "error=Weird-Provider-Error");
@@ -255,3 +256,4 @@ describe("TASK-28#5 ?linked= 처리", () => {
     expect(navigation.replace).not.toHaveBeenCalled();
   });
 });
+
