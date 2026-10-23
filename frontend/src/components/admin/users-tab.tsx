@@ -5,14 +5,24 @@ import { useState, type FormEvent } from "react";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
 import { Pager } from "@/components/admin/pager";
 import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAdminUsers, useUserStatusAction, type AdminUser, type UserFilters, type UserStatus } from "@/lib/admin";
+import {
+  suspendWarningMessage,
+  useAdminUsers,
+  useUserStatusAction,
+  type AdminUser,
+  type UserFilters,
+  type UserStatus,
+} from "@/lib/admin";
 import { formatDate } from "@/lib/board";
 import { javaStrip } from "@/lib/board-query";
 
 type Pending = { user: AdminUser; action: "suspend" | "unsuspend" };
+/** 정지는 됐지만 서버가 경고(warnings)를 보낸 대상. 다시 시도는 같은 사유로 정지를 다시 보낸다(멱등). */
+type SuspendWarning = { user: AdminUser; reason: string; codes: string[] };
 
 /** 사용자 탭 (TASK-15#1): 검색(닉네임·이메일·전화), 상태 필터, 페이지, 정지·해제(확인 + 사유). */
 export function UsersTab() {
@@ -24,6 +34,8 @@ export function UsersTab() {
   const [dialogKey, setDialogKey] = useState(0);
   const list = useAdminUsers(filters);
   const mutation = useUserStatusAction();
+  const [warning, setWarning] = useState<SuspendWarning | null>(null);
+  const retry = useUserStatusAction();
 
   const search = (event: FormEvent) => {
     event.preventDefault();
@@ -39,9 +51,37 @@ export function UsersTab() {
 
   const confirm = (reason: string) => {
     if (!pending) return;
+    const { user, action } = pending;
     mutation.mutate(
-      { id: pending.user.id, action: pending.action, reason },
-      { onSuccess: () => setDialogOpen(false) },
+      { id: user.id, action, reason },
+      {
+        onSuccess: (result) => {
+          setDialogOpen(false);
+          // TASK-33#5: 정지 응답의 warnings(session_revoke_failed 등)는 다이얼로그가 닫혀도 남도록 목록 위에 띄운다.
+          // 경고 없는 정지·해제는 그 사용자의 경고만 닫는다(다른 사용자의 경고는 남긴다).
+          const codes = action === "suspend" ? (result.warnings ?? []) : [];
+          if (codes.length === 0) {
+            setWarning((w) => (w?.user.id === user.id ? null : w));
+            return;
+          }
+          retry.reset();
+          setWarning({ user, reason, codes });
+        },
+      },
+    );
+  };
+
+  const retrySuspend = () => {
+    if (!warning) return;
+    const target = warning;
+    retry.mutate(
+      { id: target.user.id, action: "suspend", reason: target.reason },
+      {
+        onSuccess: (result) => {
+          const codes = result.warnings ?? [];
+          setWarning(codes.length > 0 ? { ...target, codes } : null);
+        },
+      },
     );
   };
 
@@ -76,6 +116,31 @@ export function UsersTab() {
           <option value="SUSPENDED">정지</option>
         </select>
       </div>
+
+      {warning && (
+        <Alert data-testid="admin-suspend-warning">
+          <AlertDescription className="flex flex-col items-start gap-2">
+            {warning.codes.map((code) => (
+              <p key={code}>{suspendWarningMessage(code, warning.user)}</p>
+            ))}
+            <ApiErrorAlert error={retry.error} testId="admin-suspend-retry-error" />
+            <div className="flex gap-2">
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={retry.isPending}
+                onClick={retrySuspend}
+                data-testid="admin-suspend-retry"
+              >
+                세션 끊기 다시 시도
+              </Button>
+              <Button size="xs" variant="ghost" onClick={() => setWarning(null)} data-testid="admin-suspend-warning-close">
+                닫기
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {list.isError && list.data && (
         <RefetchErrorAlert

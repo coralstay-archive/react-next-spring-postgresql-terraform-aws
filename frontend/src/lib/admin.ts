@@ -91,11 +91,31 @@ export function reasonBody(reason: string): { reason?: string } {
   return trimmed ? { reason: trimmed } : {};
 }
 
+/**
+ * 정지·해제 응답. 정지는 `warnings`(평소 `[]`)가 붙는다 — 정지 커밋 뒤 세션 삭제가 실패하면 `["session_revoke_failed"]`(정지는 그대로,
+ * TASK-27#3). 해제 응답에는 없다.
+ */
+export type UserStatusResult = AdminUser & { warnings?: string[] };
+
+export const SESSION_REVOKE_FAILED = "session_revoke_failed";
+
+/** 정지 경고 문장(TASK-33#5). 모르는 코드는 코드를 그대로 보인다(서버가 새 경고를 더해도 무음이 되지 않게). */
+export function suspendWarningMessage(code: string, user: { nickname: string; id: number }): string {
+  const who = `${user.nickname}(#${user.id})`;
+  if (code === SESSION_REVOKE_FAILED) {
+    return (
+      `${who} 정지는 적용됐지만 로그인 세션을 모두 끊지 못했을 수 있습니다. 남은 세션으로도 글·댓글 쓰기는 막히지만, 읽기는 그 세션이 끝날 때까지 될 수 있습니다. ` +
+      "다시 정지하면(이미 정지된 상태는 그대로, 감사 로그에 한 줄 더 남습니다) 세션 끊기를 다시 시도합니다."
+    );
+  }
+  return `${who} 정지는 적용됐지만 서버가 경고를 보냈습니다: ${code}`;
+}
+
 export function useUserStatusAction() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ id, action, reason }: { id: number; action: "suspend" | "unsuspend"; reason: string }) =>
-      api<AdminUser>(`/admin/users/${id}/${action}`, { method: "POST", body: reasonBody(reason) }),
+      api<UserStatusResult>(`/admin/users/${id}/${action}`, { method: "POST", body: reasonBody(reason) }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.adminUsers });
       void invalidateActions(client);
