@@ -27,11 +27,14 @@ import com.example.board.auth.UserSessions;
 import com.example.board.auth.token.RefreshTokenRepository;
 import com.example.board.common.ApiException;
 import com.example.board.common.PageResponse;
+import com.example.board.common.SqlErrors;
 import com.example.board.user.AuthProvider;
 import com.example.board.user.User;
 import com.example.board.user.UserIdentityRepository;
 import com.example.board.user.UserRepository;
 import com.example.board.user.UserStatus;
+
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 
 /**
  * 관리자 사용자 관리 (TASK-12#1).
@@ -160,8 +163,24 @@ public class AdminUserService {
 		return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
 	}
 
-	/** 정지(멱등). 커밋 뒤 세션 삭제까지 마치고 돌려준다. */
-	public AdminUserResponse suspend(AuthUser admin, Long userId, String reason) {
+	/** 정지 세션 삭제 실패 경고 (TASK-27#3). */
+	public static final String SESSION_REVOKE_FAILED = "session_revoke_failed";
+
+	/**
+	 * 정지 응답 (TASK-27#3): 사용자 한 줄에 {@code warnings}(정지는 됐지만 뒤처리 중 실패한 것, 평소 빈 배열)를 더한다.
+	 */
+	public record SuspendResponse(@JsonUnwrapped AdminUserResponse user, List<String> warnings) {
+	}
+
+	/**
+	 * 정지(멱등). 커밋 뒤 세션 삭제까지 마치고 돌려준다.
+	 *
+	 * <p>세션 삭제 실패 (TASK-27#3, BE-38): 정지는 이미 커밋됐으므로 되돌리지 않고 WARN 로그(사용자 id·예외 종류)를 남긴 뒤 200 +
+	 * {@code warnings: ["session_revoke_failed"]} 로 알린다(관리자는 다시 정지를 눌러 삭제를 재시도할 수 있다 — 멱등). 남은 세션은 요청마다 DB
+	 * 의 status 를 보는 필터(TASK-24: CurrentUserFilter·SuspendedUserWriteFilter) 때문에 쓰기는 403 이고, 세션 만료(14일) 또는 다음 정지
+	 * 재시도 때 사라진다.
+	 */
+	public SuspendResponse suspend(AuthUser admin, Long userId, String reason) {
 		if (admin.id().equals(userId)) {
 			throw new ApiException(HttpStatus.CONFLICT, CANNOT_SUSPEND_SELF, "자기 자신은 정지할 수 없습니다");
 		}
@@ -176,9 +195,16 @@ public class AdminUserService {
 			log.info("관리자 정지: admin=" + admin.id() + " user=" + userId + " refresh 폐기=" + revoked);
 			return toResponse(users.saveAndFlush(user));
 		});
-		int deleted = sessions.deleteAll(userId);
-		log.info("정지 사용자 세션 삭제: user=" + userId + " 세션=" + deleted);
-		return response;
+		try {
+			int deleted = sessions.deleteAll(userId);
+			log.info("정지 사용자 세션 삭제: user=" + userId + " 세션=" + deleted);
+			return new SuspendResponse(response, List.of());
+		}
+		catch (RuntimeException ex) {
+			log.warn("정지 사용자 세션 삭제 실패(정지는 커밋됨, 남은 세션은 쓰기 불가 — 다시 정지하면 재시도): user=" + userId + " cause="
+					+ ex.getClass().getSimpleName() + " sqlState=" + SqlErrors.sqlState(ex));
+			return new SuspendResponse(response, List.of(SESSION_REVOKE_FAILED));
+		}
 	}
 
 	/** 정지 해제(멱등). 끊긴 세션·토큰은 되살리지 않는다(다시 로그인한다). */

@@ -6,6 +6,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,6 +28,7 @@ import com.example.board.auth.AuthUser;
 import com.example.board.common.ApiErrors;
 import com.example.board.common.PageResponse;
 import com.example.board.common.Paging;
+import com.example.board.common.SqlErrors;
 import com.example.board.post.PostResponses.PostDetail;
 import com.example.board.post.PostResponses.PostSummary;
 import com.example.board.tag.TagNames;
@@ -37,6 +41,8 @@ import com.example.board.tag.TagNames;
 public class PostController {
 
 	static final int MAX_PAGE_SIZE = 50;
+
+	private static final Logger log = LoggerFactory.getLogger(PostController.class);
 
 	private final PostService posts;
 
@@ -71,6 +77,10 @@ public class PostController {
 	 *
 	 * <p>조회수 (TASK-9#3): 읽기 트랜잭션이 끝난 뒤 별도 트랜잭션에서 집계한다. 보이는 글(삭제·숨김 아님)만 세고, 같은 방문자는 30분에
 	 * 1회(TASK-9 B2, {@link PostViewService}). 익명 방문자에게는 세션 대신 VID 쿠키를 준다({@link ViewerKeys}).
+	 *
+	 * <p>집계 실패 (TASK-27#2, BE-28): 읽기는 이미 끝났으므로 집계가 DB 오류 등으로 실패해도 상세를 200 으로 돌려주고 WARN 로그(글 id·예외
+	 * 종류·SQLState)만 남긴다 — 이번 조회는 세지 않는다. 집계는 자기 트랜잭션이고 바깥 트랜잭션이 없어서(읽기 트랜잭션은 끝났다) 롤백은 집계에만
+	 * 미치고 응답을 rollback-only 로 만들지 않는다. 방문자 키(사용자 id·VID 해시)는 로그에 남기지 않는다.
 	 */
 	@GetMapping("/posts/{id}")
 	public PostDetail get(@PathVariable Long id, @AuthenticationPrincipal AuthUser viewer, HttpServletRequest request,
@@ -79,8 +89,15 @@ public class PostController {
 		if (detail.deleted() || detail.hidden()) {
 			return detail;
 		}
-		boolean counted = views.record(id, viewerKeys.resolve(viewer, request, response));
-		return counted ? detail.withCountedView() : detail;
+		String viewerKey = viewerKeys.resolve(viewer, request, response);
+		try {
+			return views.record(id, viewerKey) ? detail.withCountedView() : detail;
+		}
+		catch (RuntimeException ex) {
+			log.warn("조회수 집계 실패(상세는 그대로 응답, 이번 조회는 세지 않음): post={} cause={} sqlState={}", id,
+					ex.getClass().getSimpleName(), SqlErrors.sqlState(ex));
+			return detail;
+		}
 	}
 
 	/** 작성 (TASK-8#3). 201 + Location + 상세. */
