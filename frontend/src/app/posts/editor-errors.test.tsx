@@ -3,8 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { PostEditView } from "@/app/posts/edit/post-edit-view";
 import { PostEditor } from "@/components/board/post-editor";
-import { categoriesHandler, makePost, presignHandlers } from "@/test/board";
+import { RequireAuth } from "@/components/guards";
+import { draftKeys, saveDraft } from "@/lib/drafts";
+import { CATEGORIES, categoriesHandler, makePost, presignHandlers } from "@/test/board";
 import { apiError, csrfHandler, server } from "@/test/server";
 import { makeMe, meHandler, navigation, renderWithQuery } from "@/test/utils";
 
@@ -161,5 +164,91 @@ describe("TASK-31#4 첨부 연결 오류면 문제 첨부를 표시하고 그것
     expect(await screen.findByTestId("editor-attachments-error")).toHaveTextContent("본인이 올린 첨부만 붙일 수 있습니다.");
     expect(screen.queryByTestId("editor-attachment-problem")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "문제 이미지 빼고 다시 저장" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TASK-31#8 카테고리 목록 오류 표시, 현재 카테고리를 선택지에 유지(FE-30)", () => {
+  beforeEach(() => {
+    navigation.reset("/posts/edit/", "id=3");
+  });
+
+  it("TASK-31#8 목록을 못 받으면 칸 아래에 알리고 '다시 시도'로 다시 받는다", async () => {
+    navigation.reset("/posts/new/");
+    let fail = true;
+    server.use(
+      meHandler(makeMe()),
+      http.get("*/api/categories", () => (fail ? apiError(500, "internal_error") : HttpResponse.json(CATEGORIES))),
+    );
+    renderWithQuery(<PostEditor />);
+
+    const alert = await screen.findByTestId("editor-categories-error");
+    expect(alert).toHaveTextContent("카테고리 목록을 불러오지 못했습니다");
+    fail = false;
+    await userEvent.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await within(screen.getByTestId("editor-category")).findByRole("option", { name: "자유게시판" });
+    expect(screen.queryByTestId("editor-categories-error")).not.toBeInTheDocument();
+  });
+
+  it("TASK-31#8 목록을 못 받아도 수정 중인 글의 카테고리는 선택된 채 보이고 그대로 보낸다", async () => {
+    let body: unknown = null;
+    const post = makePost({ id: 3, editable: true, category: { id: 2, slug: "free", name: "자유게시판" } });
+    server.use(
+      meHandler(makeMe()),
+      csrfHandler(),
+      http.get("*/api/categories", () => apiError(500, "internal_error")),
+      http.get("*/api/posts/3", () => HttpResponse.json(post)),
+      http.patch("*/api/posts/3", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(post);
+      }),
+    );
+    renderWithQuery(<PostEditView />);
+
+    const select = await screen.findByTestId("editor-category");
+    await screen.findByTestId("editor-categories-error");
+    expect(select).toHaveValue("free");
+    expect(within(select).getByRole("option", { selected: true })).toHaveTextContent("자유게시판");
+    await userEvent.click(screen.getByTestId("editor-submit"));
+    await waitFor(() => expect(body).toMatchObject({ categorySlug: "free" }));
+  });
+
+  it("TASK-31#8 글의 카테고리가 목록에 없어도(그사이 삭제·이름 바뀜) 선택지로 남아 표시와 전송값이 같다", async () => {
+    let body: unknown = null;
+    const post = makePost({ id: 3, editable: true, category: { id: 9, slug: "old", name: "옛 카테고리" } });
+    server.use(
+      meHandler(makeMe()),
+      csrfHandler(),
+      categoriesHandler(),
+      http.get("*/api/posts/3", () => HttpResponse.json(post)),
+      http.patch("*/api/posts/3", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(post);
+      }),
+    );
+    renderWithQuery(<PostEditView />);
+
+    const select = await screen.findByTestId("editor-category");
+    await within(select).findByRole("option", { name: "자유게시판" });
+    expect(select).toHaveValue("old");
+    expect(within(select).getByRole("option", { selected: true })).toHaveTextContent("옛 카테고리");
+    await userEvent.click(screen.getByTestId("editor-submit"));
+    await waitFor(() => expect(body).toMatchObject({ categorySlug: "old" }));
+  });
+
+  it("TASK-31#8 복원한 초안의 카테고리가 목록에 없어도 선택지로 남는다", async () => {
+    navigation.reset("/posts/new/");
+    saveDraft(draftKeys.newPost, 1, { title: "초안", content: "본문", categorySlug: "gone", tags: [], attachments: [] });
+    server.use(meHandler(makeMe()), categoriesHandler());
+    // 초안은 사용자를 안 뒤에 연 편집기가 복원한다(RequireAuth).
+    renderWithQuery(
+      <RequireAuth>
+        <PostEditor />
+      </RequireAuth>,
+    );
+
+    const select = await screen.findByTestId("editor-category");
+    await within(select).findByRole("option", { name: "자유게시판" });
+    expect(screen.getByTestId("editor-title")).toHaveValue("초안");
+    expect(select).toHaveValue("gone");
   });
 });

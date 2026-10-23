@@ -329,9 +329,18 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     else router.replace("/");
   };
 
-  const visibleCategories = (categories.data ?? []).filter(
+  const listedCategories = (categories.data ?? []).filter(
     (category) => !category.adminOnly || isAdmin || category.slug === post?.category?.slug,
   );
+  // 지금 값(글의 카테고리·복원한 초안)이 목록에 없어도(목록 실패·로딩 중·그사이 삭제) 선택지로 둔다 — 없으면 select 가 "카테고리 없음"을
+  // 보이면서 실제로는 그 값을 보내 표시와 전송값이 어긋났다(TASK-31#8, FE-30). 없는 카테고리면 저장 때 서버가 unknown_category 로 알린다.
+  const visibleCategories =
+    categorySlug && !listedCategories.some((category) => category.slug === categorySlug)
+      ? [
+          ...listedCategories,
+          { slug: categorySlug, name: post?.category?.slug === categorySlug ? post.category.name : categorySlug },
+        ]
+      : listedCategories;
   // confirm 만 남은 실패(TASK-31#6)도 자리를 차지한다(다시 시도하면 붙는다).
   const attached = items.filter((item) => item.status !== "error" || item.confirmId !== undefined).length;
 
@@ -558,6 +567,20 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           ))}
         </select>
         <FieldError message={fieldErrors.category} testId="editor-category-error" />
+        {categories.isError && (
+          <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="editor-categories-error">
+            <span className="text-destructive">카테고리 목록을 불러오지 못했습니다. {errorMessage(categories.error)}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              disabled={categories.isFetching}
+              onClick={() => void categories.refetch()}
+            >
+              다시 시도
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">
