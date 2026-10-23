@@ -128,7 +128,7 @@ describe("TASK-29#3 세션이 끝나도 작성 화면을 유지하고 초안을 
     await waitFor(() => expect(loadDraft(draftKeys.newPost, 1)).not.toBeNull());
 
     await userEvent.click(screen.getByTestId("editor-submit"));
-    await waitFor(() => expect(navigation.push).toHaveBeenCalled());
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalled());
     expect(loadDraft(draftKeys.newPost, 1)).toBeNull();
   });
 

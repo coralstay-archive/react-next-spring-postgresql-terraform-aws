@@ -136,6 +136,9 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [items, setItems] = useState<UploadItem[]>(() => doneItems(start.attachments));
   const nextKey = useRef(0);
+  // 한 번의 저장 의도 = 요청 하나(TASK-31#2 B1). 상태(isPending)는 다시 그려진 뒤에야 버튼을 막으므로, 같은 틱의 연속 제출(Enter 연타)은
+  // ref 로 막는다. 실패하면 풀고, 성공하면 이동할 때까지 잠근 채 둔다.
+  const submitLock = useRef(false);
 
   // 초안 저장(TASK-29#3). 원래 값(작성: 빈 폼, 수정: 받은 글)과 같으면 지운다.
   const doneAttachments = items.flatMap((item) => (item.status === "done" ? [item.attachment] : []));
@@ -186,10 +189,17 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       }
       void client.invalidateQueries({ queryKey: queryKeys.postLists });
       void client.invalidateQueries({ queryKey: ["tags"] });
-      router.push(`/posts/view/?id=${saved.id}`);
+      // PRG(TASK-31#2): 결과 페이지로 replace — 편집기가 히스토리에서 빠져 뒤로가기·새로고침으로 다시 제출되지 않는다.
+      // 잠금(submitLock)은 풀지 않고 버튼도 비활성으로 둔다(이동이 끝나기 전 재클릭으로 두 번째 글이 생기지 않게, B1).
+      router.replace(`/posts/view/?id=${saved.id}`);
     },
     onError: (error) => {
+      submitLock.current = false;
       if (!isApiError(error)) return;
+      // 그사이 삭제됐거나(404) 권한이 바뀐(403) 글: 상세 캐시를 다시 받게 한다(FE-21).
+      if (post && (error.status === 404 || error.status === 403)) {
+        void client.invalidateQueries({ queryKey: queryKeys.post(post.id) });
+      }
       if (error.fields) setFieldErrors(error.fields as FieldErrors);
       else if (error.code === "invalid_tag" || error.code === "too_many_tags") setFieldErrors({ tags: errorMessage(error) });
       else if (error.code === "unknown_category" || error.code === "category_admin_only")
@@ -305,6 +315,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       }
     }
     setFieldErrors(errors);
+    if (submitLock.current) return;
     if (Object.values(errors).some(Boolean) || uploading) return;
 
     const attachmentIds = items.flatMap((item) => (item.status === "done" ? [item.attachment.id] : []));
@@ -316,6 +327,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     body.attachmentIds = attachmentIds;
     // 요청 중 세션이 끝나도 마지막 입력이 초안에 있게 기다리지 않고 저장한다.
     autosave.flush();
+    submitLock.current = true;
     save.mutate(body);
   };
 
@@ -482,7 +494,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       {formError && <ApiErrorAlert error={formError} testId="editor-error" />}
 
       <div className="flex gap-2">
-        <Button type="submit" data-testid="editor-submit" disabled={save.isPending || uploading}>
+        <Button type="submit" data-testid="editor-submit" disabled={save.isPending || save.isSuccess || uploading}>
           {post ? "저장" : "등록"}
         </Button>
         <Button type="button" variant="outline" onClick={() => router.back()}>

@@ -70,7 +70,7 @@ describe("TASK-14#4 삭제", () => {
     renderWithQuery(<PostDetailView />);
 
     await userEvent.click(await screen.findByTestId("post-delete-button"));
-    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/"));
     expect(deleted).toBe(true);
   });
 
