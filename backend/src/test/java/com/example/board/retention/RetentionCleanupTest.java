@@ -11,20 +11,27 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.example.board.auth.phone.OtpProperties;
+import com.example.board.auth.token.TokenService;
 import com.example.board.common.RateLimitProperties;
 import com.example.board.common.RateLimitProperties.Policy;
 import com.example.board.post.PostViewService;
 import com.example.board.support.AuthFixtures;
 import com.example.board.support.BoardFixtures;
+import com.example.board.support.FailingDelete;
 import com.example.board.support.IntegrationTest;
+import com.example.board.user.User;
 
 /**
- * TASK-27#1 BE-10 · TASK-27#5 보존 기간이 지난 행 정리. 기본 설정: 만료·폐기 뒤 7일 지난 refresh_tokens, 만료 뒤 1일이 지났고 OTP 발송
+ * TASK-27#1 BE-10 · TASK-27#5 보존 기간이 지난 행 정리. 기본 설정: 살아 있는 토큰이 없고 마지막 토큰이 끝난(폐기·만료) 지 7일이 지난
+ * refresh_tokens family 전체, 만료 뒤 1일이 지났고 OTP 발송
  * 한도 창(24시간) 밖인 otp_challenges, 조회수 중복 집계 창(30분) 밖의 post_views, 어느 글도 쓰지 않는 tags, 가장 긴 레이트리밋 창 밖의
  * rate_limit_events.
  *
@@ -34,6 +41,7 @@ import com.example.board.support.IntegrationTest;
  * <p>통합 테스트 컨텍스트와 DB 를 같이 쓰므로 개수가 아니라 이 테스트가 만든 행의 존재로 판정한다.
  */
 @IntegrationTest
+@ExtendWith(OutputCaptureExtension.class)
 class RetentionCleanupTest {
 
 	@Autowired
@@ -41,6 +49,9 @@ class RetentionCleanupTest {
 
 	@Autowired
 	AuthFixtures fixtures;
+
+	@Autowired
+	TokenService tokens;
 
 	@Autowired
 	BoardFixtures board;
@@ -84,10 +95,15 @@ class RetentionCleanupTest {
 	}
 
 	private long refreshToken(Timestamp createdAt, Timestamp expiresAt, Timestamp revokedAt, Long replacedBy) {
+		return refreshToken(UUID.randomUUID(), createdAt, expiresAt, revokedAt, replacedBy);
+	}
+
+	private long refreshToken(UUID family, Timestamp createdAt, Timestamp expiresAt, Timestamp revokedAt,
+			Long replacedBy) {
 		return jdbc.queryForObject("""
 				insert into refresh_tokens (user_id, token_hash, family_id, expires_at, revoked_at, replaced_by, created_at)
 				values (?, ?, ?, ?, ?, ?, ?) returning id
-				""", Long.class, userId, UUID.randomUUID().toString(), UUID.randomUUID(), expiresAt, revokedAt,
+				""", Long.class, userId, UUID.randomUUID().toString(), family, expiresAt, revokedAt,
 				replacedBy, createdAt);
 	}
 
@@ -115,7 +131,7 @@ class RetentionCleanupTest {
 	}
 
 	@Test
-	@DisplayName("TASK-27#1 TASK-27#B1 refresh_tokens: 만료·폐기 뒤 7일이 지난 행만 지운다. 살아 있는 토큰은 아무리 오래돼도 남는다")
+	@DisplayName("TASK-27#1 TASK-27#B1 refresh_tokens(토큰 하나짜리 family): 만료·폐기 뒤 7일이 지난 것만 지운다. 살아 있는 토큰은 아무리 오래돼도 남는다")
 	void refreshTokens() {
 		long active = refreshToken(ago(Duration.ofDays(400)), later(Duration.ofDays(1)), null, null);
 		long expiredLong = refreshToken(ago(Duration.ofDays(30)), ago(Duration.ofDays(8)), null, null);
@@ -134,22 +150,60 @@ class RetentionCleanupTest {
 	}
 
 	@Test
-	@DisplayName("TASK-27#1 TASK-27#B1 refresh_tokens 로테이션 사슬(replaced_by FK): 오래 전에 폐기된 사슬은 같이 지우고, 이전 토큰만 오래됐으면 살아 있는 다음 토큰은 남긴다")
-	void refreshTokenChains() {
-		// 로테이션은 새 토큰을 나중에 넣으므로 이전 토큰(replaced_by 로 다음을 가리킨다)의 id 가 항상 작다
-		long old = refreshToken(ago(Duration.ofDays(30)), ago(Duration.ofDays(16)), ago(Duration.ofDays(20)), null);
-		long alive = refreshToken(ago(Duration.ofDays(20)), later(Duration.ofDays(1)), null, null);
+	@DisplayName("TASK-27#1 TASK-27#B1 refresh_tokens 는 family 단위: 살아 있는 토큰이 하나라도 있는 family 는 오래된 로테이션 토큰까지 모두 남긴다")
+	void refreshTokenFamilyWithLiveTokenKept() {
+		UUID family = UUID.randomUUID();
+		long old = refreshToken(family, ago(Duration.ofDays(30)), ago(Duration.ofDays(16)), ago(Duration.ofDays(20)), null);
+		long alive = refreshToken(family, ago(Duration.ofDays(20)), later(Duration.ofDays(1)), null, null);
 		jdbc.update("update refresh_tokens set replaced_by = ? where id = ?", alive, old);
-		long oldDead = refreshToken(ago(Duration.ofDays(30)), ago(Duration.ofDays(16)), ago(Duration.ofDays(20)), null);
-		long newDead = refreshToken(ago(Duration.ofDays(20)), ago(Duration.ofDays(9)), ago(Duration.ofDays(9)), null);
-		jdbc.update("update refresh_tokens set replaced_by = ? where id = ?", newDead, oldDead);
 
 		cleanup.cleanUp();
 
-		assertThat(exists("refresh_tokens", "id", old)).isFalse();
 		assertThat(exists("refresh_tokens", "id", alive)).as("살아 있는 토큰(B1)").isTrue();
+		assertThat(exists("refresh_tokens", "id", old)).as("살아 있는 family 의 로테이션 토큰 — 재사용 감지용").isTrue();
+	}
+
+	@Test
+	@DisplayName("TASK-27#1 refresh_tokens: 모든 토큰이 폐기·만료된 family 는 마지막 토큰이 끝난 지 7일이 지나면 사슬(replaced_by FK)째 한 번에 지우고, 7일 안이면 전부 남긴다")
+	void refreshTokenDeadFamilies() {
+		UUID dead = UUID.randomUUID();
+		long oldDead = refreshToken(dead, ago(Duration.ofDays(30)), ago(Duration.ofDays(16)), ago(Duration.ofDays(20)), null);
+		long newDead = refreshToken(dead, ago(Duration.ofDays(20)), ago(Duration.ofDays(9)), ago(Duration.ofDays(9)), null);
+		jdbc.update("update refresh_tokens set replaced_by = ? where id = ?", newDead, oldDead);
+		// 이전 토큰은 오래 전에 끝났지만 마지막 토큰이 6일 전에 끝났다 — family 가 끝난 지 7일이 안 됐다
+		UUID recent = UUID.randomUUID();
+		long oldRecent = refreshToken(recent, ago(Duration.ofDays(30)), ago(Duration.ofDays(16)), ago(Duration.ofDays(20)),
+				null);
+		long newRecent = refreshToken(recent, ago(Duration.ofDays(20)), ago(Duration.ofDays(6)), null, null);
+		jdbc.update("update refresh_tokens set replaced_by = ? where id = ?", newRecent, oldRecent);
+
+		cleanup.cleanUp();
+
 		assertThat(exists("refresh_tokens", "id", oldDead)).isFalse();
 		assertThat(exists("refresh_tokens", "id", newDead)).isFalse();
+		assertThat(exists("refresh_tokens", "id", oldRecent)).isTrue();
+		assertThat(exists("refresh_tokens", "id", newRecent)).isTrue();
+	}
+
+	@Test
+	@DisplayName("TASK-27#1 TASK-27#B1 탈취 시나리오: 공격자가 먼저 로테이션한 토큰을 피해자가 8일 뒤(TTL 안) 다시 쓰면 정리가 돈 뒤에도 재사용 감지로 공격자 family 가 폐기된다")
+	void reuseDetectedAfterCleanup() {
+		User user = fixtures.user();
+		String stolen = tokens.issueForLogin(user).refreshToken();
+		TokenService.Rotation attacker = tokens.rotate(stolen);
+		assertThat(attacker.outcome()).isEqualTo(TokenService.Rotation.Outcome.ROTATED);
+		String attackerToken = attacker.tokens().refreshToken();
+		jdbc.update("update refresh_tokens set created_at = ?, revoked_at = ?, expires_at = ? where token_hash = ?",
+				ago(Duration.ofDays(9)), ago(Duration.ofDays(8)), later(Duration.ofDays(5)), TokenService.hash(stolen));
+
+		cleanup.cleanUp();
+
+		assertThat(tokens.rotate(stolen).outcome()).isEqualTo(TokenService.Rotation.Outcome.INVALID);
+		assertThat(jdbc.queryForObject("select revoked_at is not null from refresh_tokens where token_hash = ?",
+				Boolean.class, TokenService.hash(attackerToken)))
+			.as("재사용 감지로 공격자 토큰도 폐기")
+			.isTrue();
+		assertThat(tokens.rotate(attackerToken).outcome()).isEqualTo(TokenService.Rotation.Outcome.INVALID);
 	}
 
 	@Test
@@ -245,6 +299,29 @@ class RetentionCleanupTest {
 
 		cleanup.cleanUp();
 		assertThat(exists("rate_limit_events", "id", twoHours)).isFalse();
+	}
+
+	@Test
+	@DisplayName("TASK-27#1 표마다 따로: 한 표의 정리가 DB 오류로 실패해도 WARN 로그(표 이름·예외 종류·SQLState)만 남기고 다음 표를 정리한다")
+	void tableFailureIsolated(CapturedOutput output) {
+		String hash = "fail-" + UUID.randomUUID();
+		long failing = jdbc.queryForObject("""
+				insert into refresh_tokens (user_id, token_hash, family_id, expires_at, revoked_at, created_at)
+				values (?, ?, ?, ?, ?, ?) returning id
+				""", Long.class, userId, hash, UUID.randomUUID(), ago(Duration.ofDays(10)), null, ago(Duration.ofDays(30)));
+		long oldEvent = rateLimitEvent(ago(Duration.ofHours(2)));
+
+		try (FailingDelete ignored = FailingDelete.on(jdbc, "refresh_tokens", "token_hash", hash)) {
+			RetentionCleanup.Result result = cleanup.cleanUp();
+			assertThat(result.refreshTokens()).isZero();
+		}
+
+		assertThat(exists("refresh_tokens", "id", failing)).isTrue();
+		assertThat(exists("rate_limit_events", "id", oldEvent)).as("뒤 표는 그대로 정리").isFalse();
+		assertThat(output.getAll()).contains("WARN").contains("table=refresh_tokens").contains("sqlState=P0001");
+
+		cleanup.cleanUp();
+		assertThat(exists("refresh_tokens", "id", failing)).as("트리거가 없어지면 다음 실행이 지운다").isFalse();
 	}
 
 	@Test

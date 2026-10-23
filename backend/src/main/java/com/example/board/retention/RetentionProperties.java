@@ -9,8 +9,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * 보존 기간 정리 설정 {@code app.retention.*} (TASK-27#1 BE-10, TASK-27#5). 기동 시 검증한다 — 어기면 뜨지 않는다.
  *
  * @param interval 정리 주기 (기본 1시간). 양수
- * @param refreshTokenRetention 만료되거나 폐기된 refresh 토큰을 지우기 전 보존 기간 (기본 7일). 살아 있는 토큰은 기간과 상관없이 지우지 않는다
- * (TASK-27 B1). 이보다 오래 전에 로테이션된 토큰을 다시 쓰면 재사용 감지(family 폐기) 없이 그냥 401 이다
+ * @param refreshTokenRetention 끝난 refresh 토큰 family 를 지우기 전 보존 기간 (기본 7일). family 단위로, 살아 있는 토큰이 하나도 없고 마지막
+ * 토큰이 폐기·만료된 지 이 기간이 지난 family 만 통째로 지운다. 살아 있는 family 는 로테이션된 토큰까지 남겨 재사용 감지를 유지한다(TASK-27 B1)
  * @param otpRetention OTP 챌린지를 만료 뒤 지우기 전 보존 기간 (기본 1일). 실제 기준은 이 값과 발송 한도 창(24시간·1시간·phone-cooldown) 중
  * 늦은 쪽이다 — 지워서 발송 한도가 풀리지 않는다(B1)
  * @param batchSize DELETE 한 문장이 지우는 최대 행 수 (기본 1000, 1~{@value #MAX_BATCH_SIZE}). 긴 잠금·긴 트랜잭션을 피한다

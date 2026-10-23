@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.IntUnaryOperator;
 
 import org.slf4j.Logger;
@@ -19,6 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.example.board.auth.phone.OtpProperties;
 import com.example.board.auth.phone.OtpRateLimiter;
 import com.example.board.common.RateLimitProperties;
+import com.example.board.common.SqlErrors;
 import com.example.board.post.PostViewService;
 
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
@@ -29,9 +31,12 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
  * 않는다(TASK-27 B1).
  *
  * <ul>
- * <li>refresh_tokens: 폐기(revoked_at) 또는 만료(expires_at) 뒤 {@code refresh-token-retention}(7일)이 지난 행. 살아 있는 토큰(폐기 안
- * 됨·만료 안 됨)은 조건에 걸릴 수 없다. 이전 토큰이 {@code replaced_by} 로 다음 토큰을 가리키는데(FK), 다음 토큰이 지울 대상이면 이전 토큰도
- * 대상이고(로테이션 때 폐기됐으므로 폐기 시각이 더 이르다) id 가 더 작다 — id 순 배치라 이전 토큰이 같은 문장이나 앞 문장에서 먼저 지워진다.</li>
+ * <li>refresh_tokens: family(로그인 한 번의 로테이션 사슬) 단위. 살아 있는 토큰(폐기 안 됨·만료 안 됨)이 하나도 없고, family 가 끝난 시각
+ * — 토큰마다 끝난 시각 {@code least(revoked_at, expires_at)} 의 최댓값 — 이 {@code refresh-token-retention}(7일)보다 오래된 family 의 행
+ * 전체. 살아 있는 family 는 오래된 로테이션 토큰까지 모두 남긴다 — 탈취된 토큰을 공격자가 먼저 로테이션했다면 피해자가 그 토큰을 다시 낼 때
+ * 재사용 감지({@code TokenService.rotate})가 공격자 쪽 최신 토큰까지 폐기해야 하므로. family 가 죽은 뒤에는 재사용 감지가 폐기할 것이 없다.
+ * 한 family 는 한 문장으로 지우므로 replaced_by FK(NO ACTION, 문장 끝에 확인)의 순서·시계 문제가 없다. 죽은 family 에는 새 토큰이 생길
+ * 수 없다(로테이션은 살아 있는 토큰에서만).</li>
  * <li>otp_challenges: 만료 뒤 {@code otp-retention}(1일)이 지났고 created_at 이 발송 한도의 가장 긴 창
  * ({@link OtpRateLimiter#longestWindow}) 밖인 행. 발송 한도는 이 표의 created_at 을 세므로 창 안의 행을 지우면 한도가 풀린다.</li>
  * <li>post_views: viewed_at 이 중복 집계 창({@link PostViewService#WINDOW}) 밖인 행. 이런 행은 다음 조회 때 어차피 다시 세므로(upsert 의
@@ -42,7 +47,8 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
  * </ul>
  *
  * <p>DELETE 한 문장은 {@code batch-size} 행까지만 지운다(긴 잠금·긴 트랜잭션 없음, autocommit). 한 번 실행은 표마다 {@code max-items} 건,
- * 전체 {@code max-duration} 까지 — 넘으면 남은 것은 다음 실행이 지운다. 로그에는 표 이름과 지운 개수만 남긴다.
+ * 전체 {@code max-duration} 까지 — 넘으면 남은 것은 다음 실행이 지운다(refresh_tokens 의 batch-size·max-items 는 family 수). 로그에는
+ * 표 이름과 지운 개수만 남긴다. 한 표가 실패해도 나머지 표는 정리한다({@link #sweep}).
  */
 @Component
 @EnableConfigurationProperties(RetentionProperties.class)
@@ -53,9 +59,21 @@ public class RetentionCleanup {
 
 	private static final Logger log = LoggerFactory.getLogger(RetentionCleanup.class);
 
-	static final String DELETE_REFRESH_TOKENS = """
-			delete from refresh_tokens where id in (
-				select id from refresh_tokens where revoked_at < ? or expires_at < ? order by id limit ?)
+	/**
+	 * refresh 토큰 family 단위 정리. 후보는 끝난(폐기·만료) 지 보존 기간이 지난 토큰이 있는 family(인덱스 expires_at·revoked_at), 그중
+	 * family_id 인덱스로 "보존 기간 안에 끝났거나 아직 살아 있는 토큰"이 하나도 없는 family 만 {@code limit} 개 골라 행 전체를 한 문장으로
+	 * 지운다. 토큰이 끝난 시각은 {@code least(revoked_at, expires_at)}(폐기 안 됐으면 expires_at) — family 가 끝난 시각은 그 최댓값이다.
+	 * 지운 행의 family_id 를 돌려준다(배치 계속 여부는 family 개수로 정한다).
+	 */
+	static final String DELETE_REFRESH_TOKEN_FAMILIES = """
+			delete from refresh_tokens where family_id = any(array(
+			    select c.family_id from (
+			        select distinct family_id from refresh_tokens where revoked_at < ? or expires_at < ?) c
+			    where not exists (
+			        select 1 from refresh_tokens r where r.family_id = c.family_id
+			        and ((r.revoked_at is null and r.expires_at > ?) or least(r.revoked_at, r.expires_at) >= ?))
+			    limit ?))
+			returning family_id
 			""";
 
 	static final String DELETE_OTP_CHALLENGES = """
@@ -131,13 +149,21 @@ public class RetentionCleanup {
 		OffsetDateTime viewCutoff = at(now.minus(PostViewService.WINDOW));
 		OffsetDateTime rateLimitCutoff = at(now.minus(rateLimits.longestWindow()));
 
-		int refreshTokens = sweep(budget,
-				limit -> jdbc.update(DELETE_REFRESH_TOKENS, refreshCutoff, refreshCutoff, limit));
-		int otpChallenges = sweep(budget,
+		OffsetDateTime nowAt = at(now);
+		int[] refreshRows = new int[1];
+		sweep("refresh_tokens", budget, limit -> {
+			List<UUID> families = jdbc.queryForList(DELETE_REFRESH_TOKEN_FAMILIES, UUID.class, refreshCutoff,
+					refreshCutoff, nowAt, refreshCutoff, limit);
+			refreshRows[0] += families.size();
+			return (int) families.stream().distinct().count();
+		});
+		int refreshTokens = refreshRows[0];
+		int otpChallenges = sweep("otp_challenges", budget,
 				limit -> jdbc.update(DELETE_OTP_CHALLENGES, otpExpiredCutoff, otpWindowCutoff, limit));
-		int postViews = sweep(budget, limit -> jdbc.update(DELETE_POST_VIEWS, viewCutoff, limit, viewCutoff));
-		int tags = sweep(budget, this::deleteUnusedTags);
-		int rateLimitEvents = sweep(budget,
+		int postViews = sweep("post_views", budget,
+				limit -> jdbc.update(DELETE_POST_VIEWS, viewCutoff, limit, viewCutoff));
+		int tags = sweep("tags", budget, this::deleteUnusedTags);
+		int rateLimitEvents = sweep("rate_limit_events", budget,
 				limit -> jdbc.update(DELETE_RATE_LIMIT_EVENTS, rateLimitCutoff, limit));
 
 		Result result = new Result(refreshTokens, otpChallenges, postViews, tags, rateLimitEvents);
@@ -176,15 +202,29 @@ public class RetentionCleanup {
 		return locked == null ? 0 : locked;
 	}
 
-	/** 한 표를 배치로 지운다. 배치가 덜 찼거나(남은 것 없음) 표의 건수 예산·전체 시간을 다 쓰면 멈춘다. 지운(처리한) 행 수. */
-	private int sweep(Budget budget, IntUnaryOperator batch) {
+	/**
+	 * 한 표를 배치로 지운다. 배치가 덜 찼거나(남은 것 없음) 표의 건수 예산·전체 시간을 다 쓰면 멈춘다. 처리한 개수(refresh_tokens 는 family
+	 * 수)를 돌려준다.
+	 *
+	 * <p>표마다 따로: 배치가 예외로 실패하면 WARN 로그(표 이름·예외 종류·SQLState — 행 내용·개인정보 없음)만 남기고 이 표를 멈춘다. 이미 지운
+	 * 배치는 커밋돼 있다. 다음 표는 그대로 정리하고, 이 표의 남은 행은 다음 실행이 다시 시도한다.
+	 */
+	private int sweep(String table, Budget budget, IntUnaryOperator batch) {
 		int done = 0;
 		while (true) {
 			int limit = Math.min(properties.batchSize(), properties.maxItems() - done);
 			if (limit <= 0 || budget.expired()) {
 				return done;
 			}
-			int deleted = batch.applyAsInt(limit);
+			int deleted;
+			try {
+				deleted = batch.applyAsInt(limit);
+			}
+			catch (RuntimeException ex) {
+				log.warn("보존 기간 정리 실패(이 표는 다음 실행에 다시, 다음 표는 계속): table={} cause={} sqlState={}", table,
+						ex.getClass().getSimpleName(), SqlErrors.sqlState(ex));
+				return done;
+			}
 			done += deleted;
 			if (deleted < limit) {
 				return done;
