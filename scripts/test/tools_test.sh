@@ -44,6 +44,13 @@ cat >"$DG/bin/dot" <<'SH'
 if [ "${1:-}" = -V ]; then echo "dot - graphviz version ${FAKE_DOT_VERSION:-1.0.0} (20260101.0000)" >&2; exit 0; fi
 src="${*: -1}"
 label="$(sed -nE 's/.*label="([^"]*)".*/\1/p' "$src" | head -n1)"
+# 색(.dot 의 첫 color 센티넬)과 모양(shape=ellipse 면 <ellipse>, 아니면 <polygon>)도 .dot 에서 읽는다
+color="$(sed -nE 's/.*color="(#f0[0-9a-f]{4})".*/\1/p' "$src" | head -n1)"
+if grep -q 'shape=ellipse' "$src"; then
+  shape="<ellipse fill=\"none\" stroke=\"#f00003\" cx=\"${FAKE_DOT_X:-10}\" cy=\"20\" rx=\"5\" ry=\"5\"/>"
+else
+  shape="<polygon fill=\"none\" stroke=\"#f00003\" points=\"${FAKE_DOT_X:-10},10 20,10 20,30 ${FAKE_DOT_X:-10},30\"/>"
+fi
 cat <<EOF
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg width="100pt" height="50pt" viewBox="0.00 0.00 100.00 50.00" xmlns="http://www.w3.org/2000/svg">
@@ -52,7 +59,8 @@ cat <<EOF
 <polygon fill="white" stroke="none" points="0,0 100,0 100,50 0,50"/>
 <g id="node1" class="node">
 <title>a</title>
-<text text-anchor="middle" x="${FAKE_DOT_X:-10}" y="20" font-family="Helvetica" fill="#f00001">$label</text>
+$shape
+<text text-anchor="middle" x="${FAKE_DOT_X:-10}" y="20" font-family="Helvetica" fill="${color:-#f00001}">$label</text>
 </g>
 </g>
 </svg>
@@ -100,6 +108,22 @@ t_dg_other_env_text() {
   rc_is 1 && has_text "docs/diagrams/a.svg" && has_text "changed"
 }
 check "TASK-35#1 다른 환경이어도 글자(.dot 의 라벨)가 다르면 1 + 파일 목록" t_dg_other_env_text
+t_dg_other_env_color() {
+  # 색 센티넬만 바꾸고 다시 렌더하지 않았다 — 글자는 같아도 var(--d-*) 색 토큰 순서가 다르다
+  dg_reset
+  printf '// alt: 그림 A\ndigraph G { a [label="hello", fontcolor="#f0000e"]; }\n' >"$DG/r/diagrams/a.dot"
+  run_capture env FAKE_DOT_VERSION=2.0.0 FAKE_DOT_X=11 PATH="$DG/bin:$PATH" python3 "$DG/r/scripts/build-diagrams.py" --check
+  rc_is 1 && has_text "docs/diagrams/a.svg" && has_text "색 토큰" && has_text "var(--d-warn)" && has_text "var(--d-ink)"
+}
+check "TASK-35#1 다른 환경이어도 색 센티넬(var(--d-*) 토큰 순서)이 다르면 1 + 파일 목록" t_dg_other_env_color
+t_dg_other_env_shape() {
+  # 모양만 바꿨다(polygon → ellipse) — 요소 태그 순서와 모양 종류 개수가 다르다
+  dg_reset
+  printf '// alt: 그림 A\ndigraph G { a [label="hello", shape=ellipse]; }\n' >"$DG/r/diagrams/a.dot"
+  run_capture env FAKE_DOT_VERSION=2.0.0 FAKE_DOT_X=11 PATH="$DG/bin:$PATH" python3 "$DG/r/scripts/build-diagrams.py" --check
+  rc_is 1 && has_text "docs/diagrams/a.svg" && has_text "요소" && has_text "ellipse"
+}
+check "TASK-35#1 다른 환경이어도 모양(요소 태그 순서·종류 개수)이 다르면 1 + 파일 목록" t_dg_other_env_shape
 t_dg_other_env_doc() {
   dg_reset
   printf '# t\n\n<!--dot:a-->\nold\n<!--/dot:a-->\n' >"$DG/r/README.md"

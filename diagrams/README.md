@@ -3,7 +3,8 @@
 Graphviz DOT 원본이다. `make diagrams`(= `python3 scripts/build-diagrams.py`)가 `docs/diagrams/<이름>.svg`로 렌더하고,
 README·`docs/*.md`의 `<!--dot:<이름>-->` 블록을 `<img>`로 갱신한다. 렌더된 SVG는 생성물이라 직접 고치지 않는다.
 `make test`(repo_test)가 `--check`로 SVG가 원본과 같은지 확인한다(`dot`이 없으면 건너뛴다).
-바이트 비교는 `render-env.txt`(커밋된 SVG를 만든 graphviz 버전·OS)와 같은 환경에서만 하고, 다르면 글자·문서 블록·파일 목록만 본다.
+바이트 비교는 `render-env.txt`(커밋된 SVG를 만든 graphviz 버전·OS)와 같은 환경에서만 하고, 다르면 구조(글자·요소 태그·`var(--d-*)` 색 토큰·
+모양 종류별 개수)와 문서 블록·파일 목록을 본다 — 색 센티넬이나 모양만 바꾸고 다시 렌더하지 않아도 걸린다. CI(Ubuntu graphviz)도 이 비교로 검사한다.
 graphviz를 올려 다시 렌더했으면 `python3 scripts/build-diagrams.py --env > diagrams/render-env.txt`로 고정값도 바꿔 함께 커밋한다.
 
 - 색은 아래 센티넬 hex로만 쓴다. 빌드가 CSS 변수로 바꾸고, SVG 안의 `<style>`이 라이트/다크(`prefers-color-scheme`) 값을 정한다.

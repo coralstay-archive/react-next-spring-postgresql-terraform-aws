@@ -144,9 +144,36 @@ check "TASK-18#4 .dot 은 센티넬 색(#f000xx)만 쓴다" sh -c '! grep -hoE "
 check "TASK-18#4 SVG 는 라이트·다크 CSS 변수를 품는다" sh -c 'for f in docs/diagrams/*.svg; do grep -q "prefers-color-scheme: dark" "$f" && grep -q "var(--d-" "$f" || exit 1; done'
 if command -v dot >/dev/null 2>&1; then
   check "TASK-18#4 커밋된 SVG·문서 블록이 .dot 과 같다(build-diagrams.py --check)" python3 scripts/build-diagrams.py --check
+  # TASK-35#1 진짜 graphviz 로: 렌더 환경 고정값을 다른 버전으로 바꾼 임시 사본에서(바이트 비교 SKIP)
+  # 바뀐 것 없음 → 0, .dot 의 색 센티넬 하나만 바꾸고 다시 렌더하지 않음 → 1 + 그 파일
+  dg_copy() {
+    local d; d="$(mktemp -d)"
+    mkdir -p "$d/scripts" "$d/docs"
+    cp scripts/build-diagrams.py "$d/scripts/"; cp -R diagrams "$d/"; cp -R docs/diagrams "$d/docs/"; cp README.md "$d/"; cp docs/*.md "$d/docs/"
+    printf 'graphviz=0.0.0-other\nos=Other\n' >"$d/diagrams/render-env.txt"
+    echo "$d"
+  }
+  t_dg_real_other_env_same() {
+    local d out rc; d="$(dg_copy)"
+    out="$(python3 "$d/scripts/build-diagrams.py" --check 2>&1)"; rc=$?; rm -rf "$d"
+    if [ "$rc" != 0 ] || ! grep -q SKIP <<<"$out"; then echo "rc=$rc"; echo "$out"; return 1; fi
+  }
+  check "TASK-35#1 다른 렌더 환경(바이트 비교 SKIP)에서 바뀐 것이 없으면 구조 비교도 통과" t_dg_real_other_env_same
+  t_dg_real_other_env_color() {
+    local d out rc; d="$(dg_copy)"
+    # 첫 번째 강조색(#f00006)을 경고색(#f0000e)으로 — 글자는 그대로, 색 토큰만 다르다
+    perl -0pi -e 's/#f00006/#f0000e/i' "$d/diagrams/architecture.dot"
+    out="$(python3 "$d/scripts/build-diagrams.py" --check 2>&1)"; rc=$?; rm -rf "$d"
+    if [ "$rc" != 1 ] || ! grep -q "docs/diagrams/architecture.svg" <<<"$out"; then echo "rc=$rc"; echo "$out"; return 1; fi
+  }
+  check "TASK-35#1 다른 렌더 환경이어도 .dot 의 색 센티넬만 바꾸고 다시 렌더하지 않으면 --check 가 1 + 파일 목록" t_dg_real_other_env_color
+elif [ "${REQUIRE_LINTERS:-0}" = 1 ]; then
+  # CI(REQUIRE_LINTERS=1)는 graphviz 를 설치한다(TASK-35#1) — 없으면 설치 단계가 빠진 것이다
+  check "TASK-35#1 graphviz dot 이 있다(REQUIRE_LINTERS=1 — CI)" false
 else
   echo "  WARNING: graphviz dot 이 없어 다이어그램 최신 여부 검사를 건너뛴다" >&2
 fi
+check "TASK-35#1 CI 는 graphviz 를 설치해 다이어그램 검사를 돌린다" sh -c 'grep -q "apt-get install -y graphviz" .github/workflows/ci.yml'
 
 # TASK-18#5 Playwright E2E: frontend/e2e + playwright.config.ts(chromium), scripts/e2e.sh(로컬 스택 기동·정리), make e2e(make test 에는 없음)
 check "TASK-18#5 make e2e 타깃은 scripts/e2e.sh 를 호출" sh -c 'make -n e2e | grep -q "scripts/e2e.sh"'

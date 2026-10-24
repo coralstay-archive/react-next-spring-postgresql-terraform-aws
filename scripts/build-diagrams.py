@@ -22,8 +22,10 @@ GitHub 에서 보이게 — 인라인 <svg> 대신 독립 SVG 파일 + <img>
 렌더 환경 고정 (TASK-35#1, OPS-38)
   graphviz 버전·OS(글꼴 측정)가 다르면 같은 .dot 이라도 SVG 좌표가 바이트 단위로 달라진다. 그래서 커밋된 SVG 를 만든 환경을
   diagrams/render-env.txt(graphviz=<버전>, os=<uname -s>)에 적어 두고, --check 는 현재 환경이 이 값과 같을 때만 SVG 를 바이트 비교한다.
-  다르면(또는 파일이 없으면) 바이트 비교는 SKIP 이라고 알리고, 환경과 무관한 것만 본다: SVG 의 글자(<title>·<text> 내용 = .dot 의
-  노드·라벨), 문서 블록, .dot 마다 SVG 가 있는지·소스 없는 SVG 가 남았는지. graphviz 를 올려 다시 렌더했으면 --env 출력으로 파일을 바꾼다.
+  다르면(또는 파일이 없으면) 바이트 비교는 SKIP 이라고 알리고, 환경과 무관한 것만 본다: SVG 의 구조(structure() — 글자
+  <title>·<text> 내용 = .dot 의 노드·라벨, 요소 태그 순서, var(--d-*) 색 토큰 순서, 모양·화살표 요소 종류별 개수), 문서 블록,
+  .dot 마다 SVG 가 있는지·소스 없는 SVG 가 남았는지. 그래서 색 센티넬·모양만 바꾸고 다시 렌더하지 않은 것도 잡는다.
+  CI(Linux, 다른 graphviz)도 이 구조 비교로 검사한다. graphviz 를 올려 다시 렌더했으면 --env 출력으로 파일을 바꾼다.
 
 사용
   python3 scripts/build-diagrams.py          SVG·문서 블록 갱신 (환경이 고정값과 다르면 경고)
@@ -93,8 +95,8 @@ def finish(svg: str, name: str, alt: str) -> str:
     svg = re.sub(r"<\?xml[^>]*\?>\s*", "", svg)
     svg = re.sub(r"<!DOCTYPE[^>]*>\s*", "", svg, flags=re.S)
     svg = re.sub(r"<!--.*?-->\s*", "", svg, flags=re.S)
-    # 그래프 배경(흰 폴리곤)은 테마 배경으로
-    svg = re.sub(r'(<g id="graph0"[^>]*>\s*(?:<title>[^<]*</title>\s*)?<polygon) fill="white" stroke="none"',
+    # 그래프 배경(흰 폴리곤)은 테마 배경으로. 옛 graphviz(Ubuntu 2.43 — CI)는 stroke="transparent" 로 쓴다
+    svg = re.sub(r'(<g id="graph0"[^>]*>\s*(?:<title>[^<]*</title>\s*)?<polygon) fill="white" stroke="(?:none|transparent)"',
                  r'\1 fill="#f0000f" stroke="none"', svg, count=1)
     unknown = set(re.findall(r"#f0[0-9a-f]{4}", svg, flags=re.I)) - set(TOKENS)
     if unknown:
@@ -164,6 +166,60 @@ def glyphs(svg: str) -> list[str]:
     return re.findall(r"<(?:title|text)\b[^>]*>([^<]*)</(?:title|text)>", svg)
 
 
+SHAPES = ("polygon", "polyline", "path", "ellipse", "circle", "rect", "line", "text", "image", "a")
+
+
+def structure(svg: str) -> dict[str, list[str]]:
+    """환경(글꼴 측정·좌표)과 무관한 SVG 구조. 글자가 같아도 색·모양만 바뀐 .dot 을 잡는다(TASK-35#1).
+      글자     <title>·<text> 내용 순서
+      요소     그룹(<g class="node|edge|cluster">, 제목으로 식별) 순서대로, 그룹 안 요소 태그
+      색 토큰  같은 순서로, 요소마다 쓰는 var(--d-*) (fill·stroke 짝 그대로)
+      모양 종류 모양·화살표 요소(polygon·path·ellipse …) 종류별 개수
+    그룹 순서는 그대로 비교하되 그룹 안 요소 순서는 정렬해서 본다: graphviz 버전마다 한 노드를 그리는 순서가 다르다
+    (예: cylinder 의 path·polygon 순서 — Ubuntu 2.43 과 16.x). 좌표·크기 속성은 보지 않는다."""
+    body = svg.split("</style>", 1)[-1]
+    groups: list[tuple[str, list[tuple[str, str]]]] = []  # (그룹 이름, [(태그, 색 토큰)])
+    stack: list[int] = []
+    pending_title: int | None = None
+    counts: dict[str, int] = {}
+    for m in re.finditer(r"<(/?)([a-zA-Z][\w:-]*)\b([^>]*)>([^<]*)", body):
+        close, tag, attrs, after = m.groups()
+        if tag == "g":
+            if close:
+                stack and stack.pop()
+                continue
+            cls = re.search(r'class="([^"]*)"', attrs)
+            groups.append((cls.group(1) if cls else "g", []))
+            stack.append(len(groups) - 1)
+            pending_title = len(groups) - 1
+            continue
+        if close:
+            continue
+        if tag == "title" and pending_title is not None:
+            groups[pending_title] = (f"{groups[pending_title][0]} {after.strip()}", groups[pending_title][1])
+            pending_title = None
+            continue
+        if not stack:
+            continue
+        if tag in SHAPES:
+            counts[tag] = counts.get(tag, 0) + 1
+        tokens = " ".join(re.findall(r"var\(--d-[\w-]+\)", attrs))
+        groups[stack[-1]][1].append((tag, tokens))
+    elems: list[str] = []
+    colors: list[str] = []
+    for name, items in groups:
+        for tag, tokens in sorted(items):
+            elems.append(f"{name}: {tag}")
+            if tokens:
+                colors.append(f"{name}: {tag} {tokens}")
+    return {
+        "글자": glyphs(svg),
+        "요소": elems,
+        "색 토큰": colors,
+        "모양 종류": [f"{t}={n}" for t, n in sorted(counts.items())],
+    }
+
+
 def show_diff(old: list[str], new: list[str], label: str) -> None:
     lines = list(difflib.unified_diff(old, new, f"{label} (커밋됨)", f"{label} (새로 렌더)", n=1, lineterm=""))
     for line in lines[:DIFF_LINES]:
@@ -216,16 +272,20 @@ def main() -> int:
     if check:
         if not pinned:
             why = f"{PIN.relative_to(ROOT)} 이 없다" if pin is None else f"고정 {env_text(pin)}"
-            print(f"SKIP - SVG 바이트 비교: 현재 렌더 환경 {env_text(env)} ≠ {why}. 글자·문서 블록·파일 목록만 비교한다")
+            print(f"SKIP - SVG 바이트 비교: 현재 렌더 환경 {env_text(env)} ≠ {why}. 구조(글자·요소·색 토큰·모양 종류)·문서 블록·파일 목록만 비교한다")
         bad: list[pathlib.Path] = []
         for p in changed:
             old = p.read_text(encoding="utf-8") if p.exists() else ""
             if p.suffix == ".svg" and not pinned and p.exists():
-                if glyphs(old) == glyphs(wanted[p]):
+                a, b = structure(old), structure(wanted[p])
+                diffs = [k for k in a if a[k] != b[k]]
+                if not diffs:
                     continue
                 bad.append(p)
-                print(f"  out of date: {p.relative_to(ROOT)} (글자가 다르다)")
-                show_diff(glyphs(old), glyphs(wanted[p]), str(p.relative_to(ROOT)))
+                print(f"  out of date: {p.relative_to(ROOT)} ({'·'.join(diffs)}이 다르다)")
+                for k in diffs:
+                    print(f"    [{k}]")
+                    show_diff(a[k], b[k], f"{p.relative_to(ROOT)} {k}")
             else:
                 bad.append(p)
                 print(f"  out of date: {p.relative_to(ROOT)}" + ("" if p.exists() else " (없음)"))

@@ -4,7 +4,7 @@ title: 로컬 도구 정리(테스트·E2E·Makefile)
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-24 00:33'
+updated_date: '2026-10-24 01:26'
 labels:
   - dx
 dependencies:
@@ -49,4 +49,6 @@ documentation:
 
 <!-- SECTION:NOTES:BEGIN -->
 TASK-23 진행 중 관찰(2026-10-22): 머신 부하가 높을 때(load avg 약 45) 커밋 훅 make test 가 간헐 실패 — 프론트 vitest 5초 타임아웃(post-editor, post-detail), DbFailureTest 컨텍스트 기동 중 Flyway 첫 접속 EOF(Docker 포트 프록시 추정). 재실행하면 통과. loginSlidingWindow(Retry-After 891)는 TASK-23 브랜치 f53619f 에서 고침.
+
+독립 리뷰(2026-10-24) 반영 결정(유저): (1) 다이어그램 --check는 환경이 달라도 구조(요소 태그 순서, var(--d-*) 색 토큰 순서, 모양·화살표 종류 개수)까지 비교하고, CI에 graphviz를 설치해 검사를 돌린다. (2) 로컬 env 파일 로더는 이미 정의된 변수(명령줄·환경변수)를 덮지 않는다, 테스트 타깃은 env 파일을 읽지 않는 것 유지. (3) frontend-deps.sh의 npm ci에 동시 실행 잠금과 안내. (4) 남은 npm audit(high 5·moderate 2)은 새 draft로. 참고: 이 태스크의 구현 커밋들은 서브에이전트가 frontend/ 에서 커밋해 커밋 훅이 건너뛰어졌다(훅이 cwd의 .git·backlog만 확인) — 부모가 루트에서 make test로 따로 검증, 훅 자체는 유저 승인으로 별도 수정.
 <!-- SECTION:NOTES:END -->

@@ -158,9 +158,13 @@ DOT 원본은 `diagrams/*.dot`이고, `make diagrams`(= `scripts/build-diagrams.
 - 색은 `.dot`에 센티넬 hex로 쓰고, 빌드가 CSS 변수로 바꾼다. SVG 안의 `<style>`이 라이트 값과 `@media (prefers-color-scheme: dark)` 다크 값을 정의하므로, SVG 파일 하나가 보는 쪽 테마를 따른다.
 - GitHub는 Markdown 안의 인라인 `<svg>`를 지우고 페이지 CSS를 SVG에 넘기지 않는다. 그래서 변수 정의를 SVG 안에 넣고 `<img>`로 참조한다. `<img>`의 SVG는 OS·브라우저의 색 테마를 따른다.
   GitHub 테마만 따로 바꾼 경우에도 읽히도록 배경을 칠해 둔다.
-- `make test`가 `build-diagrams.py --check`로 커밋된 SVG가 원본과 같은지 확인한다(`dot`이 없으면 건너뛴다 — CI에는 graphviz가 없다).
+- `make test`가 `build-diagrams.py --check`로 커밋된 SVG가 원본과 같은지 확인한다(로컬에 `dot`이 없으면 건너뛴다. CI는 graphviz를
+  apt로 설치해 항상 검사한다).
   graphviz 버전·OS(글꼴 측정)가 다르면 같은 `.dot`이라도 좌표가 바이트 단위로 달라지므로, 커밋된 SVG를 만든 환경을 `diagrams/render-env.txt`
-  (`graphviz=<버전>`, `os=<uname -s>`)에 적어 두고 그 환경에서만 바이트 비교한다. 다르면 `SKIP`을 알리고 글자(노드 이름·라벨)·문서 블록·파일 목록만 비교한다.
+  (`graphviz=<버전>`, `os=<uname -s>`)에 적어 두고 그 환경에서만 바이트 비교한다. 다르면(CI의 Ubuntu graphviz 2.43 등) `SKIP`을 알리고
+  좌표와 무관한 구조 — 글자(노드 이름·라벨), 요소 태그(노드·엣지·클러스터 그룹 순서대로), `var(--d-*)` 색 토큰, 모양·화살표 요소 종류별 개수 —
+  와 문서 블록·파일 목록을 비교한다. 그래서 색 센티넬이나 모양만 바꾸고 다시 렌더하지 않은 것도 잡는다(그룹 안 요소 순서는 graphviz 버전마다
+  달라 정렬해서 본다).
   다르면 파일 목록과 diff 일부를 보인다(TASK-35#1). graphviz를 올려 다시 렌더했으면 `python3 scripts/build-diagrams.py --env > diagrams/render-env.txt`.
 - 시퀀스 다이어그램(OAuth 로그인 흐름)은 DOT으로 표현할 수 없어 [docs/api.md](docs/api.md)에 mermaid로 썼다.
 
