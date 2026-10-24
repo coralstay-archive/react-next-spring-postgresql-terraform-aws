@@ -69,8 +69,10 @@ make backend-run    # 백엔드 http://localhost:8080/api
 make frontend-dev   # 프론트 http://localhost:3000
 ```
 
-`.env`는 로컬 실행 타깃(`dev-db`, `dev-storage`, `dev-db-down`, `backend-run`, `frontend-dev`)의 레시피 안에서만 읽는다(셸 문법 `set -a; . ./.env` —
-값에 공백·특수문자가 있으면 따옴표로 감싼다). 배포(`deploy*`, `put-secrets`, `tf-outputs`)·`smoke`·`test`·`e2e`에는 섞이지 않는다 — `.env`의
+`.env`는 로컬 실행 타깃(`dev-db`, `dev-storage`, `dev-db-down`, `backend-run`, `frontend-dev`)의 레시피 안에서만 읽는다(`scripts/local-env.sh`, 셸 문법 —
+값에 공백·특수문자가 있으면 따옴표로 감싸고, 문법 오류면 타깃이 실패한다). 이미 정의된 변수(환경변수, make 명령줄 변수)는 덮지 않는다 —
+`make dev-db POSTGRES_PORT=5433`이나 `POSTGRES_PORT=5433 make dev-db`가 `.env` 값보다 우선한다.
+배포(`deploy*`, `put-secrets`, `tf-outputs`)·`smoke`·`test`·`e2e`에는 섞이지 않는다 — `.env`의
 `AWS_PROFILE`·`DRY_RUN` 같은 값이 배포 대상이나 명령줄로 준 `DRY_RUN=1`을 바꾸지 않게(TASK-35#4).
 
 프론트 의존성: `make frontend-dev`·`frontend-test`·`frontend-build`, `make test`, `make e2e`는 먼저 `scripts/frontend-deps.sh`를 부른다.

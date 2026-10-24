@@ -1,8 +1,10 @@
 # repo 루트의 .env(example.env 를 복사)는 로컬 실행 타깃(dev-db, dev-storage, dev-db-down, backend-run, frontend-dev)의
 # 레시피 안에서만 읽는다(TASK-35#4, OPS-41). 전역으로 include·export 하지 않는다 — 배포(deploy*, put-secrets, tf-outputs)·smoke·
 # test·e2e 에 로컬 값(AWS_PROFILE, DRY_RUN 같은)이 섞이거나, 명령줄·환경변수로 준 DRY_RUN=1 을 덮지 않게. 없으면 기본값을 쓴다.
-# 셸 문법(set -a; .)으로 읽으므로 값에 공백·특수문자가 있으면 따옴표로 감싼다. docker compose 는 같은 디렉터리의 .env 를 스스로도 읽는다.
-LOCAL_ENV = set -a; [ ! -f .env ] || . ./.env; set +a;
+# 로컬 실행 타깃에서도 이미 정의된 변수(환경변수, make 명령줄 변수)는 덮지 않는다 — make dev-db POSTGRES_PORT=5433 이 파일 값보다 우선한다
+# (scripts/local-env.sh: 정의되지 않은 키만 export 문으로 출력). 셸 문법으로 읽으므로 값에 공백·특수문자가 있으면 따옴표로 감싸고,
+# 문법 오류면 타깃이 실패한다. docker compose 는 같은 디렉터리의 .env 를 스스로도 읽지만 셸 환경변수가 우선한다.
+LOCAL_ENV = local_env="$$(./scripts/local-env.sh .env)" && eval "$$local_env" &&
 
 .PHONY: help test dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
 	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams

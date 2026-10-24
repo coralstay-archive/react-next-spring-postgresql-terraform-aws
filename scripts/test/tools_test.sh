@@ -258,7 +258,18 @@ MK="$TMP/mk"
 mkdir -p "$MK/bin" "$MK/backend"
 cp Makefile "$MK/"
 for d in scripts frontend infra deploy; do ln -s "$ROOT/$d" "$MK/$d"; done
-printf 'LEAK_MARKER=from-dotenv\nDRY_RUN=0\nAWS_PROFILE=leaked-profile\n' >"$MK/.env"
+MK_ENV_FILE="$MK/.env"
+cat >"$MK_ENV_FILE" <<'ENVFILE'
+# 주석과 빈 줄은 건너뛴다
+
+LEAK_MARKER=from-dotenv
+DRY_RUN=0
+AWS_PROFILE=leaked-profile
+POSTGRES_PORT=5432
+export EXPORTED_KEY=exported-value
+QUOTED_VALUE="a b # not a comment"
+SINGLE_QUOTED='it''s $HOME literal'
+ENVFILE
 cat >"$MK/bin/terraform" <<'SH'
 #!/usr/bin/env bash
 env >"$MK_STATE/terraform.env"
@@ -270,7 +281,7 @@ printf '#!/usr/bin/env bash\nenv >"$MK_STATE/gradlew.env"\n' >"$MK/backend/gradl
 chmod +x "$MK/bin/"* "$MK/backend/gradlew"
 export MK_STATE="$TMP/mk-state"
 mkdir -p "$MK_STATE"
-mk() { env -u LEAK_MARKER -u AWS_PROFILE PATH="$MK/bin:$PATH" make -s -C "$MK" "$@"; }
+mk() { env -u LEAK_MARKER -u AWS_PROFILE -u POSTGRES_PORT -u EXPORTED_KEY -u QUOTED_VALUE -u SINGLE_QUOTED PATH="$MK/bin:$PATH" make -s -C "$MK" "$@"; }
 t_mk_deploy_clean() {
   rm -f "$MK_STATE"/*
   run_capture mk deploy-frontend DRY_RUN=1 SKIP_BUILD=1
@@ -294,6 +305,49 @@ t_mk_local_env() {
   grep -qx 'LEAK_MARKER=from-dotenv' "$MK_STATE/gradlew.env" || { echo "backend-run 이 env 파일을 읽지 않았다"; echo "$OUT"; return 1; }
 }
 check "TASK-35#4 로컬 실행(make backend-run)은 env 파일을 그대로 읽는다" t_mk_local_env
+t_mk_local_env_syntax() {
+  # 주석·빈 줄·export 형식·따옴표(공백·# 포함, 작은따옴표 안의 $)를 셸 문법 그대로 읽는다
+  rm -f "$MK_STATE"/*
+  run_capture mk backend-run
+  rc_is 0 || return 1
+  local want
+  for want in 'POSTGRES_PORT=5432' 'EXPORTED_KEY=exported-value' 'QUOTED_VALUE=a b # not a comment' 'SINGLE_QUOTED=its $HOME literal'; do
+    grep -qxF -- "$want" "$MK_STATE/gradlew.env" || { echo "gradlew 환경에 '$want' 가 없다:"; grep -E '^(POSTGRES_PORT|EXPORTED_KEY|QUOTED_VALUE|SINGLE_QUOTED)=' "$MK_STATE/gradlew.env"; return 1; }
+  done
+}
+check "TASK-35#4 env 파일의 주석·빈 줄·export·따옴표 값을 셸 문법대로 읽는다" t_mk_local_env_syntax
+t_mk_local_cmdline_wins() {
+  # make 명령줄 변수(make backend-run POSTGRES_PORT=5433)를 env 파일 값이 덮지 않는다
+  rm -f "$MK_STATE"/*
+  run_capture mk backend-run POSTGRES_PORT=5433
+  rc_is 0 || return 1
+  grep -qx 'POSTGRES_PORT=5433' "$MK_STATE/gradlew.env" || { echo "명령줄 POSTGRES_PORT=5433 이 덮였다:"; grep '^POSTGRES_PORT=' "$MK_STATE/gradlew.env"; return 1; }
+  grep -qx 'LEAK_MARKER=from-dotenv' "$MK_STATE/gradlew.env" || { echo "정의되지 않은 키는 env 파일에서 읽어야 한다"; return 1; }
+}
+check "TASK-35#4 make 명령줄 변수가 env 파일 값보다 우선한다(make backend-run POSTGRES_PORT=5433)" t_mk_local_cmdline_wins
+t_mk_local_env_wins() {
+  # 이미 있는 환경변수(빈 값 포함)를 env 파일 값이 덮지 않는다
+  rm -f "$MK_STATE"/*
+  run_capture env -u LEAK_MARKER POSTGRES_PORT=5434 AWS_PROFILE= PATH="$MK/bin:$PATH" make -s -C "$MK" backend-run
+  rc_is 0 || return 1
+  grep -qx 'POSTGRES_PORT=5434' "$MK_STATE/gradlew.env" || { echo "환경변수 POSTGRES_PORT=5434 가 덮였다:"; grep '^POSTGRES_PORT=' "$MK_STATE/gradlew.env"; return 1; }
+  grep -qx 'AWS_PROFILE=' "$MK_STATE/gradlew.env" || { echo "빈 값으로 정의된 AWS_PROFILE 이 덮였다:"; grep '^AWS_PROFILE=' "$MK_STATE/gradlew.env"; return 1; }
+  grep -qx 'LEAK_MARKER=from-dotenv' "$MK_STATE/gradlew.env" || { echo "정의되지 않은 키는 env 파일에서 읽어야 한다"; return 1; }
+}
+check "TASK-35#4 이미 정의된 환경변수(빈 값 포함)가 env 파일 값보다 우선한다" t_mk_local_env_wins
+t_mk_local_env_bad() {
+  # env 파일 문법 오류면 로컬 실행 타깃이 실패한다(조용히 기본값으로 돌지 않게)
+  local d="$TMP/mk-bad"
+  rm -rf "$d"; mkdir -p "$d/backend"; cp "$MK/Makefile" "$d/"; ln -s "$ROOT/scripts" "$d/scripts"; cp "$MK/backend/gradlew" "$d/backend/"
+  printf 'BROKEN="unterminated\n' >"$d/.env"
+  rm -f "$MK_STATE"/*
+  run_capture env PATH="$MK/bin:$PATH" make -s -C "$d" backend-run
+  [ "$RC" != 0 ] && [ ! -f "$MK_STATE/gradlew.env" ] || { echo "rc=$RC, gradlew 실행됨=$([ -f "$MK_STATE/gradlew.env" ] && echo y)"; echo "$OUT"; return 1; }
+}
+check "TASK-35#4 env 파일 문법 오류면 로컬 실행 타깃이 실패한다" t_mk_local_env_bad
+for t in test backend-test frontend-test e2e; do
+  check "TASK-35#4 make $t 는 env 파일을 읽지 않는다" sh -c "! make -n $t | grep -Eq 'local-env|set -a'"
+done
 
 # ================================================================ TASK-35#5 Next.js 보안 패치 반영(GHSA-2464-fhr4-w9xw·GHSA-p3m5-59mp-jv5r·GHSA-673q-mjm6-r5xr: 16.0.0 – 16.4.0)
 t_next_patched() {
