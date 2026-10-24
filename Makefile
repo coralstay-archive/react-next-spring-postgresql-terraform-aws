@@ -30,16 +30,19 @@ backend-test: ## 백엔드 테스트
 backend-build: ## 백엔드 빌드 (bootJar)
 	cd backend && ./gradlew build
 
-frontend-install: ## 프론트 의존성 설치
-	cd frontend && npm ci
+frontend-install: ## 프론트 의존성 설치 (npm ci. frontend-* 타깃은 lock 이 바뀌었을 때만 자동으로 한다)
+	./scripts/frontend-deps.sh --force
 
 frontend-dev: ## 프론트 개발 서버 (http://localhost:3000)
+	./scripts/frontend-deps.sh
 	cd frontend && npm run dev
 
 frontend-test: ## 프론트 테스트
+	./scripts/frontend-deps.sh
 	cd frontend && npm test
 
 frontend-build: ## 프론트 정적 export (frontend/out)
+	./scripts/frontend-deps.sh
 	cd frontend && npm run build
 
 diagrams: ## diagrams/*.dot → docs/diagrams/*.svg 렌더 + 문서의 <!--dot:이름--> 블록 갱신 (graphviz 필요)

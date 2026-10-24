@@ -44,7 +44,8 @@ echo "==> backend"
 echo "==> frontend"
 (
   cd "$ROOT/frontend"
-  [ -d node_modules ] || npm ci
+  # node_modules 가 없거나 package.json·package-lock.json 이 마지막 설치와 다르면 npm ci (TASK-35#3)
+  "$ROOT/scripts/frontend-deps.sh"
   npm test
 )
 

@@ -53,7 +53,8 @@ port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
 for p in "$E2E_WEB_PORT" "$E2E_API_PORT" "$POSTGRES_PORT" "$MINIO_PORT" "$MINIO_CONSOLE_PORT"; do
   port_busy "$p" && die "포트 $p 를 이미 쓰고 있다(이전 e2e 가 남았으면 docker compose -p board-e2e down -v)"
 done
-[ -d "$FRONTEND/node_modules/@playwright/test" ] || die "frontend 의존성이 없다: make frontend-install"
+# node_modules 가 없거나 lock 이 바뀌었으면 npm ci (TASK-35#3)
+"$ROOT/scripts/frontend-deps.sh"
 
 rm -rf "$ART"
 mkdir -p "$ART"
