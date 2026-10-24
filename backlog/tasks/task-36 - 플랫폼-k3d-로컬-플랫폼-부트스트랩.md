@@ -4,7 +4,7 @@ title: '[플랫폼] k3d 로컬 플랫폼 부트스트랩'
 status: In Progress
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 05:42'
+updated_date: '2026-10-24 05:52'
 labels:
   - platform
 dependencies: []
@@ -53,4 +53,6 @@ AC#2의 '경고'는 AC#7(예산 초과 시 실패, FORCE=1로만 통과)이 우�
 [진행] AC#3 백엔드 MigrationJob(migrate·await)+application-k8s.properties 구현·테스트 통과(MigrationJobTest 4건). 스크립트(_k3d.sh·k3d.sh·k8s-validate.sh·test-integration.sh)·매니페스트(deploy/k8s)·k8s_test.sh(50건 통과)·README·CI(kubeconform) 작성 완료, 커밋 중.
 
 [진행] 613497c AC#3 커밋. 다음: 스크립트·매니페스트·테스트·README·CI 커밋 → 백엔드 이미지로 MigrationJob 실제 실행 확인.
+
+[진행] 커밋 613497c(AC#3 MigrationJob)·42547a0(k3d 플랫폼·사전 검사·매니페스트·검증)·6fa87f5(Job 없는 프로필 대기 수정). make test 전체 통과(repo 236, deploy 144, tools 42, k8s 52, terraform 58, backend 888, frontend 577). 실제 이미지로 MigrationJob migrate·await, k8s 프로필 기동(health UP, 392MiB/768MiB) 확인. 실제 k3d-up·k3d-smoke(AC#1·#4)는 Docker VM 3.8GiB 라 사전 검사가 거부 — Docker Desktop 5GB 로 올린 뒤 make k3d-up && make k3d-smoke && make k3d-profile PROFILES=core && make k3d-stop 으로 확인 필요. 남은 일: 독립 서브에이전트 코드 리뷰, AC 체크.
 <!-- SECTION:NOTES:END -->
