@@ -4,7 +4,7 @@ title: 로컬 도구 정리(테스트·E2E·Makefile)
 status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-24 00:29'
+updated_date: '2026-10-24 00:33'
 labels:
   - dx
 dependencies:
@@ -33,6 +33,17 @@ documentation:
 - [ ] #4 OPS-41 배포 타깃에 .env 전역 export가 섞이지 않게
 - [ ] #5 Next.js를 보안 패치가 반영된 버전으로 올리고 전체 테스트·빌드·E2E 통과 확인(16.4.0 빌드 시 취약점 안내, TASK-29에서 발견)
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. (#1 OPS-38) 렌더 환경 고정값 파일 diagrams/render-env.txt(graphviz 버전·OS)를 둔다. build-diagrams.py --check 는 현재 환경(dot -V, OS)이 고정값과 같을 때만 SVG 를 바이트 비교하고, 다르면 바이트 비교를 SKIP 하되 글자(<title>·<text>) 구조 비교·문서 블록·SVG 존재/잔여 검사는 계속한다. 다르면 파일 목록과 unified diff 일부를 출력한다. --env 로 현재 환경을 출력. 테스트: scripts/test/tools_test.sh 에서 가짜 dot 으로 임시 트리에 대해 일치/좌표만 다름/글자 다름/문서 블록 다름을 검사.
+2. (#2 OPS-39) 프로세스 관리를 scripts/_proc.sh 로 분리: 백그라운드 프로세스를 자기 프로세스 그룹(set -m)으로 띄워 PGID 를 기록하고, 정리 때 그룹에 TERM → E2E_STOP_TIMEOUT(기본 10초) 안에 안 끝나면 KILL. 포트 기반 lsof kill 은 없앤다. E2E_KEEP=1 은 PGID·명령을 상태 파일에 남기고, 다음 실행이 시작할 때 명령이 일치하는 그룹만 정리한 뒤 compose down -v. 테스트: TERM 을 무시하는 그룹이 KILL 로 끝나는지, 손자 프로세스까지 끝나는지, 관계없는 프로세스는 살아 있는지, 상태 파일의 PID 가 다른 명령이면 죽이지 않는지.
+3. (#3 OPS-40) scripts/frontend-deps.sh: package.json·package-lock.json 해시를 node_modules/.deps-stamp 와 비교해 다르거나 없으면 npm ci 후 스탬프 기록(실패 시 스탬프 안 씀). test.sh, Makefile frontend-dev/test/build/install(--force), e2e.sh 가 이걸 쓴다. 테스트: 가짜 npm 으로 처음·같음·lock 변경·실패 경우.
+4. (#4 OPS-41) Makefile 의 루트 env 파일 -include + 전역 export 를 없애고, 로컬 실행 타깃(dev-db, dev-storage, dev-db-down, backend-run, frontend-dev)만 레시피 안에서 env 파일을 읽는다(set -a; . 로 읽기). 배포·put-secrets·tf-outputs·smoke·test·e2e 에는 섞이지 않는다. 테스트: 임시 디렉터리에 Makefile 복사 + env 파일 마커, 가짜 terraform 이 본 환경에 마커가 없고 가짜 gradlew(backend-run)는 마커를 본다.
+5. (#5) npm 레지스트리에서 16.x 최신 패치(16.4.3) 확인, next·eslint-config-next 를 같은 버전으로 npm install 해 lock 갱신. make test, npm run build(보안 안내 사라짐 확인), make e2e.
+6. README·docs 갱신, 마지막에 make test·make e2e.
+<!-- SECTION:PLAN:END -->
 
 ## Implementation Notes
 
