@@ -4,7 +4,7 @@ title: '[검진센터] 기반 서비스 + 종합 건강 점검'
 status: Draft
 assignee: []
 created_date: '2026-10-24 04:25'
-updated_date: '2026-10-24 04:25'
+updated_date: '2026-10-24 04:33'
 labels:
   - ops
   - checkcenter
@@ -14,7 +14,7 @@ dependencies: []
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-게시판과 따로 도는 장애대응 검진센터(Go 제안, 약 20MB — 승격 때 언어 확정). 게시판이 죽어도 살아 있어야 한다. 관리자 화면은 별도 탭.
+게시판과 따로 도는 장애대응 검진센터. 언어는 Go(유저 확정 2026-10-24, 약 20MB — 같은 Go인 eBPF 에이전트와 도구·빌드 체계 공유). 게시판이 죽어도 살아 있어야 한다. 관리자 화면은 별도 탭.
 선행: 관측성, 프로토콜 태스크(점검 대상이 생긴 뒤).
 
 ## 진행 방식
