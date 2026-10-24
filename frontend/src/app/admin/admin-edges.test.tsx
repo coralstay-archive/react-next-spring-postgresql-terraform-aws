@@ -245,6 +245,20 @@ describe("TASK-33#5 정지 경고(warnings)", () => {
     warn.mockRestore();
   });
 
+  it("TASK-34#3 session_revoke_failed(세션이 남았을 수 있음)가 든 정지 경고는 role=alert 로 알린다", async () => {
+    suspendFlow(["session_revoke_failed"]);
+    await suspend("스팸");
+    expect(await screen.findByTestId("admin-suspend-warning")).toHaveAttribute("role", "alert");
+  });
+
+  it("TASK-34#3 session_revoke_failed 가 없는(모르는 코드만 있는) 정지 경고는 role=status 로 둔다", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    suspendFlow(["something_new"]);
+    await suspend("");
+    expect(await screen.findByTestId("admin-suspend-warning")).toHaveAttribute("role", "status");
+    warn.mockRestore();
+  });
+
   it("TASK-33#5 warnings 가 비었으면 안내가 없다", async () => {
     suspendFlow([]);
     await suspend("스팸");
