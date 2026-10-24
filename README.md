@@ -17,7 +17,7 @@
 
 ```bash
 cp example.env .env                   # (선택) 로컬 env — 이미지 첨부(UPLOADS_*)·ADMIN_EMAIL 을 쓰려면 필요
-make frontend-install                 # 프론트 의존성 (처음 한 번)
+make frontend-install                 # 프론트 의존성 (처음 한 번. 이후 frontend-*·test·e2e 가 lock 이 바뀌면 알아서 npm ci)
 make dev-db dev-storage               # PostgreSQL + MinIO (docker compose)
 make backend-run                      # 터미널 1: http://localhost:8080/api
 make frontend-dev                     # 터미널 2: http://localhost:3000
@@ -69,6 +69,14 @@ make backend-run    # 백엔드 http://localhost:8080/api
 make frontend-dev   # 프론트 http://localhost:3000
 ```
 
+`.env`는 로컬 실행 타깃(`dev-db`, `dev-storage`, `dev-db-down`, `backend-run`, `frontend-dev`)의 레시피 안에서만 읽는다(셸 문법 `set -a; . ./.env` —
+값에 공백·특수문자가 있으면 따옴표로 감싼다). 배포(`deploy*`, `put-secrets`, `tf-outputs`)·`smoke`·`test`·`e2e`에는 섞이지 않는다 — `.env`의
+`AWS_PROFILE`·`DRY_RUN` 같은 값이 배포 대상이나 명령줄로 준 `DRY_RUN=1`을 바꾸지 않게(TASK-35#4).
+
+프론트 의존성: `make frontend-dev`·`frontend-test`·`frontend-build`, `make test`, `make e2e`는 먼저 `scripts/frontend-deps.sh`를 부른다.
+`package.json`·`package-lock.json`의 해시가 `frontend/node_modules/.deps-stamp`와 다르거나 `node_modules`가 없으면 `npm ci`를 돌린다
+(브랜치를 바꿔 lock이 달라졌을 때 옛 `node_modules`로 돌지 않게, TASK-35#3). `make frontend-install`은 해시와 상관없이 `npm ci`.
+
 백엔드 상태 확인:
 
 ```bash
@@ -111,6 +119,8 @@ make smoke  # 배포 스모크: SMOKE_BASE_URL=https://<cloudfront> make smoke (
 - 프론트: Vitest + Testing Library(`frontend/src/**/*.test.ts(x)`).
 - 리포: `scripts/test/repo_test.sh` (Makefile 타깃, hooks 설정, gitignore, 문서, 다이어그램이 원본과 같은지 등 골격 검증)
 - 배포: `scripts/test/deploy_test.sh` (DRY_RUN·가짜 aws/docker로 배포 스크립트, 워크플로 actionlint, shellcheck, 가짜 HTTP 서버로 `smoke_test.sh` 검증)
+- 로컬 도구: `scripts/test/tools_test.sh` (가짜 dot 으로 `build-diagrams.py --check`의 렌더 환경 고정, `scripts/_proc.sh` 프로세스 그룹 정리(TERM → KILL),
+  가짜 npm 으로 `frontend-deps.sh`, 임시 Makefile 복사본으로 `.env`가 배포 타깃에 섞이지 않는지, Next.js 취약 버전 아님)
 - Terraform: `terraform fmt -check -recursive infra` + 루트 스택(`infra/bootstrap`, `infra/main`)과 `tests/*.tftest.hcl`이 있는 모듈마다 `terraform init -backend=false`·`validate`·`test`.
   테스트는 `mock_provider "aws"`라 AWS 자격 증명이 필요 없다(provider는 처음 한 번 내려받아 `~/.terraform.d/plugin-cache`에 둔다).
   `terraform`이 없으면 경고만 내고 건너뛴다. 재사용 모듈의 `.terraform.lock.hcl`은 커밋하지 않고, 루트 스택(`infra/bootstrap`, `infra/main`)의 lock 파일은 커밋한다.
@@ -131,9 +141,15 @@ make smoke  # 배포 스모크: SMOKE_BASE_URL=https://<cloudfront> make smoke (
 3. 프론트: `next dev`(:3100, `/api` → :18080). **같은 `frontend/`의 `next dev`는 하나만 뜬다** — `make frontend-dev`를 먼저 끈다.
 4. `npx playwright test`(chromium) → 결과·스크린샷·trace는 `frontend/e2e/artifacts/`(gitignore). 끝나면 프로세스를 끄고 `compose down -v`.
 
+프로세스 정리(TASK-35#2): 백엔드와 `next dev`는 각자 프로세스 그룹으로 띄우고(`scripts/_proc.sh`), 끝날 때(성공·실패·Ctrl-C) 그 그룹에만
+TERM을 보낸 뒤 `E2E_STOP_TIMEOUT`(기본 10초) 안에 안 끝나면 KILL한다. `next dev`가 띄운 하위 서버도 같은 그룹이라 함께 끝난다.
+포트로 프로세스를 찾아 죽이지 않는다(같은 포트를 잡은 다른 프로그램을 건드리지 않게).
+
 시나리오(`frontend/e2e/smoke.spec.ts`, 직렬): A 가입·로그아웃·로그인 → 글쓰기(카테고리·태그·이미지 업로드) → 목록·태그·검색 → 좋아요·댓글 →
 B 가입, A의 글에 수정·삭제 버튼 없음 + API PATCH 403 → 관리자 정지 → B의 다음 쓰기 실패·로그인 403 → 휴대폰 OTP 로그인 → 삭제 확인 창(취소·확인).
-인자는 그대로 넘긴다: `make e2e E2E_ARGS="--headed"`, `./scripts/e2e.sh -g OTP`. `E2E_KEEP=1`이면 끝나도 스택을 남긴다.
+인자는 그대로 넘긴다: `make e2e E2E_ARGS="--headed"`, `./scripts/e2e.sh -g OTP`. `E2E_KEEP=1`이면 끝나도 스택을 남긴다(디버깅).
+남긴 프로세스 그룹과 시작 시각은 `frontend/e2e/artifacts/kept-pids`에 적히고, 다음 `make e2e`가 시작할 때 시작 시각이 같은 그룹만 끄고
+`compose down -v` 한 뒤 진행한다(PID가 다른 프로그램에 재사용됐으면 건너뛴다).
 
 ### 다이어그램
 
@@ -142,7 +158,10 @@ DOT 원본은 `diagrams/*.dot`이고, `make diagrams`(= `scripts/build-diagrams.
 - 색은 `.dot`에 센티넬 hex로 쓰고, 빌드가 CSS 변수로 바꾼다. SVG 안의 `<style>`이 라이트 값과 `@media (prefers-color-scheme: dark)` 다크 값을 정의하므로, SVG 파일 하나가 보는 쪽 테마를 따른다.
 - GitHub는 Markdown 안의 인라인 `<svg>`를 지우고 페이지 CSS를 SVG에 넘기지 않는다. 그래서 변수 정의를 SVG 안에 넣고 `<img>`로 참조한다. `<img>`의 SVG는 OS·브라우저의 색 테마를 따른다.
   GitHub 테마만 따로 바꾼 경우에도 읽히도록 배경을 칠해 둔다.
-- `make test`가 `build-diagrams.py --check`로 커밋된 SVG가 원본과 같은지 확인한다(`dot`이 없으면 건너뛴다. 글꼴 측정이 환경마다 달라 CI에서는 검사하지 않는다).
+- `make test`가 `build-diagrams.py --check`로 커밋된 SVG가 원본과 같은지 확인한다(`dot`이 없으면 건너뛴다 — CI에는 graphviz가 없다).
+  graphviz 버전·OS(글꼴 측정)가 다르면 같은 `.dot`이라도 좌표가 바이트 단위로 달라지므로, 커밋된 SVG를 만든 환경을 `diagrams/render-env.txt`
+  (`graphviz=<버전>`, `os=<uname -s>`)에 적어 두고 그 환경에서만 바이트 비교한다. 다르면 `SKIP`을 알리고 글자(노드 이름·라벨)·문서 블록·파일 목록만 비교한다.
+  다르면 파일 목록과 diff 일부를 보인다(TASK-35#1). graphviz를 올려 다시 렌더했으면 `python3 scripts/build-diagrams.py --env > diagrams/render-env.txt`.
 - 시퀀스 다이어그램(OAuth 로그인 흐름)은 DOT으로 표현할 수 없어 [docs/api.md](docs/api.md)에 mermaid로 썼다.
 
 ## 인증·인가 요약
@@ -424,7 +443,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 | `AWS_DEPLOY_ROLE_ARN`, `AWS_REGION`, `ECR_REPOSITORY_URL`, `WEB_BUCKET`, `DISTRIBUTION_ID`, `INSTANCE_ID` | GitHub 리포 **Variables**(시크릿 아님) | terraform output. 로컬은 `scripts/tf-outputs.sh`가 같은 이름으로 채운다 |
 | `DRY_RUN`, `IMAGE_TAG`, `SKIP_BUILD`, `ALLOW_DIRTY`, `HEALTH_TIMEOUT` | 배포 스크립트 | [배포](#배포-task-17) |
 | `SMOKE_BASE_URL` | `make smoke` | 스모크 대상(운영 `public_base_url`) |
-| `E2E_ARGS`, `E2E_KEEP`, `E2E_*_PORT` | `make e2e` | [E2E](#e2e-playwright-task-18) |
+| `E2E_ARGS`, `E2E_KEEP`, `E2E_STOP_TIMEOUT`, `E2E_*_PORT` | `make e2e` | [E2E](#e2e-playwright-task-18) |
 
 ## 비용 (us-east-1, 월, 대략)
 
