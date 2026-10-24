@@ -1,13 +1,14 @@
 ---
 id: TASK-36
 title: '[플랫폼] k3d 로컬 플랫폼 부트스트랩'
-status: In Progress
+status: To Do
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 08:49'
+updated_date: '2026-10-24 09:06'
 labels:
   - platform
-dependencies: []
+dependencies:
+  - TASK-64
 references:
   - decision-1
 documentation:
@@ -24,7 +25,7 @@ k3d(k3s) 단일 노드 로컬 클러스터와 로컬 레지스트리를 만들�
 ## 진행 방식
 - Plan-Review-Go: 착수 전 구현 계획을 채우고, 구현 후 독립 서브에이전트 코드 리뷰를 반영한 뒤 Done.
 - Red-Green-Refactor: AC마다 red(실패 테스트) → green(최소 구현) → refactor.
-- 로컬 전용(8GB M1, k3d 단일 노드, Docker VM 5GB 권장). 프로필(core·gitops·protocols·delivery·shadow)로 필요한 것만 켠다.
+- 로컬 전용(8GB M1, UTM의 Rocky Linux 9 VM rocky-dev 안 k3s 직접 설치, Podman, VM 5GB — Docker 미사용). 프로필(core·gitops·protocols·delivery·shadow)로 필요한 것만 켠다.
 - 근거: 승인된 계획(플랫폼 전환, 2026-10-24), doc-3(보안 현황 조사).
 
 ## 비즈니스 규칙
@@ -65,4 +66,6 @@ AC#2의 '경고'는 AC#7(예산 초과 시 실패, FORCE=1로만 통과)이 우�
 [리뷰 반영] cb89855 L1+L4. 남은 것: L5 문서(k3d.sh 머리말 UPLOADS_BUCKET=ConfigMap, README POSTGRES_PASSWORD 변경 시 make k3d-down)+스키마 URL 커밋 SHA 고정 커밋. Docker Desktop 은 하위 에이전트가 open -a 로 재기동했음(유저 지적 — 이후 앱 실행 금지).
 
 [리뷰 반영 완료] 095b2a2(M1+L3) e96ae61(M2+L2) cb89855(L1+L4) 21f1329(L5+스키마 SHA). make test 통과: repo 236, deploy 144, tools 42, k8s 67, terraform 58, backend 888, frontend 577. 미결(유저 결정 대기): YAML→JSON 파서(ruby), 80 포트, 프로필 데이터 삭제. 실제 클러스터 스모크(AC#1·#4)는 여전히 미확인.
+
+2026-10-24 유저 결정(B안)으로 재작업 예정: k3d·Docker 대신 UTM Rocky 9 VM 안 k3s(선행 TASK-64). 리뷰 반영 커밋(095b2a2..069c71c)의 메모리 강제·Secret·Job 대기·문서 개선은 재사용. 포트는 VM 생성 때 정해지고 k8s-status로 표시, 프로필을 끄면 PVC도 삭제(유저 선택). AC#1·#4·#7의 k3d 문구는 재작업 때 k3s 기준으로 고친다.
 <!-- SECTION:NOTES:END -->

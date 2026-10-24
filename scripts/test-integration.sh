@@ -6,6 +6,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# TASK-64#5 맥이면 사전 검사 후 Rocky 개발 VM 안에서 돈다(scripts/_vm.sh)
+# shellcheck source=scripts/_vm.sh
+source "$ROOT/scripts/_vm.sh"
+vm_proxy_if_mac "make test-integration"
+
 "$ROOT/scripts/k3d.sh" stop-if-running "make test-integration"
 
 echo "==> backend (Testcontainers)"

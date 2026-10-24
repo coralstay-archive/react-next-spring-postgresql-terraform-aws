@@ -4,7 +4,7 @@ title: '[검진센터] 장애 주입 연습'
 status: To Do
 assignee: []
 created_date: '2026-10-24 04:25'
-updated_date: '2026-10-24 05:06'
+updated_date: '2026-10-24 09:05'
 labels:
   - ops
   - checkcenter
@@ -25,7 +25,7 @@ documentation:
 ## 진행 방식
 - Plan-Review-Go: 착수 전 구현 계획을 채우고, 구현 후 독립 서브에이전트 코드 리뷰를 반영한 뒤 Done.
 - Red-Green-Refactor: AC마다 red(실패 테스트) → green(최소 구현) → refactor.
-- 로컬 전용(8GB M1, k3d 단일 노드, Docker VM 5GB 권장). 프로필로 필요한 것만 켠다(새 프로필: ops).
+- 로컬 전용(8GB M1, UTM의 Rocky Linux 9 VM rocky-dev 안 k3s 직접 설치, Podman, VM 5GB — Docker 미사용). 프로필로 필요한 것만 켠다(새 프로필: ops).
 - 근거: 플랫폼 전환 계획(2026-10-24)과 유저 추가 요청(eBPF 3종, 장애대응 검진센터, 실배포 고려사항).
 
 ## 비즈니스 규칙
@@ -39,3 +39,9 @@ documentation:
 - [ ] #3 안전장치: 로컬 클러스터에서만 활성(운영 프로필에서는 기능 자체가 꺼짐), 자동 복구 타이머
 - [ ] #4 연습 결과 이력 보관
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+구현 언어: Java Spring Boot(검진센터 모듈 checkcenter/, 유저 결정 2026-10-24).
+<!-- SECTION:NOTES:END -->

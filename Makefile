@@ -6,7 +6,7 @@
 # 문법 오류면 타깃이 실패한다. docker compose 는 같은 디렉터리의 .env 를 스스로도 읽지만 셸 환경변수가 우선한다.
 LOCAL_ENV = local_env="$$(./scripts/local-env.sh .env)" && eval "$$local_env" &&
 
-.PHONY: help test test-integration k3d-up k3d-profile k3d-smoke k3d-stop k3d-down dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
+.PHONY: help test test-integration vm-create vm-start vm-stop vm-status vm-ssh k3d-up k3d-profile k3d-smoke k3d-stop k3d-down dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
 	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams
 
 help: ## 타깃 목록
@@ -51,13 +51,32 @@ backend-run: ## 백엔드 실행 (http://localhost:8080/api)
 	$(LOCAL_ENV) cd backend && ./gradlew bootRun
 
 # gradle test·build 는 Testcontainers 를 띄운다 — 떠 있는 k3d 클러스터를 먼저 멈춘다(TASK-36#6, 8GB)
-backend-test: ## 백엔드 테스트 (떠 있는 k3d 클러스터는 먼저 멈춘다)
-	./scripts/k3d.sh stop-if-running "make backend-test"
-	cd backend && ./gradlew test
+# TASK-64#5 맥에는 컨테이너 런타임이 없다 — 맥이면 사전 검사 후 Rocky 개발 VM 안에서 같은 타깃을 돌린다(scripts/vm.sh run)
+backend-test: ## 백엔드 테스트 (맥이면 VM 안에서, 떠 있는 k3d 클러스터는 먼저 멈춘다)
+	@if ./scripts/vm.sh on-mac; then ./scripts/vm.sh run make backend-test; else \
+	  ./scripts/k3d.sh stop-if-running "make backend-test" && \
+	  cd backend && ./gradlew test; fi
 
-backend-build: ## 백엔드 빌드 (bootJar, 테스트 포함 — 떠 있는 k3d 클러스터는 먼저 멈춘다)
-	./scripts/k3d.sh stop-if-running "make backend-build"
-	cd backend && ./gradlew build
+backend-build: ## 백엔드 빌드 (bootJar, 테스트 포함 — 맥이면 VM 안에서, 떠 있는 k3d 클러스터는 먼저 멈춘다)
+	@if ./scripts/vm.sh on-mac; then ./scripts/vm.sh run make backend-build; else \
+	  ./scripts/k3d.sh stop-if-running "make backend-build" && \
+	  cd backend && ./gradlew build; fi
+
+# --- Rocky 개발 VM (TASK-64, README 로컬 개발 환경). 맥의 make test·test-integration·backend-test·backend-build 는 이 VM 안에서 돈다.
+vm-create: ## Rocky 9 개발 VM(UTM rocky-dev, 5GB·CPU 4·40GB, 저장소 → /repo) 만들기. UTM 자동화 허용 창이 한 번 뜬다
+	./scripts/vm.sh create
+
+vm-start: ## 개발 VM 켜기 + ssh 설정(~/.ssh/config.d/rocky-dev) 갱신
+	./scripts/vm.sh start
+
+vm-stop: ## 개발 VM 끄기(게스트 정상 종료, 메모리 회수)
+	./scripts/vm.sh stop
+
+vm-status: ## 개발 VM 상태·IP·메모리(VM·맥)
+	./scripts/vm.sh status
+
+vm-ssh: ## 개발 VM 에 ssh (꺼져 있으면 make vm-start 안내)
+	./scripts/vm.sh ssh
 
 frontend-install: ## 프론트 의존성 설치 (npm ci. frontend-* 타깃은 lock 이 바뀌었을 때만 자동으로 한다)
 	./scripts/frontend-deps.sh --force

@@ -37,6 +37,10 @@ need_tool() {
   return 1
 }
 
+# YAML → JSON 은 고정 버전 yq(TASK-64#6: 개발 VM 은 deploy/rocky/install.sh, CI 는 ci.yml 이 같은 버전을 설치)로 바꿔 jq 로 본다.
+# 여러 문서를 JSON 배열 한 줄로, 빈 문서(null)는 뺀다
+y2j() { yq ea -o=json -I=0 '[.] | map(select(. != null))'; }
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -323,9 +327,9 @@ check "TASK-36#6 docker stop 이 실패하면 분명한 메시지로 실패한�
 # test.sh·test-integration.sh 를 임시 루트에 복사하고 다른 단계는 가짜로 바꿔 실행 순서를 본다
 TR="$TMP/tr"
 mkdir -p "$TR/scripts/test" "$TR/backend" "$TR/frontend" "$TR/infra" "$TR/bin"
-cp scripts/test.sh scripts/test-integration.sh scripts/e2e.sh scripts/_proc.sh scripts/k3d.sh scripts/_k3d.sh "$TR/scripts/"
+cp scripts/test.sh scripts/test-integration.sh scripts/e2e.sh scripts/_proc.sh scripts/k3d.sh scripts/_k3d.sh scripts/_vm.sh "$TR/scripts/"
 mkdir -p "$TR/deploy/k8s"; cp deploy/k8s/budgets.txt "$TR/deploy/k8s/"
-for s in repo_test deploy_test tools_test k8s_test; do
+for s in repo_test deploy_test tools_test k8s_test vm_test; do
   printf '#!/usr/bin/env bash\necho "suite %s" >>"$FAKE_STATE/calls.log"\n' "$s" >"$TR/scripts/test/$s.sh"
 done
 # FAKE_RESTART_K3D=1: 테스트 도중 누가 클러스터를 다시 띄운 상황(시작 검사와 백엔드 테스트 사이의 TOCTOU)
@@ -491,17 +495,17 @@ t_secret_special_values() {
   fi
 }
 check "TASK-36#1 Secret 값의 공백·따옴표·특수문자(\$ \` \\ ; @:/#%)를 그대로 넣는다(값은 출력하지 않는다)" t_secret_special_values
-if [ -n "$REAL_KUBECTL" ] && need_tool jq && need_tool ruby; then
+if [ -n "$REAL_KUBECTL" ] && need_tool jq && need_tool yq; then
   t_secret_real_kubectl() {
     # 진짜 kubectl(--dry-run=client, 클러스터 없이)이 env 파일 형식을 값 그대로 읽는지 — 앞뒤 공백·따옴표·특수문자
     fake_reset
     run_capture k3d_run SKIP_BUILD=1 FAKE_REAL_SECRET=1 POSTGRES_PASSWORD="$SPECIAL_PW" MINIO_ROOT_PASSWORD='pw@:/#%x' ./scripts/k3d.sh up
     rc_is 0 || return 1
     local got
-    got="$(ruby -ryaml -rjson -e 'puts JSON.generate(YAML.load_stream(STDIN.read).compact)' <"$FAKE_STATE/applied.yaml" \
+    got="$(y2j <"$FAKE_STATE/applied.yaml" \
       | jq -r '.[] | select(.kind == "Secret") | .data.POSTGRES_PASSWORD' | base64 -d)"
     [ "$got" = "$SPECIAL_PW" ] || { echo "kubectl 이 값을 바꿨다: [$got]"; return 1; }
-    got="$(ruby -ryaml -rjson -e 'puts JSON.generate(YAML.load_stream(STDIN.read).compact)' <"$FAKE_STATE/applied.yaml" \
+    got="$(y2j <"$FAKE_STATE/applied.yaml" \
       | jq -r '.[] | select(.kind == "Secret") | .data.MINIO_ROOT_PASSWORD' | base64 -d)"
     [ "$got" = 'pw@:/#%x' ] || { echo "kubectl 이 MinIO 값을 바꿨다: [$got]"; return 1; }
   }
@@ -585,10 +589,8 @@ check "TASK-36#1 TASK-36#3 Job 이 시간 안에 끝나지 않아도 실패하�
 
 
 # ================================================================ 매니페스트 렌더(진짜 kubectl kustomize)
-# YAML → JSON 은 ruby 표준 라이브러리(Psych)로 바꿔 jq 로 본다(macOS·GitHub ubuntu 러너에 있다. python3 에는 yaml 모듈이 없다)
-y2j() { ruby -ryaml -rjson -e 'puts JSON.generate(YAML.load_stream(STDIN.read).compact)'; }
 RENDER_OK=0
-if need_tool kubectl && need_tool jq && need_tool ruby; then
+if need_tool kubectl && need_tool jq && need_tool yq; then
   RENDER_OK=1
   kubectl kustomize deploy/k8s/base | y2j >"$TMP/base.json"
   for d in deploy/k8s/profiles/*/; do

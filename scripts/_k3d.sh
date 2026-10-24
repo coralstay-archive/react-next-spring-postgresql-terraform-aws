@@ -8,6 +8,11 @@
 #                               k3d 가 PATH 에 없으면 docker 라벨 k3d.cluster=<이름> 으로 찾아 docker stop(실패하면 이유와 함께 실패)
 #   kc <인자...>                kubectl --context k3d-<클러스터> — 다른 클러스터를 건드리지 않는다
 # 예산·상한은 deploy/k8s/budgets.txt 하나에서 읽는다(B1). 테스트는 K3D_BUDGETS_FILE·K3D_PROFILES_DIR 로 바꾼다.
+# TASK-64#4 맥에서는 k3d_preflight 가 먼저 Rocky 개발 VM 사전 검사(scripts/_vm.sh vm_preflight — VM 이 꺼져 있으면 켜지 않고 실패)를 지난다.
+# (k3d → VM 안 k3s 재작업은 TASK-36)
+
+# shellcheck source=scripts/_vm.sh
+source "$(dirname "${BASH_SOURCE[0]}")/_vm.sh"
 
 K3D_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 K3D_CLUSTER="${K3D_CLUSTER:-board}"
@@ -49,6 +54,7 @@ k3d_active_profiles() {
 
 k3d_preflight() {
   local profiles=("$@") reasons=() mem_bytes mem_mib min_mib limit tc_ids tc_count p b sum=0 detail="" unknown=()
+  vm_preflight || return 1
   [ -f "$K3D_BUDGETS_FILE" ] || k3d_die "예산 파일이 없다: $K3D_BUDGETS_FILE"
   min_mib="$(k3d_budget docker-min)"; limit="$(k3d_budget limit)"
   [ -n "$min_mib" ] && [ -n "$limit" ] || k3d_die "예산 파일에 docker-min·limit 이 없다: $K3D_BUDGETS_FILE"

@@ -81,6 +81,20 @@ jobs:
           tar -xzf "$tarball" -C "$RUNNER_TEMP/bin" kubeconform
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
+      # TASK-64#6: k8s_test 의 YAML→JSON 은 yq. 개발 VM(deploy/rocky/install.sh YQ_VERSION)과 같은 버전을 고정 설치한다.
+      # 버전을 올릴 때는 YQ_SHA256(릴리스의 checksums-bsd 의 yq_linux_amd64)과 install.sh 도 같이 바꾼다(vm_test.sh 가 비교한다).
+      - name: Install yq (pinned)
+        env:
+          YQ_VERSION: "4.54.1"
+          YQ_SHA256: 8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          bin="$RUNNER_TEMP/yq"
+          curl -sSfL --retry 3 -o "$bin" "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  ${bin}" | sha256sum -c -
+          install -m 0755 "$bin" "$RUNNER_TEMP/bin/yq"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
       # TASK-35#1: repo_test 가 build-diagrams.py --check 로 커밋된 SVG 를 검사하게 graphviz 를 설치한다. Ubuntu 패키지(2.43)는
       # diagrams/render-env.txt 와 환경이 달라 바이트 비교는 SKIP 되고, 구조(글자·요소·색 토큰·모양 종류)·문서 블록·파일 목록을 비교한다.
       - name: Install graphviz

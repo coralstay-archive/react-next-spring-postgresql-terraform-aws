@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # 리포·Terraform·백엔드·프론트 테스트를 한 번에 실행한다. 로컬 `make test`와 CI가 같이 쓴다.
 # Terraform 은 fmt 검사 + 루트 스택(infra/bootstrap, infra/main)과 tests/*.tftest.hcl 이 있는 모듈마다 init(-backend=false)·validate·test(mock_provider, 오프라인). terraform 이 없으면 경고 후 건너뛴다.
-# 백엔드 테스트는 Testcontainers를 쓰므로 Docker가 떠 있어야 한다.
+# 백엔드 테스트는 Testcontainers를 쓰므로 Docker(또는 Podman 소켓 — DOCKER_HOST)가 떠 있어야 한다.
+# TASK-64#5 맥에는 컨테이너 런타임이 없다 — 맥에서 실행하면 사전 검사(VM 이 꺼져 있으면 켜지 않고 실패) 뒤 Rocky 개발 VM 안에서
+# 같은 make test 를 돌린다(ssh rocky-dev, 저장소는 VirtioFS 공유 /repo). VM 안·CI(ubuntu)에서는 그대로 실행한다. VM_PROXY=0 이면 맥에서도 그대로.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# shellcheck source=scripts/_vm.sh
+source "$ROOT/scripts/_vm.sh"
+vm_proxy_if_mac "make test"
 
 # TASK-36#6 로컬 k3d 클러스터가 떠 있으면 먼저 멈춘다(Testcontainers 와 동시에 띄우지 않는다 — 8GB). 커밋 훅의 make test 에도 적용된다.
 "$ROOT/scripts/k3d.sh" stop-if-running "make test"
@@ -20,6 +26,9 @@ echo "==> tools"
 
 echo "==> k8s"
 "$ROOT/scripts/test/k8s_test.sh"
+
+echo "==> vm"
+"$ROOT/scripts/test/vm_test.sh"
 
 echo "==> terraform"
 if command -v terraform >/dev/null 2>&1; then

@@ -4,7 +4,7 @@ title: '[배포] 카나리: Argo Rollouts + Traefik'
 status: To Do
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 05:06'
+updated_date: '2026-10-24 09:05'
 labels:
   - platform
   - delivery
@@ -25,7 +25,7 @@ documentation:
 ## 진행 방식
 - Plan-Review-Go: 착수 전 구현 계획을 채우고, 구현 후 독립 서브에이전트 코드 리뷰를 반영한 뒤 Done.
 - Red-Green-Refactor: AC마다 red(실패 테스트) → green(최소 구현) → refactor.
-- 로컬 전용(8GB M1, k3d 단일 노드, Docker VM 5GB 권장). 프로필(core·gitops·protocols·delivery·shadow)로 필요한 것만 켠다.
+- 로컬 전용(8GB M1, UTM의 Rocky Linux 9 VM rocky-dev 안 k3s 직접 설치, Podman, VM 5GB — Docker 미사용). 프로필(core·gitops·protocols·delivery·shadow)로 필요한 것만 켠다.
 - 근거: 승인된 계획(플랫폼 전환, 2026-10-24), doc-3(보안 현황 조사).
 
 ## 비즈니스 규칙

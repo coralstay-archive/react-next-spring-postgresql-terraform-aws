@@ -52,11 +52,75 @@ make frontend-dev                     # 터미널 2: http://localhost:3000
 
 ## 준비물
 
-- Java 25, Node.js 24, Docker (Docker Desktop 등)
+- 맥: UTM + `qemu-img` — 컨테이너·테스트는 Rocky 개발 VM 안에서 돈다([로컬 개발 환경](#로컬-개발-환경-rocky-개발-vm-task-64)). VM 밖(리눅스·CI)에서는 Java 25, Node.js 24, Docker 또는 Podman 소켓
 - GNU Make
 - (배포) aws CLI v2, Terraform ≥ 1.10, jq, docker buildx — [docs/first-deploy.md](docs/first-deploy.md#0-준비물)
 - (선택) graphviz(`make diagrams`), shellcheck·actionlint(`make test`가 있으면 쓴다)
 - (로컬 k8s) k3d ≥ 5.9, kubectl(kustomize 내장), kubeconform(`make test`의 매니페스트 검증 — 없으면 경고 후 건너뛴다, CI 는 필수). [로컬 k8s](#로컬-k8s-k3d-task-36)
+
+## 로컬 개발 환경 (Rocky 개발 VM, TASK-64)
+
+맥에는 컨테이너 런타임을 두지 않는다(Docker 삭제, [doc-4](backlog/docs/)). 컨테이너·테스트·(TASK-36 이후) k3s 는 UTM 의 Rocky Linux 9 VM
+`rocky-dev` 안에서 Podman 으로 돈다. AWS 의 Rocky EC2(TASK-52)와 같은 설치 스크립트([`deploy/rocky/install.sh`](deploy/rocky/install.sh))를 쓴다.
+
+준비물(맥): [UTM](https://mac.getutm.app) 4.x, `qemu-img`(`brew install qemu` — qcow2 → raw 변환에만 쓴다). 나머지 도구(Java 25·Node 24·kubectl·
+kubeconform·yq·shellcheck·actionlint·terraform·clang/llvm/libbpf·bpftool)는 VM 안에 고정 버전으로 설치된다.
+
+```bash
+make vm-create   # 처음 한 번: 이미지 받기·검증 → UTM VM 만들기 → 켜기 → cloud-init 설치(10분쯤)
+make vm-start    # 켜기 + IP 를 읽어 ~/.ssh/config.d/rocky-dev 갱신 (재부팅 뒤 IP 가 바뀌어도 이걸로 맞춘다)
+make vm-stop     # 끄기(게스트 정상 종료, 메모리 5GB 회수)
+make vm-status   # 상태·IP·메모리(VM·맥)
+make vm-ssh      # = ssh rocky-dev (저장소는 VM 안 /repo)
+make test        # 맥에서 실행해도 VM 안에서 돈다: rsync(작업 트리 → VM /repo) 뒤 ssh rocky-dev 'cd /repo && bash -lc "make test"'
+```
+
+`make vm-create`(= `scripts/vm.sh create`) 순서:
+1. VM `rocky-dev`가 이미 있으면 만들지 않고 안내하며 실패한다.
+2. 전용 SSH 키 `~/.ssh/rocky-dev_ed25519`가 없으면 만든다(비밀번호 없음, 이 VM 에만 쓴다).
+3. Rocky 9.8 aarch64 GenericCloud 이미지를 `~/.cache/rocky-dev/`(저장소 밖 캐시)에 받고, 스크립트에 고정한 sha256 과 비교한다. Rocky 의
+   `CHECKSUM` 파일에도 그 값이 있는지 본다. 다르면 지우고 실패한다.
+4. Apple 가상화는 raw 디스크만 쓰므로 `qemu-img`로 raw 변환 + 40GB 로 늘린다(희소 파일 — 실제 디스크는 쓴 만큼만).
+5. cloud-init seed ISO(`hdiutil makehybrid … -default-volume-name cidata`)를 만든다: 사용자 `rocky`(맥과 같은 uid — VirtioFS 공유 파일에 쓰려면
+   같아야 한다, 비밀번호 로그인 없음, NOPASSWD sudo), 공개키, `install.sh --profile dev`(seed 안에 그대로 넣는다).
+6. **macOS 자동화 권한 창이 한 번 뜬다** — "터미널이 UTM 을 제어하도록 허용" → [허용]. 스크립트가 실행 직전에 안내한다. 이 프로젝트에서 맥 권한 창이
+   뜨는 곳은 여기뿐이고 관리자 비밀번호는 묻지 않는다. 거절했다면 시스템 설정 → 개인정보 보호 및 보안 → 자동화에서 UTM 을 켜고 다시 실행한다.
+   그 뒤 [`deploy/dev-vm/create-vm.applescript`](deploy/dev-vm/create-vm.applescript)가 UTM 에 VM 을 만든다: Apple 가상화, 메모리 5GB(5120MiB),
+   CPU 4, 디스크 40GB, NAT. 디스크와 seed 는 VM 안으로 복사된다. 저장소 공유 디렉터리는 붙이지 않는다 — UTM 은 샌드박스 앱이라 AppleScript 로
+   받은 경로(이동식 ISO·공유 디렉터리)의 접근 권한을 남기지 못해 다음 시작이 "Cannot access resource"로 실패한다(UTM 4.7.5 실측).
+7. VM 을 켜고, IP(utmctl → 안 되면 맥의 DHCP 임대 파일)로 ssh 설정을 쓰고, `cloud-init status --wait`로 설치가 끝날 때까지 기다린다.
+
+ssh 설정: `~/.ssh/config`에는 맨 위에 `Include config.d/rocky-dev` **한 줄만** 더한다(처음 한 번, 먼저 `~/.ssh/config.bak-rocky-dev-<시각>`으로 백업).
+`Host rocky-dev`(IP·사용자·키·전용 known_hosts `~/.ssh/known_hosts.rocky-dev`)는 `~/.ssh/config.d/rocky-dev`에 있고 `make vm-start`가 다시 쓴다.
+
+VM 안(install.sh `--profile dev`): Podman + 사용자 소켓(`/run/user/<uid>/podman/podman.sock`, linger 로 부팅 때 켜짐, API 서비스는 유휴 종료
+없음 `--time=0` — 기본 5초 종료가 Testcontainers 연결을 끊었다). rootless 용 subuid·subgid 범위도 준다. 로그인 셸에서 `DOCKER_HOST`가 그 소켓을
+가리키고 Testcontainers 의 Ryuk 은 privileged(rootless Podman 에 필요).
+
+저장소를 VM 에 맞추는 법: 맥의 `make test`(등)는 매번 `rsync -a --delete`로 작업 트리(커밋 안 된 변경·`.git` 포함)를 VM 로컬 `/repo`에 맞춘 뒤
+실행한다. `node_modules`·`backend/build`·`.gradle`·`.terraform`처럼 플랫폼이 다른 산출물은 보내지 않고 VM 쪽 것을 그대로 쓰며(네이티브 모듈 darwin ↔ linux),
+`.env`·`deploy/*.local.txt` 같은 비밀 파일도 보내지 않는다. 한 방향(맥 → VM)이라 VM 안에서 고친 `/repo` 파일은 다음 동기화 때 덮인다.
+- (선택) 실시간 공유: UTM 창에서 `rocky-dev` → 편집 → 공유 → 디렉터리로 저장소를 직접 고르면(파일 선택 창이라 UTM 이 접근 권한을 기억한다)
+  다음 부팅부터 VirtioFS(태그 `share`)가 `/repo`에 마운트되고, 스크립트가 이를 알아보고 rsync 를 건너뛴다. 이때는
+  `frontend/node_modules`·`backend/build`·`backend/.gradle`을 VM 로컬 디렉터리로 bind 해서 덮는다(설치 스크립트를 다시 돌리면 설정된다).
+
+**SELinux**: VM 은 enforcing 그대로다(설치 스크립트가 enforcing 이 아니면 실패한다 — 끄지 않는다). 공유 `/repo`는
+`context=system_u:object_r:container_file_t:s0`로 마운트해서(선택 공유를 붙인 경우) Podman 볼륨으로 써도 거부되지 않는다. VM 로컬 디렉터리를 컨테이너에 마운트할 때는
+`-v 경로:경로:Z`처럼 레이블을 붙인다. 거부가 의심되면 VM 안에서 `sudo ausearch -m avc -ts recent`.
+
+**메모리 규칙**(8GB 맥, 스크립트가 강제한다): VM 은 5GB 를 가져간다. 맥의 `make test`·`test-integration`·`backend-test`·`backend-build`와
+`k3d-up`·`k3d-profile`·`k3d-smoke`는 먼저 같은 사전 검사(`scripts/_vm.sh vm_preflight`)를 지난다.
+- VM 이 꺼져 있으면 **스스로 켜지 않고** `make vm-start`를 안내하며 실패한다(언제 5GB 를 쓸지는 사람이 정한다).
+- VM 메모리(VM 안 `/proc/meminfo`) < `vm-min`(4608 MiB)이면 실패, 맥 여유 메모리(`vm_stat`) < `mac-free-min`(512 MiB)이면 경고.
+  기준값은 [`deploy/k8s/budgets.txt`](deploy/k8s/budgets.txt).
+- 쓰지 않을 때는 `make vm-stop`.
+
+**다시 만들기**: UTM 에서 `rocky-dev`를 삭제한다(VM 안 데이터·Podman 이미지가 모두 지워진다 — 저장소는 맥에 있으니 그대로). 그 뒤 `make vm-create`.
+이미지는 캐시에 남아 다시 받지 않는다. 새 VM 은 호스트 키가 바뀌므로 스크립트가 `~/.ssh/known_hosts.rocky-dev`를 지운다.
+
+`make test`를 맥에서 돌리는 방식은 "VM 안에서 실행"이다(맥 → VM 소켓 터널 대신, TASK-64#5). 이유: 맥에 컨테이너 런타임·도구가 없어도 되고, 테스트 도구 버전이
+VM·CI·AWS(Rocky)에서 같은 고정값이며, Testcontainers 가 컨테이너 포트에 localhost 로 붙어 터널·호스트 덮어쓰기가 필요 없다. 커밋 훅의 `make test`도
+같은 길을 탄다. CI(ubuntu)와 VM 안에서는 그대로 실행한다. 맥에 다른 런타임이 있어 직접 돌리려면 `VM_PROXY=0 make test`.
 
 ## 로컬 실행
 
