@@ -56,6 +56,7 @@ make frontend-dev                     # 터미널 2: http://localhost:3000
 - GNU Make
 - (배포) aws CLI v2, Terraform ≥ 1.10, jq, docker buildx — [docs/first-deploy.md](docs/first-deploy.md#0-준비물)
 - (선택) graphviz(`make diagrams`), shellcheck·actionlint(`make test`가 있으면 쓴다)
+- (로컬 k8s) k3d ≥ 5.9, kubectl(kustomize 내장), kubeconform(`make test`의 매니페스트 검증 — 없으면 경고 후 건너뛴다, CI 는 필수). [로컬 k8s](#로컬-k8s-k3d-task-36)
 
 ## 로컬 실행
 
@@ -112,10 +113,60 @@ DB 스키마는 Flyway(`backend/src/main/resources/db/migration`)가 관리한�
 
 소셜 로그인을 로컬에서 쓰려면 제공자 콘솔에 `http://localhost:3000/api/login/oauth2/code/{id}`를 등록하고 id·secret을 `.env`에 넣는다([docs/oauth-setup.md](docs/oauth-setup.md)).
 
+## 로컬 k8s (k3d, TASK-36)
+
+로컬 전용 플랫폼(doc-4): k3d(k3s) 단일 노드 + 로컬 레지스트리 + 프로필. 8GB M1 에서 **Docker Desktop 메모리 5GB 이상**이 전제다.
+들어오는 길은 호스트 `127.0.0.1:80` → k3d LB 컨테이너 → Traefik(k3s 기본 인그레스) → `/api` → backend.
+
+```bash
+make k3d-up                       # 클러스터 생성/시작 + core(PostgreSQL·MinIO·backend). PROFILES=core,... FORCE=1 SKIP_BUILD=1
+make k3d-smoke                    # curl -H 'Host: board.localhost' http://127.0.0.1/api/actuator/health → UP
+make k3d-profile PROFILES=core    # 고른 프로필만 남기고 나머지는 삭제(메모리 회수)
+make k3d-stop                     # 클러스터·레지스트리 정지(데이터 유지). 다시: make k3d-up
+make k3d-down                     # 클러스터 삭제(데이터까지)
+```
+
+`make k3d-up`(= `scripts/k3d.sh up`) 순서: 사전 검사 → 백엔드 이미지 빌드(`localhost:5001/board-backend:dev`, 호스트 아키텍처 = arm64) →
+클러스터 생성(`deploy/k8s/k3d/cluster.yaml`: 서버 1·에이전트 0, metrics-server 끔, 레지스트리 `k3d-registry.localhost:5001`) 또는 시작 →
+레지스트리 push → `deploy/k8s/base`(네임스페이스 `board`) → Secret `board-env`(env 파일 값으로 스크립트가 만든다 — 리포에 없다) →
+프로필 적용(`deploy/k8s/profiles/<이름>`, 고르지 않은 프로필은 `kubectl delete -k`) → Job 완료·롤아웃 대기. kubectl 은 항상
+`--context k3d-board`로 부르고 현재 컨텍스트는 바꾸지 않는다. 브라우저: `http://board.localhost/api/actuator/health`.
+
+- 마이그레이션: Flyway 는 앱 기동과 분리한 Job `board-migrate`가 한다(백엔드 이미지의 `MigrationJob migrate`, Spring 없이). 백엔드는 k8s 프로필
+  (`application-k8s.properties`: `spring.flyway.enabled=false`)로 뜨고, 초기화 컨테이너(`MigrationJob await`)가 마이그레이션이 끝날 때까지 기다린다.
+  docker-compose·테스트·AWS 는 지금처럼 기동 시 마이그레이션한다.
+- 프로필을 끄면 그 프로필의 리소스가 지워져 메모리가 돌아온다. StatefulSet 의 PVC(데이터)와 네임스페이스는 남는다(`make k3d-down`이 지운다).
+- 매니페스트 검증: `make test`가 `scripts/k8s-validate.sh`로 base·모든 프로필을 `kubectl kustomize` → `kubeconform -strict` 검증한다(오프라인 —
+  스키마는 `deploy/k8s/schemas/`에 고정, k8s 1.36). 새 종류를 쓰면 `scripts/k8s-validate.sh --update-schemas`로 받아 커밋한다. CRD 는 스크립트 머리말 참고.
+
+### 메모리 규칙 (스크립트가 강제한다)
+
+사람의 기억에 맡기지 않는다 — 아래는 `scripts/_k3d.sh`가 검사하고, 어기면 이유와 해결법을 출력하고 실패한다.
+
+| 규칙 | 어디서 | 어기면 |
+|---|---|---|
+| Docker VM 메모리 ≥ 4608 MiB(Docker Desktop 5GB 설정의 실측 ≈ 4.8GiB, 4GB 설정은 ≈ 3.8GiB) | `k3d-up`·`k3d-profile`·`k3d-smoke` | 실패: Settings → Resources → Memory 5GB |
+| Testcontainers 컨테이너(label `org.testcontainers=true`)가 없을 것 | `k3d-up`·`k3d-profile`·`k3d-smoke` | 실패: 테스트가 끝나길 기다리거나 남은 컨테이너 삭제 |
+| 켠 프로필 예산 합계 ≤ 상한 3072 MiB | `k3d-up`·`k3d-profile`·`k3d-smoke`(켜진 프로필) | 실패. `FORCE=1`이면 경고를 남기고 진행(이 검사만) |
+| k3d 클러스터와 테스트를 같이 띄우지 않는다 | `make test`·`make test-integration` 시작 | 떠 있는 클러스터를 멈추고 그 사실을 출력한 뒤 테스트 |
+
+세 진입점(up·profile·smoke)은 같은 함수 `k3d_preflight` 하나를 먼저 부른다 — 검사를 건너뛰는 진입점이 없다. 예산 숫자는
+[`deploy/k8s/budgets.txt`](deploy/k8s/budgets.txt) 하나에 있고 스크립트와 이 표가 그 값을 쓴다(테스트가 같은지 확인한다). 프로필 예산은
+그 프로필 매니페스트의 메모리 한도 합계(Deployment·StatefulSet × replicas + Job)이고, `make test`가 매니페스트에서 다시 계산해 예산 이하인지 본다.
+모든 컨테이너(초기화 컨테이너 포함)에 requests·limits 가 있고, backend 는 롤아웃 중 두 벌이 뜨지 않게 `Recreate`다.
+
+| 프로필 | 예산 | 내용 |
+|---|---|---|
+| core | 1600 MiB | PostgreSQL 256(shared_buffers 64MB) + MinIO 256 + backend 768(-Xmx384m) + 마이그레이션 Job 256 + 버킷 준비 Job 64 |
+
+상한 3072 MiB = 5GB VM − k3s 서버·Traefik·CoreDNS·local-path·LB·레지스트리(약 0.9GiB) − 이미지 빌드·여유(약 0.9GiB).
+이후 태스크가 프로필(gitops·protocols·delivery·shadow·ops)을 더할 때 `budgets.txt`에 줄을, `deploy/k8s/profiles/<이름>/`에 매니페스트를 같이 만든다.
+
 ## 테스트
 
 ```bash
-make test   # = scripts/test.sh : 리포 검증 + 배포 스크립트 + Terraform(fmt·validate·test) + 백엔드(./gradlew test) + 프론트(npm test)
+make test   # = scripts/test.sh : 리포 검증 + 배포 스크립트 + k8s 매니페스트·k3d 절차 + Terraform(fmt·validate·test) + 백엔드(./gradlew test) + 프론트(npm test)
+make test-integration  # Testcontainers 통합 테스트(백엔드)만
 make e2e    # Playwright E2E (느림, make test 에 없음) — 아래
 make smoke  # 배포 스모크: SMOKE_BASE_URL=https://<cloudfront> make smoke (없으면 SKIP)
 ```
@@ -126,6 +177,8 @@ make smoke  # 배포 스모크: SMOKE_BASE_URL=https://<cloudfront> make smoke (
 - 배포: `scripts/test/deploy_test.sh` (DRY_RUN·가짜 aws/docker로 배포 스크립트, 워크플로 actionlint, shellcheck, 가짜 HTTP 서버로 `smoke_test.sh` 검증)
 - 로컬 도구: `scripts/test/tools_test.sh` (가짜 dot 으로 `build-diagrams.py --check`의 렌더 환경 고정, `scripts/_proc.sh` 프로세스 그룹 정리(TERM → KILL),
   가짜 npm 으로 `frontend-deps.sh`, 임시 Makefile 복사본으로 `.env`가 배포 타깃에 섞이지 않는지, Next.js 취약 버전 아님)
+- k8s: `scripts/test/k8s_test.sh` (kustomize 렌더 + kubeconform 오프라인 검증, requests/limits·예산, 마이그레이션 Job, 가짜 docker·k3d·kubectl 로
+  `scripts/k3d.sh`의 사전 검사·프로필 전환·스모크·자동 정지). `make test`·`make test-integration`은 시작할 때 떠 있는 k3d 클러스터를 멈춘다([메모리 규칙](#메모리-규칙-스크립트가-강제한다)).
 - Terraform: `terraform fmt -check -recursive infra` + 루트 스택(`infra/bootstrap`, `infra/main`)과 `tests/*.tftest.hcl`이 있는 모듈마다 `terraform init -backend=false`·`validate`·`test`.
   테스트는 `mock_provider "aws"`라 AWS 자격 증명이 필요 없다(provider는 처음 한 번 내려받아 `~/.terraform.d/plugin-cache`에 둔다).
   `terraform`이 없으면 경고만 내고 건너뛴다. 재사용 모듈의 `.terraform.lock.hcl`은 커밋하지 않고, 루트 스택(`infra/bootstrap`, `infra/main`)의 lock 파일은 커밋한다.

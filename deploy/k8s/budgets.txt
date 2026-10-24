@@ -1,0 +1,12 @@
+# 로컬 k3d 플랫폼 메모리 예산 (TASK-36#2·#7, B1). 단위 MiB. scripts/_k3d.sh 의 사전 검사와 README(로컬 k8s)가 이 파일 하나를 쓴다.
+# 형식: <키> <값> <설명...>
+#   docker-min            Docker VM 메모리(docker info MemTotal) 최소. Docker Desktop 5GB 설정의 실측은 약 4.8GiB(커널 예약),
+#                         4GB 설정은 약 3.8GiB 라 그 사이(4.5GiB)를 경계로 둔다.
+#   limit                 켠 프로필 예산 합계의 상한. 5GB VM − k3s 서버·Traefik·CoreDNS·local-path·LB·레지스트리(약 0.9GiB)
+#                         − 이미지 빌드(buildkit)·여유(약 0.9GiB). 넘으면 k3d-up·k3d-profile·k3d-smoke 가 실패한다(FORCE=1 만 통과).
+#   profile <이름> <MiB>  프로필의 메모리 한도 합계: Deployment·StatefulSet 컨테이너 limits × replicas + Job 컨테이너 limits.
+#                         k8s_test.sh 가 매니페스트에서 다시 계산해 이 값 이하인지 확인한다. 프로필을 추가하면 이 줄과
+#                         deploy/k8s/profiles/<이름>/ 을 같이 만든다. 여기에 없는 프로필은 켤 수 없다.
+docker-min 4608 Docker Desktop 메모리 5GB 이상
+limit 3072 켠 프로필 예산 합계 상한
+profile core 1600 Postgres 256 + MinIO 256 + backend 768 + 마이그레이션 Job 256 + MinIO 버킷 준비 Job 64

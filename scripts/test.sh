@@ -6,6 +6,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# TASK-36#6 로컬 k3d 클러스터가 떠 있으면 먼저 멈춘다(Testcontainers 와 동시에 띄우지 않는다 — 8GB). 커밋 훅의 make test 에도 적용된다.
+"$ROOT/scripts/k3d.sh" stop-if-running "make test"
+
 echo "==> repo"
 "$ROOT/scripts/test/repo_test.sh"
 
@@ -14,6 +17,9 @@ echo "==> deploy"
 
 echo "==> tools"
 "$ROOT/scripts/test/tools_test.sh"
+
+echo "==> k8s"
+"$ROOT/scripts/test/k8s_test.sh"
 
 echo "==> terraform"
 if command -v terraform >/dev/null 2>&1; then

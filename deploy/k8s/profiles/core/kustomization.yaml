@@ -1,0 +1,26 @@
+# 프로필 core (TASK-36): PostgreSQL·MinIO·backend + 마이그레이션 Job. 예산은 deploy/k8s/budgets.txt(core 1600 MiB) —
+# 메모리 한도를 바꾸면 그 값도 같이 본다(k8s_test.sh 가 합계 ≤ 예산을 확인한다).
+# Secret board-env 는 여기 없다 — scripts/k3d.sh 가 env 파일 값으로 만든다(리포에 비밀값을 두지 않는다).
+# 모든 리소스(pod 템플릿 포함)에 board.dev/profile=core 를 붙인다: 켜진 프로필 판정(k3d-smoke)·Job 재실행·롤아웃 대기가 이 라벨을 쓴다.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: board
+labels:
+  - pairs:
+      board.dev/profile: core
+      app.kubernetes.io/part-of: board
+    includeTemplates: true
+resources:
+  - postgres.yaml
+  - minio.yaml
+  - backend.yaml
+  - migrate-job.yaml
+configMapGenerator:
+  - name: board-backend-config
+    literals:
+      - PUBLIC_BASE_URL=http://board.localhost
+      - UPLOADS_BUCKET=board-uploads
+      - UPLOADS_REGION=us-east-1
+      - UPLOADS_ENDPOINT=http://board-minio:9000
+      - UPLOADS_PATH_STYLE=true
+      - SMS_PROVIDER=console

@@ -1,0 +1,88 @@
+# PostgreSQL (docker-compose 와 같은 postgres:18-alpine). 메모리 한도 256Mi: shared_buffers 64MB, 연결 40.
+apiVersion: v1
+kind: Service
+metadata:
+  name: board-postgres
+spec:
+  selector:
+    app.kubernetes.io/name: board-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: board-postgres
+spec:
+  serviceName: board-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: board-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: board-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18-alpine
+          args:
+            - -c
+            - shared_buffers=64MB
+            - -c
+            - max_connections=40
+            - -c
+            - work_mem=4MB
+            - -c
+            - maintenance_work_mem=32MB
+            # 운영 compose 와 같이 오류 DETAIL·실패 문장을 로그에 남기지 않는다(개인정보, TASK-21)
+            - -c
+            - log_error_verbosity=terse
+            - -c
+            - log_min_error_statement=panic
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: board-env
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: board-env
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: board-env
+                  key: POSTGRES_PASSWORD
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          volumeMounts:
+            # postgres 18 이미지의 데이터 위치(docker-compose 와 같다)
+            - name: data
+              mountPath: /var/lib/postgresql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

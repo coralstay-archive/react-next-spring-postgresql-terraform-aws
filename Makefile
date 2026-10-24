@@ -1,4 +1,4 @@
-# repo 루트의 .env(example.env 를 복사)는 로컬 실행 타깃(dev-db, dev-storage, dev-db-down, backend-run, frontend-dev)의
+# repo 루트의 .env(example.env 를 복사)는 로컬 실행 타깃(dev-db, dev-storage, dev-db-down, backend-run, frontend-dev, k3d-up, k3d-profile)의
 # 레시피 안에서만 읽는다(TASK-35#4, OPS-41). 전역으로 include·export 하지 않는다 — 배포(deploy*, put-secrets, tf-outputs)·smoke·
 # test·e2e 에 로컬 값(AWS_PROFILE, DRY_RUN 같은)이 섞이거나, 명령줄·환경변수로 준 DRY_RUN=1 을 덮지 않게. 없으면 기본값을 쓴다.
 # 로컬 실행 타깃에서도 이미 정의된 변수(환경변수, make 명령줄 변수)는 덮지 않는다 — make dev-db POSTGRES_PORT=5433 이 파일 값보다 우선한다
@@ -6,14 +6,36 @@
 # 문법 오류면 타깃이 실패한다. docker compose 는 같은 디렉터리의 .env 를 스스로도 읽지만 셸 환경변수가 우선한다.
 LOCAL_ENV = local_env="$$(./scripts/local-env.sh .env)" && eval "$$local_env" &&
 
-.PHONY: help test dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
+.PHONY: help test test-integration k3d-up k3d-profile k3d-smoke k3d-stop k3d-down dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
 	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams
 
 help: ## 타깃 목록
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
 
-test: ## 리포·Terraform·백엔드·프론트 테스트 일괄 실행
+test: ## 리포·k8s 매니페스트·Terraform·백엔드·프론트 테스트 일괄 실행 (떠 있는 k3d 클러스터는 먼저 멈춘다)
 	./scripts/test.sh
+
+test-integration: ## Testcontainers 통합 테스트(백엔드) (떠 있는 k3d 클러스터는 먼저 멈춘다)
+	./scripts/test-integration.sh
+
+# --- 로컬 k3d 플랫폼 (TASK-36, README 로컬 k8s). 모든 타깃이 scripts/k3d.sh 를 거치고, 띄우거나 쓰는 타깃(up·profile·smoke)은
+# 같은 사전 검사(Docker VM 메모리 5GB·Testcontainers 없음·프로필 예산 deploy/k8s/budgets.txt)를 먼저 지난다. FORCE=1 은 예산 검사만 넘긴다.
+PROFILES ?=
+
+k3d-up: ## 로컬 k3d 클러스터 + 프로필(기본 core: Postgres·MinIO·backend) 기동. PROFILES=core,... FORCE=1 SKIP_BUILD=1
+	$(LOCAL_ENV) PROFILES="$(PROFILES)" ./scripts/k3d.sh up
+
+k3d-profile: ## 켤 프로필만 남기고 나머지는 삭제(메모리 회수): make k3d-profile PROFILES=core
+	$(LOCAL_ENV) PROFILES="$(PROFILES)" ./scripts/k3d.sh profile
+
+k3d-smoke: ## k3d LB + Traefik 으로 /api/actuator/health 가 UP 인지 (Host: board.localhost)
+	./scripts/k3d.sh smoke
+
+k3d-stop: ## k3d 클러스터 정지(데이터 유지, 메모리 회수)
+	./scripts/k3d.sh stop
+
+k3d-down: ## k3d 클러스터 삭제(데이터까지)
+	./scripts/k3d.sh down
 
 dev-db: ## 로컬 PostgreSQL 기동 (docker compose)
 	$(LOCAL_ENV) docker compose up -d --wait postgres

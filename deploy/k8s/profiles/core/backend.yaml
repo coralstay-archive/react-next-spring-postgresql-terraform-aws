@@ -1,0 +1,120 @@
+# 백엔드 (Spring Boot, backend/Dockerfile 이미지 — scripts/k3d.sh 가 빌드해 로컬 레지스트리에 push). 메모리 한도 768Mi(-Xmx384m).
+# k8s 프로필: 기동 시 Flyway 마이그레이션을 하지 않는다(TASK-36#3). 초기화 컨테이너가 Job(board-migrate)의 마이그레이션이 끝날 때까지
+# 기다린다(MigrationJob await: 적용 안 된 마이그레이션이 없을 때까지 폴링) — 앱이 옛 스키마로 뜨지 않는다.
+# 배포 전략 Recreate: 롤링 업데이트는 잠깐 두 벌(768Mi × 2)이 떠 예산을 넘는다(B1).
+apiVersion: v1
+kind: Service
+metadata:
+  name: board-backend
+spec:
+  selector:
+    app.kubernetes.io/name: board-backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: board-backend
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: board-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: board-backend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      initContainers:
+        - name: await-migration
+          image: k3d-registry.localhost:5001/board-backend:dev
+          imagePullPolicy: Always
+          command: ["java", "-cp", "/app/BOOT-INF/classes:/app/BOOT-INF/lib/*", "com.example.board.common.MigrationJob", "await"]
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Xmx96m -XX:+UseSerialGC -XX:TieredStopAtLevel=1"
+            - name: MIGRATION_AWAIT_TIMEOUT_SECONDS
+              value: "600"
+          envFrom:
+            - secretRef:
+                name: board-env
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+      containers:
+        - name: backend
+          image: k3d-registry.localhost:5001/board-backend:dev
+          imagePullPolicy: Always
+          env:
+            # 기동 시 마이그레이션 끔(application-k8s.properties) — 마이그레이션은 Job(board-migrate)
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Xmx384m -Xss512k -XX:MaxMetaspaceSize=192m -XX:ReservedCodeCacheSize=48m -XX:+UseSerialGC"
+          envFrom:
+            - configMapRef:
+                name: board-backend-config
+            - secretRef:
+                name: board-env
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:
+            httpGet:
+              path: /api/actuator/health/liveness
+              port: 8080
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /api/actuator/health/liveness
+              port: 8080
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/actuator/health/readiness
+              port: 8080
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 100m
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 768Mi
+---
+# Traefik(k3s 기본 인그레스) — k3d LB(호스트 127.0.0.1:80) → Traefik → /api → board-backend
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: board-backend
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: board.localhost
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: board-backend
+                port:
+                  name: http
