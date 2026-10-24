@@ -177,5 +177,54 @@ check "TASK-35#2 기록 파일의 그룹을 끄되 시작 시각이 다른 PID(�
 check "TASK-35#2 e2e.sh 는 _proc.sh 로 정리하고 포트 기반 kill 을 하지 않는다" sh -c 'grep -q "_proc.sh" scripts/e2e.sh && grep -q "proc_stop_all" scripts/e2e.sh && ! grep -Eq "lsof .*-t|xargs kill|pkill" scripts/e2e.sh'
 check "TASK-35#2 e2e.sh: E2E_KEEP 이면 기록하고, 시작할 때 이전 기록을 정리한다" sh -c 'grep -q "proc_record" scripts/e2e.sh && grep -q "proc_stop_recorded" scripts/e2e.sh'
 
+# ================================================================ TASK-35#3 OPS-40 lock 파일(package.json·package-lock.json)이 바뀌면 npm ci
+# scripts/frontend-deps.sh 를 임시 frontend 디렉터리(FRONTEND_DIR)와 가짜 npm 으로 돌린다. 가짜 npm ci 는 node_modules 를 새로 만든다.
+FD="$TMP/fd"
+mkdir -p "$FD/bin" "$FD/frontend"
+cat >"$FD/bin/npm" <<'SH'
+#!/usr/bin/env bash
+echo "npm $*" >>"$FAKE_NPM_LOG"
+if [ "${FAKE_NPM_FAIL:-0}" = 1 ]; then echo "npm ERR! fake" >&2; exit 1; fi
+[ "${1:-}" = ci ] && { rm -rf node_modules; mkdir -p node_modules/pkg; }
+exit 0
+SH
+chmod +x "$FD/bin/npm"
+export FAKE_NPM_LOG="$FD/npm.log"
+fd() { PATH="$FD/bin:$PATH" FRONTEND_DIR="$FD/frontend" "$ROOT/scripts/frontend-deps.sh" "$@"; }
+ci_count() { grep -c '^npm ci' "$FAKE_NPM_LOG" 2>/dev/null || true; }
+t_fd_flow() {
+  rm -rf "$FD/frontend/node_modules"; : >"$FAKE_NPM_LOG"
+  echo '{"name":"x"}' >"$FD/frontend/package.json"; echo '{"lockfileVersion":3,"v":1}' >"$FD/frontend/package-lock.json"
+  fd >/dev/null 2>&1 || { echo "first run failed"; return 1; }
+  [ "$(ci_count)" = 1 ] || { echo "처음(node_modules 없음): ci $(ci_count)회"; return 1; }
+  fd >/dev/null 2>&1 || return 1
+  [ "$(ci_count)" = 1 ] || { echo "lock 그대로인데 ci 를 다시 돌렸다"; return 1; }
+  echo '{"lockfileVersion":3,"v":2}' >"$FD/frontend/package-lock.json"
+  fd >/dev/null 2>&1 || return 1
+  [ "$(ci_count)" = 2 ] || { echo "lock 이 바뀌었는데 ci 를 안 돌렸다"; return 1; }
+  echo '{"name":"x","dependencies":{}}' >"$FD/frontend/package.json"
+  fd >/dev/null 2>&1 || return 1
+  [ "$(ci_count)" = 3 ] || { echo "package.json 이 바뀌었는데 ci 를 안 돌렸다"; return 1; }
+  fd --force >/dev/null 2>&1 || return 1
+  [ "$(ci_count)" = 4 ] || { echo "--force 인데 ci 를 안 돌렸다"; return 1; }
+  [ -d "$FD/frontend/node_modules/pkg" ] || { echo "ci 가 frontend 디렉터리에서 돌지 않았다"; return 1; }
+}
+check "TASK-35#3 node_modules 가 없거나 package.json·package-lock.json 이 바뀌면(또는 --force) npm ci, 그대로면 건너뛴다" t_fd_flow
+t_fd_fail() {
+  : >"$FAKE_NPM_LOG"
+  echo '{"lockfileVersion":3,"v":3}' >"$FD/frontend/package-lock.json"
+  run_capture env FAKE_NPM_FAIL=1 PATH="$FD/bin:$PATH" FRONTEND_DIR="$FD/frontend" "$ROOT/scripts/frontend-deps.sh"
+  [ "$RC" != 0 ] || { echo "npm ci 실패인데 0"; return 1; }
+  fd >/dev/null 2>&1 || return 1
+  [ "$(ci_count)" = 2 ] || { echo "실패 뒤 다음 실행이 ci 를 다시 돌리지 않았다($(ci_count))"; return 1; }
+}
+check "TASK-35#3 npm ci 가 실패하면 실패로 끝나고 스탬프를 남기지 않는다(다음 실행이 다시 ci)" t_fd_fail
+check "TASK-35#3 scripts/test.sh 는 frontend-deps.sh 로 의존성을 맞춘다" sh -c 'grep -q "frontend-deps.sh" scripts/test.sh && ! grep -q "node_modules ] || npm ci" scripts/test.sh'
+for t in frontend-dev frontend-test frontend-build; do
+  check "TASK-35#3 make $t 는 frontend-deps.sh 를 먼저 부른다" sh -c "make -n $t | grep -q 'scripts/frontend-deps.sh'"
+done
+check "TASK-35#3 make frontend-install 은 frontend-deps.sh --force" sh -c 'make -n frontend-install | grep -q "scripts/frontend-deps.sh --force"'
+check "TASK-35#3 e2e.sh 는 frontend-deps.sh 로 의존성을 맞춘다" grep -q "frontend-deps.sh" scripts/e2e.sh
+
 echo "tools: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]
