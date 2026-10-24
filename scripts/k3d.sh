@@ -59,31 +59,35 @@ ensure_cluster() {
   esac
 }
 
-# Secret board-env: env 파일(환경변수) 값으로 만든다. 리포에 남기지 않는다(임시 파일 → kubectl apply → 삭제).
+# Secret board-env: env 파일(환경변수) 값으로 만든다. 리포에도 디스크에도 남기지 않는다 — 임시 파일 없이 파이프(stdin)로
+# kubectl 에 넘긴다(중간에 실패해도 $TMPDIR 에 평문이 남지 않는다). printf 는 셸 내장이라 값이 프로세스 인자(ps)에 보이지 않는다.
+# kubectl 의 env 파일 형식은 한 줄에 KEY=값이고 값은 그대로(따옴표·공백·특수문자 포함) 쓴다 — 줄바꿈만 넣을 수 없으므로 거부한다.
+# 값은 출력하지 않는다(오류에도 키 이름만).
 apply_secret() {
   local db="${POSTGRES_DB:-board}" user="${POSTGRES_USER:-board}" pass="${POSTGRES_PASSWORD:-board}"
-  local mu="${MINIO_ROOT_USER:-minioadmin}" mp="${MINIO_ROOT_PASSWORD:-minioadmin}" f
-  f="$(mktemp)"
-  # shellcheck disable=SC2064 # 지금 경로로 지운다
-  trap "rm -f '$f'" RETURN
-  chmod 600 "$f"
-  {
-    echo "POSTGRES_DB=$db"
-    echo "POSTGRES_USER=$user"
-    echo "POSTGRES_PASSWORD=$pass"
-    echo "DB_URL=jdbc:postgresql://board-postgres:5432/$db"
-    echo "DB_USERNAME=$user"
-    echo "DB_PASSWORD=$pass"
-    echo "MINIO_ROOT_USER=$mu"
-    echo "MINIO_ROOT_PASSWORD=$mp"
-    echo "MC_HOST_local=http://$mu:$mp@board-minio:9000"
-    echo "UPLOADS_ACCESS_KEY=$mu"
-    echo "UPLOADS_SECRET_KEY=$mp"
-    # 없으면 넣지 않는다 — 앱의 로컬 개발 기본값(운영 모드 아님: PUBLIC_BASE_URL 이 http)
-    [ -z "${JWT_SECRET:-}" ] || echo "JWT_SECRET=$JWT_SECRET"
-    [ -z "${OTP_HASH_KEY:-}" ] || echo "OTP_HASH_KEY=$OTP_HASH_KEY"
-  } >"$f"
-  kc -n board create secret generic board-env --from-env-file="$f" --dry-run=client -o yaml | kc apply -f - >/dev/null
+  local mu="${MINIO_ROOT_USER:-minioadmin}" mp="${MINIO_ROOT_PASSWORD:-minioadmin}"
+  local lines=(
+    "POSTGRES_DB=$db"
+    "POSTGRES_USER=$user"
+    "POSTGRES_PASSWORD=$pass"
+    "DB_URL=jdbc:postgresql://board-postgres:5432/$db"
+    "DB_USERNAME=$user"
+    "DB_PASSWORD=$pass"
+    "MINIO_ROOT_USER=$mu"
+    "MINIO_ROOT_PASSWORD=$mp"
+    "UPLOADS_ACCESS_KEY=$mu"
+    "UPLOADS_SECRET_KEY=$mp"
+  )
+  # 없으면 넣지 않는다 — 앱의 로컬 개발 기본값(운영 모드 아님: PUBLIC_BASE_URL 이 http)
+  [ -z "${JWT_SECRET:-}" ] || lines+=("JWT_SECRET=$JWT_SECRET")
+  [ -z "${OTP_HASH_KEY:-}" ] || lines+=("OTP_HASH_KEY=$OTP_HASH_KEY")
+  local l
+  for l in "${lines[@]}"; do
+    case "$l" in *$'\n'* | *$'\r'*) k3d_die "Secret 값에 줄바꿈이 있다: ${l%%=*} — env 파일의 값을 한 줄로 고친다(값은 출력하지 않는다)" ;; esac
+  done
+  printf '%s\n' "${lines[@]}" \
+    | kc -n board create secret generic board-env --from-env-file=/dev/stdin --dry-run=client -o yaml \
+    | kc apply -f - >/dev/null
 }
 
 profile_namespace() { awk '$1 == "namespace:" { print $2; exit }' "$K3D_PROFILES_DIR/$1/kustomization.yaml" 2>/dev/null || true; }

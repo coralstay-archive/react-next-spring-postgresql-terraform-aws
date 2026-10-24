@@ -92,13 +92,25 @@ spec:
           image: cgr.dev/chainguard/minio@sha256:7df55d002b698e4494a131b848dd553361bbe58b7e19f62d9623c29af1ba9ccf
           command: ["sh", "-c"]
           args:
-            - until mc ready local; do sleep 2; done && mc mb --ignore-existing "local/$UPLOADS_BUCKET" && mc anonymous set download "local/$UPLOADS_BUCKET/uploads"
+            # 자격 증명은 URL(mc 의 호스트 env 형식 http://user:pass@...)에 넣지 않는다 — @:/#% 같은 문자가 URL 을 깨뜨린다. env 로 받아 인자로 넘긴다.
+            # mc alias set 은 서버에 붙어 보므로 MinIO 가 뜰 때까지 다시 한다(최대 60회 × 2초, 넘으면 실패 — Job 이 Failed 로 끝나 원인이 로그에 남는다).
+            - >-
+              n=0; until mc alias set local http://board-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null; do
+              n=$((n+1)); [ "$n" -lt 60 ] || exit 1; sleep 2; done
+              && until mc ready local; do sleep 2; done
+              && mc mb --ignore-existing "local/$UPLOADS_BUCKET"
+              && mc anonymous set download "local/$UPLOADS_BUCKET/uploads"
           env:
-            - name: MC_HOST_local
+            - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
                   name: board-env
-                  key: MC_HOST_local
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: board-env
+                  key: MINIO_ROOT_PASSWORD
             - name: UPLOADS_BUCKET
               valueFrom:
                 configMapKeyRef:

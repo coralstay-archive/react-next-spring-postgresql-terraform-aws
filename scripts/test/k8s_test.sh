@@ -46,6 +46,8 @@ echo "k8s tests"
 FAKE="$TMP/fake"
 mkdir -p "$FAKE/bin" "$FAKE/state"
 export FAKE_STATE="$FAKE/state"
+REAL_KUBECTL="$(command -v kubectl || true)"
+export REAL_KUBECTL
 
 # 가짜 docker: info → FAKE_DOCKER_MEM(바이트, 기본 5GB 설정의 실측 ≈ 4.8GiB), ps(Testcontainers 라벨) → FAKE_TC 의 id 들
 cat >"$FAKE/bin/docker" <<'SH'
@@ -77,7 +79,8 @@ case "${1:-} ${2:-}" in
 esac
 SH
 
-# 가짜 kubectl: 호출을 남긴다. get -o name → backend 하나, get(-l board.dev/profile, jsonpath) → FAKE_ACTIVE_PROFILES, create secret --from-env-file → 파일 복사, apply -f - → stdin 저장
+# 가짜 kubectl: 호출을 남긴다. get -o name → backend 하나, get(-l board.dev/profile, jsonpath) → FAKE_ACTIVE_PROFILES, create secret --from-env-file → 내용 복사
+# (FAKE_KUBECTL_FAIL_SECRET=1 이면 읽은 뒤 실패, FAKE_REAL_SECRET=1 이면 진짜 kubectl 의 --dry-run=client 로 만든다), apply -f - → stdin 저장
 cat >"$FAKE/bin/kubectl" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -89,7 +92,12 @@ case "$args" in
   *" get "*" -o name "*) echo "deployment.apps/board-backend" ;;
   *" get "*"board.dev/profile"*) for p in ${FAKE_ACTIVE_PROFILES:-}; do echo "$p"; done ;;
   *" create secret "*)
-    for a in "$@"; do case "$a" in --from-env-file=*) cp "${a#--from-env-file=}" "$S/secret.env" ;; esac; done
+    for a in "$@"; do case "$a" in --from-env-file=*) cat "${a#--from-env-file=}" >"$S/secret.env" ;; esac; done
+    [ "${FAKE_KUBECTL_FAIL_SECRET:-0}" = 1 ] && { echo "error: fake create secret failed" >&2; exit 1; }
+    if [ "${FAKE_REAL_SECRET:-0}" = 1 ]; then
+      KUBECONFIG=/nonexistent "$REAL_KUBECTL" -n board create secret generic board-env --from-env-file="$S/secret.env" --dry-run=client -o yaml
+      exit $?
+    fi
     echo "kind: Secret" ;;
   *" apply -f - "*) cat >>"$S/applied.yaml" ;;
 esac
@@ -109,6 +117,7 @@ calls() { cat "$FAKE_STATE/calls.log"; }
 # k3d <인자...> — 가짜 명령과 함께 scripts/k3d.sh 실행. 개발자 환경의 FORCE·PROFILES·env 파일 값이 섞이지 않게 비운다
 k3d_run() {
   env -u FORCE -u PROFILES -u SKIP_BUILD -u K3D_BUDGETS_FILE -u K3D_PROFILES_DIR -u POSTGRES_PASSWORD -u DB_URL \
+    -u POSTGRES_DB -u POSTGRES_USER -u MINIO_ROOT_USER -u MINIO_ROOT_PASSWORD -u JWT_SECRET -u OTP_HASH_KEY \
     SMOKE_TIMEOUT=0 K3D_WAIT_TIMEOUT=1s PATH="$FAKE/bin:$PATH" "$@"
 }
 # 호출 기록에 줄(부분 문자열)이 있는지/없는지
@@ -380,13 +389,64 @@ t_secret_from_env() {
   local f="$FAKE_STATE/secret.env"
   if ! { grep -qx 'POSTGRES_PASSWORD=s3cret' "$f" && grep -qx 'DB_PASSWORD=s3cret' "$f" \
     && grep -qx 'DB_URL=jdbc:postgresql://board-postgres:5432/boarddb' "$f" \
-    && grep -qx 'MC_HOST_local=http://mu:mp12345678@board-minio:9000' "$f" \
+    && grep -qx 'MINIO_ROOT_USER=mu' "$f" && grep -qx 'MINIO_ROOT_PASSWORD=mp12345678' "$f" \
     && grep -qx 'UPLOADS_ACCESS_KEY=mu' "$f" && ! grep -q 'localhost' "$f"; }; then
     echo "--- secret.env:"; cat "$f"; return 1
   fi
   if grep -rqs 's3cret' "$ROOT/deploy"; then echo "비밀값이 리포에 남았다"; return 1; fi
 }
 check "TASK-36#1 Secret 은 env 파일(환경변수) 값으로 스크립트가 만든다(클러스터 안 주소로, 리포에 남기지 않는다)" t_secret_from_env
+t_secret_no_tempfile() {
+  # 비밀값은 임시 파일에 쓰지 않는다 — stdin(파이프)으로 kubectl 에 넘긴다. kubectl 이 실패해도($TMPDIR 에) 평문이 남지 않는다
+  local td="$TMP/tmpdir-secret"; rm -rf "$td"; mkdir -p "$td"
+  fake_reset
+  run_capture k3d_run SKIP_BUILD=1 TMPDIR="$td" POSTGRES_PASSWORD=leak-me-123 FAKE_KUBECTL_FAIL_SECRET=1 ./scripts/k3d.sh up
+  rc_is 1 && called "create secret generic board-env --from-env-file=/dev/stdin" && lacks_text "leak-me-123" || return 1
+  [ -z "$(ls -A "$td")" ] || { echo "TMPDIR 에 파일이 남았다:"; ls -la "$td"; return 1; }
+  grep -rqs 'leak-me-123' "$td" && { echo "평문 비밀값이 남았다"; return 1; }
+  grep -q 'mktemp' scripts/k3d.sh && { echo "k3d.sh 가 아직 mktemp 를 쓴다"; return 1; }
+  fake_reset
+  run_capture k3d_run SKIP_BUILD=1 TMPDIR="$td" POSTGRES_PASSWORD=leak-me-123 ./scripts/k3d.sh up
+  rc_is 0 && [ -z "$(ls -A "$td")" ] && lacks_text "leak-me-123"
+}
+check "TASK-36#1 Secret 은 임시 파일 없이 stdin 으로 넘긴다 — kubectl 이 실패해도 평문이 남지 않고, 값을 출력하지 않는다" t_secret_no_tempfile
+SPECIAL_PW='p a"s'"'"'s $x `y` \n ;&|<> @:/#% end '
+t_secret_special_values() {
+  fake_reset
+  run_capture k3d_run SKIP_BUILD=1 POSTGRES_PASSWORD="$SPECIAL_PW" MINIO_ROOT_PASSWORD='pw@:/#%x' ./scripts/k3d.sh up
+  rc_is 0 && lacks_text "$SPECIAL_PW" || return 1
+  local f="$FAKE_STATE/secret.env"
+  if ! { grep -qxF "POSTGRES_PASSWORD=$SPECIAL_PW" "$f" && grep -qxF "DB_PASSWORD=$SPECIAL_PW" "$f" \
+    && grep -qxF 'MINIO_ROOT_PASSWORD=pw@:/#%x' "$f" && grep -qxF 'UPLOADS_SECRET_KEY=pw@:/#%x' "$f"; }; then
+    echo "--- secret.env:"; cat "$f"; return 1
+  fi
+}
+check "TASK-36#1 Secret 값의 공백·따옴표·특수문자(\$ \` \\ ; @:/#%)를 그대로 넣는다(값은 출력하지 않는다)" t_secret_special_values
+if [ -n "$REAL_KUBECTL" ] && need_tool jq && need_tool ruby; then
+  t_secret_real_kubectl() {
+    # 진짜 kubectl(--dry-run=client, 클러스터 없이)이 env 파일 형식을 값 그대로 읽는지 — 앞뒤 공백·따옴표·특수문자
+    fake_reset
+    run_capture k3d_run SKIP_BUILD=1 FAKE_REAL_SECRET=1 POSTGRES_PASSWORD="$SPECIAL_PW" MINIO_ROOT_PASSWORD='pw@:/#%x' ./scripts/k3d.sh up
+    rc_is 0 || return 1
+    local got
+    got="$(ruby -ryaml -rjson -e 'puts JSON.generate(YAML.load_stream(STDIN.read).compact)' <"$FAKE_STATE/applied.yaml" \
+      | jq -r '.[] | select(.kind == "Secret") | .data.POSTGRES_PASSWORD' | base64 -d)"
+    [ "$got" = "$SPECIAL_PW" ] || { echo "kubectl 이 값을 바꿨다: [$got]"; return 1; }
+    got="$(ruby -ryaml -rjson -e 'puts JSON.generate(YAML.load_stream(STDIN.read).compact)' <"$FAKE_STATE/applied.yaml" \
+      | jq -r '.[] | select(.kind == "Secret") | .data.MINIO_ROOT_PASSWORD' | base64 -d)"
+    [ "$got" = 'pw@:/#%x' ] || { echo "kubectl 이 MinIO 값을 바꿨다: [$got]"; return 1; }
+  }
+  check "TASK-36#1 진짜 kubectl(--dry-run=client)로 만든 Secret 의 값이 env 파일 값과 바이트 단위로 같다" t_secret_real_kubectl
+fi
+t_secret_newline_rejected() {
+  fake_reset
+  run_capture k3d_run SKIP_BUILD=1 POSTGRES_PASSWORD=$'line1\nINJECTED=1' ./scripts/k3d.sh up
+  rc_is 1 && has_text "POSTGRES_PASSWORD" && has_text "줄바꿈" && lacks_text "INJECTED" && not_called "create secret" || return 1
+  fake_reset
+  run_capture k3d_run SKIP_BUILD=1 JWT_SECRET=$'abc\rdef' ./scripts/k3d.sh up
+  rc_is 1 && has_text "JWT_SECRET" && has_text "줄바꿈" && not_called "create secret"
+}
+check "TASK-36#1 Secret 값에 줄바꿈(\\n·\\r)이 있으면 키 이름과 함께 분명한 오류로 거부한다(값은 출력하지 않는다)" t_secret_newline_rejected
 check "TASK-36#1 make k3d-up·k3d-profile 은 env 파일을 읽는다(LOCAL_ENV)" sh -c 'make -n k3d-up | grep -q "local-env.sh" && make -n k3d-profile PROFILES=core | grep -q "local-env.sh"'
 t_smoke_ok() {
   fake_reset; echo running >"$FAKE_STATE/k3d"
@@ -494,6 +554,20 @@ if [ "$RENDER_OK" = 1 ]; then
     [ -n "$dm" ] && [ -n "$lim" ] && [ -n "$core" ] && [ "$core" -ge 1400 ] && [ "$core" -le 1800 ] && [ "$lim" -lt "$dm" ]'
   check "TASK-36#2 TASK-36#B1 README 의 예산 표가 budgets.txt 와 같다(문서·스크립트가 같은 숫자)" sh -c '
     awk "\$1==\"profile\"{print \$2, \$3}" deploy/k8s/budgets.txt | while read -r p m; do grep -Eq "\| *$p *\| *$m *MiB" README.md || { echo "README 에 $p $m MiB 없음"; exit 1; }; done'
+fi
+
+# ================================================================ TASK-36#1 MinIO 버킷 준비 Job: 자격 증명은 URL(MC_HOST_*)에 넣지 않는다(특수문자 @:/#% 가 깨지지 않게)
+if [ "$RENDER_OK" = 1 ]; then
+  t_minio_init_creds() {
+    local f="$TMP/profile-core.json"
+    jq -e '.[] | select(.kind == "Job" and .metadata.name == "board-minio-init") | .spec.template.spec.containers[0]
+      | ([.env[] | select(.valueFrom.secretKeyRef != null) | .name] | sort == ["MINIO_ROOT_PASSWORD", "MINIO_ROOT_USER"])
+        and ([.env[].name] | index("MC_HOST_local") == null)
+        and (.args | join(" ") | contains("mc alias set local http://board-minio:9000 \"$MINIO_ROOT_USER\" \"$MINIO_ROOT_PASSWORD\""))' "$f" >/dev/null \
+      || { echo "board-minio-init: env 로 받은 MINIO_ROOT_USER·PASSWORD 를 mc alias set 에 따옴표로 넘겨야 한다(MC_HOST_local 금지)"; return 1; }
+    ! grep -rq 'MC_HOST' deploy/k8s scripts/k3d.sh || { echo "MC_HOST 가 남았다"; return 1; }
+  }
+  check "TASK-36#1 MinIO 초기화 Job 은 자격 증명을 env 로 받아 mc alias set 에 넘긴다(URL 에 넣지 않아 @:/#% 도 된다)" t_minio_init_creds
 fi
 
 # ================================================================ TASK-36#3 Flyway 마이그레이션은 앱 기동과 분리한 Job
