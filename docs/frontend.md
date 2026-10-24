@@ -207,12 +207,16 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
   받는다 — API 오류는 지금처럼 각 화면의 `ApiErrorAlert` 등이 처리한다.
 - **404** (FE-34·35): `app/not-found.tsx`(한국어 + 목록 링크)가 정적 export 에서 `out/404.html`이 된다. 운영에서 모르는 페이지 경로는 CloudFront
   Function 이 이 파일로 보내고 상태를 404 로 바꾼다(README "CloudFront 동작"). 함수의 페이지 목록은 `src/app`의 `page.tsx` 목록과 같아야 하므로
-  **페이지를 더하면 `infra/main/modules/frontend_cdn/functions/index_rewrite.js`의 `PAGES`도 고치고 terraform apply** 한다(`make test`가 검사).
+  **페이지를 더하면 `infra/main/modules/frontend_cdn/functions/index_rewrite.js`의 `PAGES`도 고친다**(`make test`가 검사). 배포는
+  `terraform apply`(함수) → `make deploy-frontend`(페이지) 순서다 — `deploy.yml`은 terraform 을 돌리지 않는다. `deploy-frontend`로 롤백해도
+  함수의 `PAGES`는 되돌아가지 않는다(페이지 목록이 달라졌으면 apply 도 한다). viewer-response 연결로 기본 동작의 함수 호출이 두 배가 된다
+  (100만 건당 $0.10 추가). 확장자가 있는 없는 경로(`/robots.txt`, `/foo.html`, 옛 `_next` 파일)는 S3 XML 404 그대로다(받아들인 한계).
 - **role** (FE-36): `Alert`의 role 은 variant 로 정한다 — `destructive`(오류)만 `alert`, 기본은 `status`.
-  - `alert`(오류): 폼·API 오류(`FormError`, `ApiErrorAlert`, 편집기 상단 오류, 관리자 확인 창 오류), 세션 만료 배너·작성 화면 재로그인 안내(요청이 이미
+  - `alert`(오류): 폼·API 오류(`FormError`, `ApiErrorAlert`, 편집기 상단 오류, 관리자 확인 창 오류), 세션을 다 끊지 못했을 수 있는 정지 경고(`session_revoke_failed` —
+    정지된 사용자가 아직 접속해 있을 수 있다), 세션 만료 배너·작성 화면 재로그인 안내(요청이 이미
     실패했고 다시 로그인해야 한다), 초안 충돌, 403 으로 받은 step-up 안내, 오류 경계.
   - `status`(상태·안내): 오프라인 배너(요청 실패가 아니라 연결 상태 — 읽기는 연결되면 저절로 다시 받는다), 재조회 실패 안내(기존 내용을 그대로 두는
-    조용한 안내), 초안 복원, 정지 경고(정지 자체는 성공), 제한 세션 상단 배너(TASK-32 에서는 alert 였으나 오류가 아닌 상태라 status 로 바꿨다),
+    조용한 안내), 초안 복원, 그 밖의 정지 경고(정지 자체는 성공, 모르는 경고 코드), 제한 세션 상단 배너(TASK-32 에서는 alert 였으나 오류가 아닌 상태라 status 로 바꿨다),
     내 계정 안내(`aria-label="알림"`).
 - **필드 오류 연결** (FE-36): 편집기의 제목·카테고리·본문·태그·첨부와 댓글 입력은 오류가 있을 때 `aria-invalid="true"`와 오류 문단 id 를 가리키는
   `aria-describedby`를 갖는다(오류가 없으면 둘 다 없다). 태그 입력은 입력 중 미리보기 줄(`editor-tag-preview`)도 설명으로 가리킨다. 댓글 오류 문단은
