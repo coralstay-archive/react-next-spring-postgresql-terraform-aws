@@ -110,7 +110,10 @@ apply_profiles() {
   for p in "$@"; do
     ns="$(profile_namespace "$p")"
     k3d_log "프로필 $p: Job 완료·롤아웃 대기(최대 $WAIT_TIMEOUT)"
-    kc wait --for=condition=complete job -A -l "board.dev/profile=$p" --timeout="$WAIT_TIMEOUT"
+    # kubectl wait 는 대상이 없으면 실패한다 — Job 이 있는 프로필만 기다린다
+    if [ -n "$(kc get job -A -l "board.dev/profile=$p" -o name)" ]; then
+      kc wait --for=condition=complete job -A -l "board.dev/profile=$p" --timeout="$WAIT_TIMEOUT"
+    fi
     local w
     for w in $(kc -n "${ns:-default}" get deployment,statefulset -l "board.dev/profile=$p" -o name); do
       kc -n "${ns:-default}" rollout status "$w" --timeout="$WAIT_TIMEOUT"

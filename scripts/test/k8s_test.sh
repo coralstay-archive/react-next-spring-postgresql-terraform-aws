@@ -85,6 +85,7 @@ S="$FAKE_STATE"
 printf 'kubectl %s\n' "$*" >>"$S/calls.log"
 args=" $* "
 case "$args" in
+  *" get job "*" -o name "*) [ "${FAKE_NO_JOBS:-0}" = 1 ] || echo "job.batch/board-migrate" ;;
   *" get "*" -o name "*) echo "deployment.apps/board-backend" ;;
   *" get "*"board.dev/profile"*) for p in ${FAKE_ACTIVE_PROFILES:-}; do echo "$p"; done ;;
   *" create secret "*)
@@ -408,6 +409,20 @@ check "TASK-36#1 k3d 설정: 서버 1·에이전트 0, 로컬 레지스트리 :5
     && grep -q "name: board$" $f && grep -q "hostPort: \"5001\"" $f && grep -q "name: registry.localhost" $f \
     && grep -q -- "--disable=metrics-server" $f && grep -q "port: 127.0.0.1:80:80" $f && grep -q "loadbalancer" $f \
     && grep -Eq "^image: rancher/k3s:v[0-9.]+-k3s[0-9]+$" $f'
+
+if command -v k3d >/dev/null 2>&1; then
+  # k3d 는 설정 파일을 읽을 때 스키마로 검증한다(모르는 필드면 실패) — 클러스터를 만들지 않고 migrate 로 읽어 본다
+  check "TASK-36#1 k3d 설정이 k3d 스키마(v1alpha5)를 통과한다(k3d config migrate)" k3d config migrate deploy/k8s/k3d/cluster.yaml "$TMP/cluster-migrated.yaml"
+else
+  echo "  WARNING: k3d 가 없어 k3d 설정 스키마 검사를 건너뛴다" >&2
+fi
+t_up_no_jobs() {
+  # Job 이 없는 프로필(이후 태스크)도 대기 단계에서 실패하지 않는다 — kubectl wait 는 대상이 없으면 실패하므로 있을 때만 부른다
+  fake_reset
+  run_capture k3d_run SKIP_BUILD=1 FAKE_NO_JOBS=1 ./scripts/k3d.sh up
+  rc_is 0 && not_called "wait --for=condition=complete" && called "rollout status"
+}
+check "TASK-36#1 Job 이 없는 프로필이면 Job 대기를 건너뛴다" t_up_no_jobs
 
 # ================================================================ 매니페스트 렌더(진짜 kubectl kustomize)
 # YAML → JSON 은 ruby 표준 라이브러리(Psych)로 바꿔 jq 로 본다(macOS·GitHub ubuntu 러너에 있다. python3 에는 yaml 모듈이 없다)
