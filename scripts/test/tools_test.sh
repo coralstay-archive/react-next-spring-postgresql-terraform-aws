@@ -226,5 +226,50 @@ done
 check "TASK-35#3 make frontend-install 은 frontend-deps.sh --force" sh -c 'make -n frontend-install | grep -q "scripts/frontend-deps.sh --force"'
 check "TASK-35#3 e2e.sh 는 frontend-deps.sh 로 의존성을 맞춘다" grep -q "frontend-deps.sh" scripts/e2e.sh
 
+# ================================================================ TASK-35#4 OPS-41 배포 타깃에 루트 env 파일 값이 섞이지 않는다
+# 임시 디렉터리에 Makefile 을 복사하고(scripts·frontend·infra·deploy 는 링크) 그 옆에 env 파일을 둔다. 가짜 terraform 이
+# 자기가 본 환경을 남긴다(tf-outputs.sh -- <배포 스크립트> 의 환경). backend-run(로컬 실행)은 가짜 gradlew 로 env 파일이 읽히는지 본다.
+# 가짜 aws·docker 도 PATH 앞에 둔다 — env 파일의 DRY_RUN=0 이 섞여도 실제 AWS 를 부르지 않게.
+MK="$TMP/mk"
+mkdir -p "$MK/bin" "$MK/backend"
+cp Makefile "$MK/"
+for d in scripts frontend infra deploy; do ln -s "$ROOT/$d" "$MK/$d"; done
+printf 'LEAK_MARKER=from-dotenv\nDRY_RUN=0\nAWS_PROFILE=leaked-profile\n' >"$MK/.env"
+cat >"$MK/bin/terraform" <<'SH'
+#!/usr/bin/env bash
+env >"$MK_STATE/terraform.env"
+echo '{"region":{"value":"us-east-1"},"ecr_repository_url":{"value":"1.dkr.ecr.us-east-1.amazonaws.com/x"},"web_bucket":{"value":"b"},"distribution_id":{"value":"E1"},"instance_id":{"value":"i-1"}}'
+SH
+printf '#!/usr/bin/env bash\necho "fake $(basename "$0") $*" >>"$MK_STATE/calls.log"\n' >"$MK/bin/aws"
+cp "$MK/bin/aws" "$MK/bin/docker"
+printf '#!/usr/bin/env bash\nenv >"$MK_STATE/gradlew.env"\n' >"$MK/backend/gradlew"
+chmod +x "$MK/bin/"* "$MK/backend/gradlew"
+export MK_STATE="$TMP/mk-state"
+mkdir -p "$MK_STATE"
+mk() { env -u LEAK_MARKER -u AWS_PROFILE PATH="$MK/bin:$PATH" make -s -C "$MK" "$@"; }
+t_mk_deploy_clean() {
+  rm -f "$MK_STATE"/*
+  run_capture mk deploy-frontend DRY_RUN=1 SKIP_BUILD=1
+  rc_is 0 || return 1
+  [ -f "$MK_STATE/terraform.env" ] || { echo "terraform 이 불리지 않았다"; echo "$OUT"; return 1; }
+  ! grep -Eq '^(LEAK_MARKER|AWS_PROFILE)=' "$MK_STATE/terraform.env" || { echo "env 파일 값이 배포 환경에 섞였다:"; grep -E '^(LEAK_MARKER|AWS_PROFILE)=' "$MK_STATE/terraform.env"; return 1; }
+  has_text "[dry-run] aws cloudfront create-invalidation" && [ ! -s "$MK_STATE/calls.log" ]
+}
+check "TASK-35#4 make deploy-frontend 에는 env 파일 값(LEAK_MARKER·AWS_PROFILE·DRY_RUN=0)이 섞이지 않는다" t_mk_deploy_clean
+t_mk_deploy_env_dryrun() {
+  # 환경변수로 준 DRY_RUN=1 을 env 파일의 DRY_RUN=0 이 덮지 않는다
+  rm -f "$MK_STATE"/*
+  run_capture env DRY_RUN=1 SKIP_BUILD=1 PATH="$MK/bin:$PATH" make -s -C "$MK" deploy-frontend
+  rc_is 0 && has_text "[dry-run] aws s3 sync" && [ ! -s "$MK_STATE/calls.log" ]
+}
+check "TASK-35#4 환경변수 DRY_RUN=1 을 env 파일의 DRY_RUN=0 이 덮지 않는다" t_mk_deploy_env_dryrun
+t_mk_local_env() {
+  rm -f "$MK_STATE"/*
+  run_capture mk backend-run
+  rc_is 0 || return 1
+  grep -qx 'LEAK_MARKER=from-dotenv' "$MK_STATE/gradlew.env" || { echo "backend-run 이 env 파일을 읽지 않았다"; echo "$OUT"; return 1; }
+}
+check "TASK-35#4 로컬 실행(make backend-run)은 env 파일을 그대로 읽는다" t_mk_local_env
+
 echo "tools: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]
