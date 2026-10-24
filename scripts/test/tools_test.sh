@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016 # proc_sh '...' 안의 $ 는 하위 bash 에서 풀린다
 # 로컬 도구 테스트 (TASK-35): build-diagrams --check 의 렌더 환경 고정, e2e 프로세스 정리, 프론트 의존성 갱신, Makefile env 범위.
 # scripts/test.sh 가 호출한다. 실제 graphviz·npm·AWS 는 부르지 않는다(PATH 앞에 둔 가짜 명령·임시 디렉터리).
 set -uo pipefail
@@ -114,6 +115,66 @@ t_dg_no_pin() {
 }
 check "TASK-35#1 고정값 파일이 없으면 바이트 비교를 건너뛴다(안내)" t_dg_no_pin
 check "TASK-35#1 리포에 렌더 환경 고정값(diagrams/render-env.txt: graphviz·os)" sh -c 'grep -Eq "^graphviz=[0-9]+(\.[0-9]+)+$" diagrams/render-env.txt && grep -Eq "^os=[A-Za-z]+$" diagrams/render-env.txt'
+
+# ================================================================ TASK-35#2 OPS-39 e2e 프로세스 정리: 프로세스 그룹(PGID) 단위 TERM → 시간 초과 시 KILL
+# scripts/_proc.sh 를 source 해서 가짜 프로세스(손자 포함·TERM 무시)로 확인한다. 포트 기반 kill 은 쓰지 않는다.
+# proc_sh <스크립트> — _proc.sh 를 source 한 bash 에서 실행
+proc_sh() { bash -c "set -u; source '$ROOT/scripts/_proc.sh' || exit 99; $1"; }
+t_proc_kill_escalate() {
+  # TERM 을 무시하는 그룹(손자 sleep 도 무시를 물려받는다) → 1초 뒤 KILL, 그룹 전체가 사라진다
+  run_capture proc_sh '
+    stubborn() { trap "" TERM; sleep 300 & sleep 300; }
+    proc_start stubborn; g=$PROC_LAST; sleep 0.5
+    proc_stop "$g" 1
+    if kill -0 -- "-$g" 2>/dev/null; then echo "group $g alive"; exit 1; fi
+    echo stopped'
+  rc_is 0 && has_text "stopped" && has_text "KILL"
+}
+check "TASK-35#2 TERM 을 무시하는 프로세스 그룹은 시간 초과 뒤 KILL 로 끝난다(손자 포함)" t_proc_kill_escalate
+t_proc_term() {
+  run_capture proc_sh '
+    normal() { sleep 300 & sleep 300; }
+    proc_start normal; g=$PROC_LAST; sleep 0.5
+    start=$(date +%s); proc_stop "$g" 10
+    if kill -0 -- "-$g" 2>/dev/null; then echo "group $g alive"; exit 1; fi
+    [ $(( $(date +%s) - start )) -lt 5 ] || { echo "too slow"; exit 1; }
+    echo stopped'
+  rc_is 0 && has_text "stopped" && lacks_text "KILL"
+}
+check "TASK-35#2 TERM 에 끝나는 그룹은 KILL 없이 바로 끝난다(하위 프로세스 포함)" t_proc_term
+t_proc_unrelated() {
+  # 기록한 그룹만 끈다: 같은 셸이 따로 띄운 프로세스(다른 그룹)는 살아 있다
+  run_capture proc_sh '
+    sleep 300 & other=$!
+    proc_start sleep 300; proc_start sleep 300; sleep 0.3
+    [ "${#PROC_PIDS[@]}" = 2 ] || { echo "PROC_PIDS: ${PROC_PIDS[*]:-}"; kill "$other"; exit 1; }
+    proc_stop_all 2
+    for g in "${PROC_PIDS[@]}"; do kill -0 -- "-$g" 2>/dev/null && { echo "group $g alive"; kill "$other"; exit 1; }; done
+    kill -0 "$other" || { echo "unrelated $other killed"; exit 1; }
+    kill "$other"; echo ok-unrelated'
+  rc_is 0 && has_text "ok-unrelated"
+}
+check "TASK-35#2 기록한 그룹만 끄고 관계없는 프로세스는 건드리지 않는다" t_proc_unrelated
+t_proc_recorded() {
+  # E2E_KEEP: 기록 파일(PID + 시작 시각)로 다음 실행이 끈다. 시작 시각이 다르면(PID 재사용) 건드리지 않는다
+  local f="$TMP/kept-pids"
+  run_capture proc_sh "
+    proc_start sleep 300; g=\$PROC_LAST; sleep 0.3
+    proc_record '$f'
+    grep -q \"^\$g|\" '$f' || { echo 'not recorded'; cat '$f'; exit 1; }
+    sleep 300 & other=\$!
+    printf '%s|%s\n' \"\$other\" 'Thu Jan  1 00:00:00 1970' >>'$f'
+    proc_stop_recorded '$f' 2
+    kill -0 -- \"-\$g\" 2>/dev/null && { echo 'recorded group alive'; exit 1; }
+    kill -0 \"\$other\" || { echo 'reused pid killed'; exit 1; }
+    kill \"\$other\"
+    [ ! -e '$f' ] || { echo 'record file left'; exit 1; }
+    echo ok-recorded"
+  rc_is 0 && has_text "ok-recorded" && has_text "건너뛴다"
+}
+check "TASK-35#2 기록 파일의 그룹을 끄되 시작 시각이 다른 PID(재사용)는 건너뛴다" t_proc_recorded
+check "TASK-35#2 e2e.sh 는 _proc.sh 로 정리하고 포트 기반 kill 을 하지 않는다" sh -c 'grep -q "_proc.sh" scripts/e2e.sh && grep -q "proc_stop_all" scripts/e2e.sh && ! grep -Eq "lsof .*-t|xargs kill|pkill" scripts/e2e.sh'
+check "TASK-35#2 e2e.sh: E2E_KEEP 이면 기록하고, 시작할 때 이전 기록을 정리한다" sh -c 'grep -q "proc_record" scripts/e2e.sh && grep -q "proc_stop_recorded" scripts/e2e.sh'
 
 echo "tools: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]
