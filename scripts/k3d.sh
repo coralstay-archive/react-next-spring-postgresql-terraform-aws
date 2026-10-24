@@ -3,6 +3,7 @@
 # 지난다 — 검사를 우회하는 진입점이 없다(TASK-36#8).
 #   up               [PROFILES=core] 사전 검사 → 백엔드 이미지 빌드(SKIP_BUILD=1 이면 생략) → 클러스터 생성/시작(deploy/k8s/k3d/cluster.yaml)
 #                    → 로컬 레지스트리 push → base·Secret 적용 → 프로필 적용(고르지 않은 프로필은 삭제) → Job 완료·롤아웃 대기
+#                    (Job 이 Failed 면 시간 초과를 기다리지 않고 kubectl logs 와 함께 바로 실패)
 #   profile          PROFILES=core,... 떠 있는 클러스터에서 프로필만 바꾼다(끈 프로필은 delete -k → 메모리 회수, TASK-36#4)
 #   smoke            켜진 프로필로 사전 검사 → http://127.0.0.1:<K3D_HTTP_PORT>/api/actuator/health (Host: board.localhost)가 UP
 #   stop             클러스터·레지스트리 컨테이너 정지(데이터 유지, 메모리 회수). 다시: up
@@ -92,6 +93,54 @@ apply_secret() {
 
 profile_namespace() { awk '$1 == "namespace:" { print $2; exit }' "$K3D_PROFILES_DIR/$1/kustomization.yaml" 2>/dev/null || true; }
 
+# "300s"·"5m"·"300" → 초
+timeout_seconds() {
+  case "$1" in
+    *m) echo $(( ${1%m} * 60 )) ;;
+    *s) echo "${1%s}" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+# Job 로그(실패·시간 초과 원인)를 보여 준다: <ns>/<이름>...
+show_job_logs() {
+  local j
+  for j in "$@"; do
+    echo "--- kubectl -n ${j%%/*} logs job/${j#*/} (마지막 50줄)" >&2
+    kc -n "${j%%/*}" logs "job/${j#*/}" --all-containers --tail=50 >&2 || true
+  done
+}
+
+# 프로필의 Job 이 모두 Complete 가 될 때까지 기다린다. 하나라도 Failed(backoffLimit 소진)면 시간 초과를 기다리지 않고 바로 로그와 함께
+# 실패한다(kubectl wait 는 complete 와 failed 를 같이 기다리지 못한다). Job 이 없는 프로필은 바로 통과한다.
+wait_jobs() {
+  local p="$1" deadline out name conds failed pending
+  deadline=$(( $(date +%s) + $(timeout_seconds "$WAIT_TIMEOUT") ))
+  while :; do
+    out="$(kc get job -A -l "board.dev/profile=$p" \
+      -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}{" "}{range .status.conditions[?(@.status=="True")]}{.type}{" "}{end}{"\n"}{end}')"
+    failed=(); pending=()
+    while read -r name conds; do
+      [ -n "$name" ] || continue
+      case " $conds " in
+        *" Failed "*) failed+=("$name") ;;
+        *" Complete "*) ;;
+        *) pending+=("$name") ;;
+      esac
+    done <<<"$out"
+    if [ "${#failed[@]}" -gt 0 ]; then
+      show_job_logs "${failed[@]}"
+      k3d_die "Job 실패: ${failed[*]} (프로필 $p) — 위 로그를 본다. 고친 뒤 다시: make k3d-up (Job 은 지우고 새로 돈다)"
+    fi
+    [ "${#pending[@]}" -gt 0 ] || return 0
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      show_job_logs "${pending[@]}"
+      k3d_die "Job 이 $WAIT_TIMEOUT 안에 끝나지 않았다: ${pending[*]} (프로필 $p) — 위 로그를 본다. 더 기다리려면 K3D_WAIT_TIMEOUT=600s"
+    fi
+    sleep 2
+  done
+}
+
 # 고른 프로필은 적용하고 나머지(예산 파일의 프로필)는 지운다 — 지우기를 먼저 해서 메모리를 먼저 돌려받는다
 apply_profiles() {
   local selected=" $* " p ns
@@ -114,10 +163,7 @@ apply_profiles() {
   for p in "$@"; do
     ns="$(profile_namespace "$p")"
     k3d_log "프로필 $p: Job 완료·롤아웃 대기(최대 $WAIT_TIMEOUT)"
-    # kubectl wait 는 대상이 없으면 실패한다 — Job 이 있는 프로필만 기다린다
-    if [ -n "$(kc get job -A -l "board.dev/profile=$p" -o name)" ]; then
-      kc wait --for=condition=complete job -A -l "board.dev/profile=$p" --timeout="$WAIT_TIMEOUT"
-    fi
+    wait_jobs "$p"
     local w
     for w in $(kc -n "${ns:-default}" get deployment,statefulset -l "board.dev/profile=$p" -o name); do
       kc -n "${ns:-default}" rollout status "$w" --timeout="$WAIT_TIMEOUT"

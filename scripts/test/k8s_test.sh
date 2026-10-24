@@ -49,7 +49,8 @@ export FAKE_STATE="$FAKE/state"
 REAL_KUBECTL="$(command -v kubectl || true)"
 export REAL_KUBECTL
 
-# 가짜 docker: info → FAKE_DOCKER_MEM(바이트, 기본 5GB 설정의 실측 ≈ 4.8GiB), ps(Testcontainers 라벨) → FAKE_TC 의 id 들
+# 가짜 docker: info → FAKE_DOCKER_MEM(바이트, 기본 5GB 설정의 실측 ≈ 4.8GiB), ps(Testcontainers 라벨) → FAKE_TC 의 id 들,
+# ps(label=k3d.cluster=…) → FAKE_K3D_CONTAINERS 의 id 들, stop → FAKE_DOCKER_STOP_FAIL=1 이면 실패
 cat >"$FAKE/bin/docker" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -57,7 +58,11 @@ printf 'docker %s\n' "$*" >>"$FAKE_STATE/calls.log"
 case "${1:-}" in
   info) [ "${FAKE_DOCKER_DOWN:-0}" = 1 ] && { echo "Cannot connect to the Docker daemon" >&2; exit 1; }
         echo "${FAKE_DOCKER_MEM:-5150000000}" ;;
-  ps) for id in ${FAKE_TC:-}; do echo "$id"; done ;;
+  ps) case " $* " in
+        *"label=k3d.cluster="*) for id in ${FAKE_K3D_CONTAINERS:-}; do echo "$id"; done ;;
+        *) for id in ${FAKE_TC:-}; do echo "$id"; done ;;
+      esac ;;
+  stop) if [ "${FAKE_DOCKER_STOP_FAIL:-0}" = 1 ]; then echo "Error response from daemon: fake stop failed" >&2; exit 1; fi ;;
   *) : ;;
 esac
 SH
@@ -79,7 +84,7 @@ case "${1:-} ${2:-}" in
 esac
 SH
 
-# 가짜 kubectl: 호출을 남긴다. get -o name → backend 하나, get(-l board.dev/profile, jsonpath) → FAKE_ACTIVE_PROFILES, create secret --from-env-file → 내용 복사
+# 가짜 kubectl: 호출을 남긴다. get job(jsonpath) → FAKE_JOB_STATUS("<ns>/<이름> <참인 조건...>", 기본 Complete), logs job/ → 가짜 로그, get -o name → backend 하나, get(-l board.dev/profile, jsonpath) → FAKE_ACTIVE_PROFILES, create secret --from-env-file → 내용 복사
 # (FAKE_KUBECTL_FAIL_SECRET=1 이면 읽은 뒤 실패, FAKE_REAL_SECRET=1 이면 진짜 kubectl 의 --dry-run=client 로 만든다), apply -f - → stdin 저장
 cat >"$FAKE/bin/kubectl" <<'SH'
 #!/usr/bin/env bash
@@ -89,6 +94,8 @@ printf 'kubectl %s\n' "$*" >>"$S/calls.log"
 args=" $* "
 case "$args" in
   *" get job "*" -o name "*) [ "${FAKE_NO_JOBS:-0}" = 1 ] || echo "job.batch/board-migrate" ;;
+  *" get job "*"jsonpath="*) [ "${FAKE_NO_JOBS:-0}" = 1 ] || echo "${FAKE_JOB_STATUS-board/board-migrate Complete }" ;;
+  *" logs job/"*) echo "FAKE-JOB-LOG: flyway 마이그레이션 실패" ;;
   *" get "*" -o name "*) echo "deployment.apps/board-backend" ;;
   *" get "*"board.dev/profile"*) for p in ${FAKE_ACTIVE_PROFILES:-}; do echo "$p"; done ;;
   *" create secret "*)
@@ -292,6 +299,27 @@ t_stop_if_running_no_k3d() {
   rc_is 0 && lacks_text "ERROR"
 }
 check "TASK-36#6 k3d 가 없으면(CI) 조용히 통과한다" t_stop_if_running_no_k3d
+# k3d 가 PATH 에 없고 가짜 docker 만 있는 PATH
+NOK3D_DOCKER="$TMP/nok3d-docker"; mkdir -p "$NOK3D_DOCKER"
+for c in bash env dirname cat grep awk sed tr; do ln -sf "$(command -v "$c")" "$NOK3D_DOCKER/$c"; done
+ln -sf "$FAKE/bin/docker" "$NOK3D_DOCKER/docker"
+t_stop_if_running_no_k3d_docker() {
+  # k3d 가 PATH 에 없어도(다른 셸·설치 경로) 클러스터 컨테이너가 떠 있으면 docker 라벨(k3d.cluster=board)로 찾아 멈춘다
+  fake_reset
+  run_capture env PATH="$NOK3D_DOCKER" FAKE_K3D_CONTAINERS="srv1 lb1" bash ./scripts/k3d.sh stop-if-running "make test"
+  rc_is 0 && called "docker ps -q --filter label=k3d.cluster=board" && called "docker stop srv1 lb1" \
+    && has_text "멈췄다" && has_text "make test" || return 1
+  fake_reset
+  run_capture env PATH="$NOK3D_DOCKER" bash ./scripts/k3d.sh stop-if-running "make test"
+  rc_is 0 && not_called "docker stop" && lacks_text "멈췄다"
+}
+check "TASK-36#6 k3d 가 PATH 에 없어도 떠 있는 클러스터 컨테이너(label k3d.cluster=board)를 docker stop 으로 멈춘다" t_stop_if_running_no_k3d_docker
+t_stop_if_running_no_k3d_docker_fail() {
+  fake_reset
+  run_capture env PATH="$NOK3D_DOCKER" FAKE_K3D_CONTAINERS="srv1" FAKE_DOCKER_STOP_FAIL=1 bash ./scripts/k3d.sh stop-if-running "make test"
+  rc_is 1 && has_text "ERROR" && has_text "docker stop" && has_text "k3d.cluster=board"
+}
+check "TASK-36#6 docker stop 이 실패하면 분명한 메시지로 실패한다(클러스터를 띄운 채 테스트하지 않는다)" t_stop_if_running_no_k3d_docker_fail
 # test.sh·test-integration.sh 를 임시 루트에 복사하고 다른 단계는 가짜로 바꿔 실행 순서를 본다
 TR="$TMP/tr"
 mkdir -p "$TR/scripts/test" "$TR/backend" "$TR/frontend" "$TR/infra" "$TR/bin"
@@ -405,7 +433,7 @@ t_up_flow() {
     && called_before "docker push" "apply -k $ROOT/deploy/k8s/base" \
     && called_before "apply -k $ROOT/deploy/k8s/base" "create secret generic board-env" \
     && called_before "create secret generic board-env" "apply -k $ROOT/deploy/k8s/profiles/core" \
-    && called_before "apply -k $ROOT/deploy/k8s/profiles/core" "wait --for=condition=complete job" \
+    && called_before "apply -k $ROOT/deploy/k8s/profiles/core" "get job -A -l board.dev/profile=core -o jsonpath=" \
     && called "rollout status"
 }
 check "TASK-36#1 make k3d-up: 사전 검사 → 이미지 빌드 → 클러스터 생성 → 로컬 레지스트리 push → base·Secret·core 적용 → Job 완료·롤아웃 대기" t_up_flow
@@ -524,6 +552,25 @@ t_up_no_jobs() {
   rc_is 0 && not_called "wait --for=condition=complete" && called "rollout status"
 }
 check "TASK-36#1 Job 이 없는 프로필이면 Job 대기를 건너뛴다" t_up_no_jobs
+t_job_failed_fast() {
+  # Job 이 Failed 면 시간 초과(K3D_WAIT_TIMEOUT)를 기다리지 않고 바로 실패하고, kubectl logs job/<이름> 을 보여 준다
+  fake_reset
+  local start end
+  start=$(date +%s)
+  run_capture k3d_run SKIP_BUILD=1 K3D_WAIT_TIMEOUT=300s FAKE_JOB_STATUS="board/board-migrate Failed" ./scripts/k3d.sh up
+  end=$(date +%s)
+  rc_is 1 && has_text "board-migrate" && has_text "FAKE-JOB-LOG" && called "-n board logs job/board-migrate" \
+    && not_called "rollout status" || return 1
+  [ $((end - start)) -lt 10 ] || { echo "$((end - start))초 — Failed 면 바로 끝나야 한다"; return 1; }
+}
+check "TASK-36#1 TASK-36#3 Job 이 Failed 면 시간 초과를 기다리지 않고 바로 실패하고 Job 로그를 출력한다" t_job_failed_fast
+t_job_timeout_logs() {
+  fake_reset
+  run_capture k3d_run SKIP_BUILD=1 K3D_WAIT_TIMEOUT=1s FAKE_JOB_STATUS="board/board-migrate " ./scripts/k3d.sh up
+  rc_is 1 && has_text "1s" && has_text "board-migrate" && has_text "FAKE-JOB-LOG" && not_called "rollout status"
+}
+check "TASK-36#1 TASK-36#3 Job 이 시간 안에 끝나지 않아도 실패하고 Job 로그를 출력한다" t_job_timeout_logs
+
 
 # ================================================================ 매니페스트 렌더(진짜 kubectl kustomize)
 # YAML → JSON 은 ruby 표준 라이브러리(Psych)로 바꿔 jq 로 본다(macOS·GitHub ubuntu 러너에 있다. python3 에는 yaml 모듈이 없다)

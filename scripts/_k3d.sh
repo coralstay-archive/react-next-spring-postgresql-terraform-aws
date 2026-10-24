@@ -4,7 +4,8 @@
 # 사람의 기억이 아니라 이 함수들이 절차를 강제한다(doc-4 메모리 운영).
 #   k3d_preflight <프로필...>   클러스터를 띄우거나 쓰는 모든 진입점(up·profile·smoke)이 먼저 부른다(TASK-36#7·#8):
 #                               Docker 응답, VM 메모리 ≥ docker-min, Testcontainers 컨테이너 없음, 예산 합계 ≤ limit(FORCE=1 만 통과)
-#   k3d_stop_if_running <누가>  클러스터가 떠 있으면 멈추고 출력한다(make test·test-integration 시작 시, TASK-36#6)
+#   k3d_stop_if_running <누가>  클러스터가 떠 있으면 멈추고 출력한다(make test·test-integration·backend-test·backend-build·e2e 시작 시, TASK-36#6).
+#                               k3d 가 PATH 에 없으면 docker 라벨 k3d.cluster=<이름> 으로 찾아 docker stop(실패하면 이유와 함께 실패)
 #   kc <인자...>                kubectl --context k3d-<클러스터> — 다른 클러스터를 건드리지 않는다
 # 예산·상한은 deploy/k8s/budgets.txt 하나에서 읽는다(B1). 테스트는 K3D_BUDGETS_FILE·K3D_PROFILES_DIR 로 바꾼다.
 
@@ -100,7 +101,19 @@ k3d_preflight() {
 }
 
 k3d_stop_if_running() {
-  local who="${1:-이 명령}"
+  local who="${1:-이 명령}" ids
+  if ! command -v k3d >/dev/null 2>&1; then
+    # k3d 가 PATH 에 없어도(다른 셸·설치 경로) 클러스터 컨테이너는 떠 있을 수 있다 — docker 라벨로 찾아 멈춘다. docker 도 없으면(CI) 할 일이 없다
+    command -v docker >/dev/null 2>&1 || return 0
+    ids="$(docker ps -q --filter "label=k3d.cluster=$K3D_CLUSTER" 2>/dev/null || true)"
+    [ -n "$ids" ] || return 0
+    # shellcheck disable=SC2086 # 공백으로 나눈 컨테이너 id 목록
+    docker stop $ids >/dev/null || k3d_die "k3d 가 PATH 에 없어 docker stop 으로 클러스터 '$K3D_CLUSTER' 컨테이너(label k3d.cluster=$K3D_CLUSTER)를 멈추려 했지만 실패했다 — 클러스터를 띄운 채 $who 를 하지 않는다.
+  해결: docker stop \$(docker ps -q --filter label=k3d.cluster=$K3D_CLUSTER) 로 직접 멈추거나, k3d 를 설치하고 make k3d-stop"
+    docker stop "$K3D_REGISTRY_CONTAINER" >/dev/null 2>&1 || true
+    echo "==> k3d 클러스터 '$K3D_CLUSTER' 컨테이너가 떠 있어 docker stop 으로 멈췄다(k3d 가 PATH 에 없다) — $who 와 동시에 띄우지 않는다(메모리). 다시 쓰려면: make k3d-up" >&2
+    return 0
+  fi
   [ "$(k3d_cluster_state)" = running ] || return 0
   k3d cluster stop "$K3D_CLUSTER" >/dev/null
   docker stop "$K3D_REGISTRY_CONTAINER" >/dev/null 2>&1 || true
