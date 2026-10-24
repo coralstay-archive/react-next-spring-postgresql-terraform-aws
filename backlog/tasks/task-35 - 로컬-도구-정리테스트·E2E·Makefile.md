@@ -1,10 +1,10 @@
 ---
 id: TASK-35
 title: 로컬 도구 정리(테스트·E2E·Makefile)
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-24 01:26'
+updated_date: '2026-10-24 03:05'
 labels:
   - dx
 dependencies:
@@ -27,11 +27,11 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 OPS-38 build-diagrams --check는 고정 환경에서만 비교하고 차이 목록 출력
-- [ ] #2 OPS-39 e2e.sh PID 기반 종료와 KILL 격상
-- [ ] #3 OPS-40 lock 파일이 바뀌면 npm ci
-- [ ] #4 OPS-41 배포 타깃에 .env 전역 export가 섞이지 않게
-- [ ] #5 Next.js를 보안 패치가 반영된 버전으로 올리고 전체 테스트·빌드·E2E 통과 확인(16.4.0 빌드 시 취약점 안내, TASK-29에서 발견)
+- [x] #1 OPS-38 build-diagrams --check는 고정 환경에서만 비교하고 차이 목록 출력
+- [x] #2 OPS-39 e2e.sh PID 기반 종료와 KILL 격상
+- [x] #3 OPS-40 lock 파일이 바뀌면 npm ci
+- [x] #4 OPS-41 배포 타깃에 .env 전역 export가 섞이지 않게
+- [x] #5 Next.js를 보안 패치가 반영된 버전으로 올리고 전체 테스트·빌드·E2E 통과 확인(16.4.0 빌드 시 취약점 안내, TASK-29에서 발견)
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -52,3 +52,18 @@ TASK-23 진행 중 관찰(2026-10-22): 머신 부하가 높을 때(load avg 약 
 
 독립 리뷰(2026-10-24) 반영 결정(유저): (1) 다이어그램 --check는 환경이 달라도 구조(요소 태그 순서, var(--d-*) 색 토큰 순서, 모양·화살표 종류 개수)까지 비교하고, CI에 graphviz를 설치해 검사를 돌린다. (2) 로컬 env 파일 로더는 이미 정의된 변수(명령줄·환경변수)를 덮지 않는다, 테스트 타깃은 env 파일을 읽지 않는 것 유지. (3) frontend-deps.sh의 npm ci에 동시 실행 잠금과 안내. (4) 남은 npm audit(high 5·moderate 2)은 새 draft로. 참고: 이 태스크의 구현 커밋들은 서브에이전트가 frontend/ 에서 커밋해 커밋 훅이 건너뛰어졌다(훅이 cwd의 .git·backlog만 확인) — 부모가 루트에서 make test로 따로 검증, 훅 자체는 유저 승인으로 별도 수정.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+로컬 도구를 정리하고 Next.js 보안 업그레이드를 했다.
+- AC#1 OPS-38: build-diagrams --check는 diagrams/render-env.txt(graphviz 버전·OS)와 같을 때만 바이트 비교, 다르면 구조(글자·요소 태그·var(--d-*) 색 토큰·모양 종류 개수)를 비교하고 차이 파일 목록과 diff 일부 출력. CI에 graphviz 설치(Linux 2.43에서도 통과 확인).
+- AC#2 OPS-39: e2e.sh가 백엔드·next dev를 프로세스 그룹으로 띄우고 TERM 후 E2E_STOP_TIMEOUT(10초)에 KILL, 포트 기반 kill 제거, E2E_KEEP 그룹은 시작 시각으로 PID 재사용을 구분해 다음 실행이 정리.
+- AC#3 OPS-40: scripts/frontend-deps.sh가 package.json·lock 해시가 바뀌면 npm ci(동시 실행 잠금, 죽은 잠금 정리, node_modules 재생성 안내).
+- AC#4 OPS-41: Makefile 전역 env 파일 include·export 제거 — 로컬 실행 타깃에서만 읽고, 이미 정의된 변수(명령줄·환경변수)는 덮지 않음. 테스트·배포 타깃은 읽지 않음(DRY_RUN 덮어쓰기 위험을 테스트로 재현·차단).
+- AC#5: next·eslint-config-next 16.4.0 → 16.4.3(critical 권고 3건 해결, 빌드 보안 안내 사라짐).
+추가: 부하에서 간헐 실패하던 백엔드 테스트(DbFailureTest 2건, OAuth 읽기 타임아웃) 안정화 — load avg 60~77에서 3회 연속 통과.
+리뷰 중 발견: 커밋 훅이 cwd의 .git·backlog만 확인해 하위 디렉터리 세션에서 게이트가 꺼지던 결함 — 유저 승인으로 ~/.claude 훅 8개에 project_root(git toplevel) 적용(백업은 스크래치패드).
+검증: 루트에서 cleanTest 후 make test 통과(backend 884, frontend 577, repo 236, deploy 139, tools 42, terraform 58), make e2e 8/8.
+후속: DRAFT-24(npm audit 남은 high 5·moderate 2).
+<!-- SECTION:FINAL_SUMMARY:END -->
