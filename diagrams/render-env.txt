@@ -1,0 +1,3 @@
+# build-diagrams.py --check 가 SVG 를 바이트 비교하는 렌더 환경(커밋된 SVG 를 만든 환경). --env 출력으로 갱신한다
+graphviz=16.1.0
+os=Darwin

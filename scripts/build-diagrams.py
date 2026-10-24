@@ -19,15 +19,24 @@ GitHub 에서 보이게 — 인라인 <svg> 대신 독립 SVG 파일 + <img>
   README.md 와 docs/*.md 에서 <!--dot:NAME--> … <!--/dot:NAME--> 사이를 <img> 한 줄로 바꾼다(경로는 문서 위치 기준 상대 경로).
   alt 문구는 .dot 의 `// alt: …` 줄에서 읽는다.
 
+렌더 환경 고정 (TASK-35#1, OPS-38)
+  graphviz 버전·OS(글꼴 측정)가 다르면 같은 .dot 이라도 SVG 좌표가 바이트 단위로 달라진다. 그래서 커밋된 SVG 를 만든 환경을
+  diagrams/render-env.txt(graphviz=<버전>, os=<uname -s>)에 적어 두고, --check 는 현재 환경이 이 값과 같을 때만 SVG 를 바이트 비교한다.
+  다르면(또는 파일이 없으면) 바이트 비교는 SKIP 이라고 알리고, 환경과 무관한 것만 본다: SVG 의 글자(<title>·<text> 내용 = .dot 의
+  노드·라벨), 문서 블록, .dot 마다 SVG 가 있는지·소스 없는 SVG 가 남았는지. graphviz 를 올려 다시 렌더했으면 --env 출력으로 파일을 바꾼다.
+
 사용
-  python3 scripts/build-diagrams.py          SVG·문서 블록 갱신
-  python3 scripts/build-diagrams.py --check  바뀔 것이 있으면 목록을 보이고 1 로 끝난다(repo_test, 커밋 전 확인)
-전제: graphviz `dot`. 글꼴 측정이 환경마다 달라 SVG 가 바이트 단위로 달라질 수 있다 — 렌더는 한 환경(로컬)에서 하고 커밋한다.
+  python3 scripts/build-diagrams.py          SVG·문서 블록 갱신 (환경이 고정값과 다르면 경고)
+  python3 scripts/build-diagrams.py --check  바뀔 것이 있으면 파일 목록과 diff 일부를 보이고 1 로 끝난다(repo_test, 커밋 전 확인)
+  python3 scripts/build-diagrams.py --env    현재 렌더 환경을 render-env.txt 형식으로 출력
+전제: graphviz `dot`.
 """
 from __future__ import annotations
 
+import difflib
 import os
 import pathlib
+import platform
 import re
 import shutil
 import subprocess
@@ -37,6 +46,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "diagrams"
 OUT = ROOT / "docs" / "diagrams"
 DOCS = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
+PIN = SRC / "render-env.txt"
+DIFF_LINES = 20  # --check 가 파일마다 보여 줄 diff 줄 수
 BUILD_MARK = 'data-generated-by="scripts/build-diagrams.py"'
 
 # 센티넬 → 토큰 이름. .dot 은 이 hex 만 쓴다(diagrams/README 주석 참고).
@@ -123,10 +134,46 @@ def alt_of(src: pathlib.Path) -> str:
     return (m.group(1).strip() if m else src.stem).replace('"', "'")
 
 
-def render(src: pathlib.Path) -> str:
+def dot_path() -> str:
     dot = shutil.which("dot")
     if not dot:
         sys.exit("graphviz dot 이 없다 (brew install graphviz / apt-get install graphviz)")
+    return dot
+
+
+def current_env() -> dict[str, str]:
+    r = subprocess.run([dot_path(), "-V"], capture_output=True, text=True)
+    m = re.search(r"version\s+(\S+)", r.stderr + r.stdout)
+    return {"graphviz": m.group(1) if m else "unknown", "os": platform.system()}
+
+
+def pinned_env() -> dict[str, str] | None:
+    if not PIN.exists():
+        return None
+    pairs = (line.split("=", 1) for line in PIN.read_text(encoding="utf-8").splitlines()
+             if "=" in line and not line.lstrip().startswith("#"))
+    return {k.strip(): v.strip() for k, v in pairs}
+
+
+def env_text(env: dict[str, str]) -> str:
+    return " ".join(f"{k}={v}" for k, v in env.items())
+
+
+def glyphs(svg: str) -> list[str]:
+    """환경(글꼴·버전)과 무관한 SVG 내용: <title>·<text> 글자 순서(.dot 의 노드 이름·라벨)."""
+    return re.findall(r"<(?:title|text)\b[^>]*>([^<]*)</(?:title|text)>", svg)
+
+
+def show_diff(old: list[str], new: list[str], label: str) -> None:
+    lines = list(difflib.unified_diff(old, new, f"{label} (커밋됨)", f"{label} (새로 렌더)", n=1, lineterm=""))
+    for line in lines[:DIFF_LINES]:
+        print(f"      {line}")
+    if len(lines) > DIFF_LINES:
+        print(f"      … ({len(lines) - DIFF_LINES}줄 더)")
+
+
+def render(src: pathlib.Path) -> str:
+    dot = dot_path()
     r = subprocess.run([dot, "-Tsvg", str(src)], capture_output=True, text=True)
     if r.returncode:
         sys.exit(f"dot 실패: {src}\n{r.stderr}")
@@ -146,6 +193,11 @@ def update_doc(text: str, doc: pathlib.Path, alts: dict[str, str]) -> str:
 
 def main() -> int:
     check = "--check" in sys.argv[1:]
+    if "--env" in sys.argv[1:]:
+        print("# build-diagrams.py --check 가 SVG 를 바이트 비교하는 렌더 환경(커밋된 SVG 를 만든 환경). --env 출력으로 갱신한다")
+        for k, v in current_env().items():
+            print(f"{k}={v}")
+        return 0
     sources = sorted(SRC.glob("*.dot"))
     if not sources:
         sys.exit(f"소스 없음: {SRC}")
@@ -159,14 +211,35 @@ def main() -> int:
     stale = [p for p in OUT.glob("*.svg") if p not in wanted] if OUT.exists() else []
 
     changed = [p for p, body in wanted.items() if not p.exists() or p.read_text(encoding="utf-8") != body]
+    env, pin = current_env(), pinned_env()
+    pinned = pin is not None and all(pin.get(k) == v for k, v in env.items())
     if check:
-        for p in changed + stale:
-            print(f"  out of date: {p.relative_to(ROOT)}")
-        if changed or stale:
+        if not pinned:
+            why = f"{PIN.relative_to(ROOT)} 이 없다" if pin is None else f"고정 {env_text(pin)}"
+            print(f"SKIP - SVG 바이트 비교: 현재 렌더 환경 {env_text(env)} ≠ {why}. 글자·문서 블록·파일 목록만 비교한다")
+        bad: list[pathlib.Path] = []
+        for p in changed:
+            old = p.read_text(encoding="utf-8") if p.exists() else ""
+            if p.suffix == ".svg" and not pinned and p.exists():
+                if glyphs(old) == glyphs(wanted[p]):
+                    continue
+                bad.append(p)
+                print(f"  out of date: {p.relative_to(ROOT)} (글자가 다르다)")
+                show_diff(glyphs(old), glyphs(wanted[p]), str(p.relative_to(ROOT)))
+            else:
+                bad.append(p)
+                print(f"  out of date: {p.relative_to(ROOT)}" + ("" if p.exists() else " (없음)"))
+                show_diff(old.splitlines(), wanted[p].splitlines(), str(p.relative_to(ROOT)))
+        for p in stale:
+            print(f"  out of date: {p.relative_to(ROOT)} (소스 .dot 이 없다)")
+        if bad or stale:
             print("다이어그램이 .dot 과 다르다: make diagrams 후 커밋한다")
             return 1
         print(f"diagrams up to date ({len(sources)})")
         return 0
+    if not pinned:
+        print(f"WARNING: 렌더 환경 {env_text(env)} 이 고정값({PIN.relative_to(ROOT)})과 다르다 — SVG 좌표가 바뀔 수 있다."
+              f" 이 환경으로 고정하려면 --env 출력으로 그 파일을 바꾼다", file=sys.stderr)
     OUT.mkdir(parents=True, exist_ok=True)
     for p in changed:
         p.write_text(wanted[p], encoding="utf-8")
