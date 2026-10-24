@@ -4,7 +4,7 @@ title: '[플랫폼] Rocky 개발 VM(UTM) + Podman'
 status: In Progress
 assignee: []
 created_date: '2026-10-24 09:06'
-updated_date: '2026-10-24 12:02'
+updated_date: '2026-10-24 12:21'
 labels:
   - platform
 dependencies: []
@@ -63,4 +63,6 @@ documentation:
 [진행 8] 백엔드 888개 중 16개 실패 원인: podman API 서비스 기본 5초 유휴 종료 → Testcontainers 연결 Broken pipe. install.sh 에 podman.service drop-in(--time=0) 추가·VM 반영. make test 재실행
 
 [진행 9] 맥 make test(VM 프록시) 전부 통과: repo 236·deploy 143·tools 42·k8s 66·vm 57·terraform 9모듈·backend BUILD SUCCESSFUL·frontend 577. README rsync 방식·선택 공유 반영. 커밋 진행
+
+[진행 10] 커밋 eafd127(전체 + 부모 backlog 편집). 남은 결정: (선택) UTM GUI 로 저장소 공유 추가 여부, AC #1 의 'VirtioFS 공유' 문구를 rsync 기본으로 바꿀지
 <!-- SECTION:NOTES:END -->
