@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# TASK-35#3 frontend-deps.sh 의 동시 실행 잠금
+/.deps-lock/
+/.deps-lock.stale.*

@@ -208,6 +208,12 @@ mkdir -p "$FD/bin" "$FD/frontend"
 cat >"$FD/bin/npm" <<'SH'
 #!/usr/bin/env bash
 echo "npm $*" >>"$FAKE_NPM_LOG"
+# 동시에 두 npm ci 가 돌면 OVERLAP 을 남긴다(잠금 확인용). FAKE_NPM_SLEEP 초 동안 설치하는 척한다
+if [ "${1:-}" = ci ]; then
+  mkdir "$FAKE_NPM_LOG.running" 2>/dev/null || echo "OVERLAP" >>"$FAKE_NPM_LOG"
+  sleep "${FAKE_NPM_SLEEP:-0}"
+  rmdir "$FAKE_NPM_LOG.running" 2>/dev/null || true
+fi
 if [ "${FAKE_NPM_FAIL:-0}" = 1 ]; then echo "npm ERR! fake" >&2; exit 1; fi
 [ "${1:-}" = ci ] && { rm -rf node_modules; mkdir -p node_modules/pkg; }
 exit 0
@@ -243,6 +249,60 @@ t_fd_fail() {
   [ "$(ci_count)" = 2 ] || { echo "실패 뒤 다음 실행이 ci 를 다시 돌리지 않았다($(ci_count))"; return 1; }
 }
 check "TASK-35#3 npm ci 가 실패하면 실패로 끝나고 스탬프를 남기지 않는다(다음 실행이 다시 ci)" t_fd_fail
+t_fd_notice() {
+  : >"$FAKE_NPM_LOG"
+  echo '{"lockfileVersion":3,"v":4}' >"$FD/frontend/package-lock.json"
+  run_capture env PATH="$FD/bin:$PATH" FRONTEND_DIR="$FD/frontend" "$ROOT/scripts/frontend-deps.sh"
+  rc_is 0 && has_text "node_modules 를 지우고 다시 만든다" && has_text "dev 서버"
+}
+check "TASK-35#3 npm ci 전에 node_modules 를 다시 만든다고(실행 중인 dev 서버가 깨질 수 있다) 알린다" t_fd_notice
+t_fd_lock_concurrent() {
+  # 두 실행이 동시에 lock 변경을 보더라도 npm ci 는 한 번만, 겹치지 않게 돈다(두 번째는 잠금을 기다린 뒤 최신이라 건너뛴다)
+  : >"$FAKE_NPM_LOG"
+  echo '{"lockfileVersion":3,"v":5}' >"$FD/frontend/package-lock.json"
+  local r1 r2
+  FAKE_NPM_SLEEP=2 fd >"$TMP/fd1.out" 2>&1 & local p1=$!
+  FAKE_NPM_SLEEP=2 fd >"$TMP/fd2.out" 2>&1 & local p2=$!
+  wait "$p1"; r1=$?; wait "$p2"; r2=$?
+  [ "$r1" = 0 ] && [ "$r2" = 0 ] || { echo "rc $r1 $r2"; cat "$TMP/fd1.out" "$TMP/fd2.out"; return 1; }
+  ! grep -q OVERLAP "$FAKE_NPM_LOG" || { echo "npm ci 가 동시에 돌았다"; cat "$FAKE_NPM_LOG"; return 1; }
+  [ "$(ci_count)" = 1 ] || { echo "npm ci $(ci_count)회(기대 1)"; cat "$TMP/fd1.out" "$TMP/fd2.out"; return 1; }
+  grep -q "기다린다" "$TMP/fd1.out" "$TMP/fd2.out" || { echo "기다린다는 안내가 없다"; cat "$TMP/fd1.out" "$TMP/fd2.out"; return 1; }
+  [ ! -e "$FD/frontend/.deps-lock" ] || { echo "잠금이 남았다"; return 1; }
+}
+check "TASK-35#3 동시에 두 번 불러도 npm ci 는 잠금으로 한 번만, 겹치지 않게 돈다" t_fd_lock_concurrent
+t_fd_lock_live() {
+  # 살아 있는 프로세스가 잡은 잠금은 빼앗지 않는다 — 시간 초과면 PID 를 알리고 실패, npm ci 는 돌지 않는다
+  : >"$FAKE_NPM_LOG"
+  echo '{"lockfileVersion":3,"v":6}' >"$FD/frontend/package-lock.json"
+  sleep 300 & local holder=$!
+  mkdir -p "$FD/frontend/.deps-lock"; echo "$holder" >"$FD/frontend/.deps-lock/pid"
+  run_capture env FRONTEND_DEPS_LOCK_TIMEOUT=1 PATH="$FD/bin:$PATH" FRONTEND_DIR="$FD/frontend" "$ROOT/scripts/frontend-deps.sh"
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+  local ok=0
+  [ "$RC" != 0 ] && grep -qF "$holder" <<<"$OUT" && [ "$(ci_count)" = 0 ] && [ "$(cat "$FD/frontend/.deps-lock/pid" 2>/dev/null)" = "$holder" ] || ok=1
+  rm -rf "$FD/frontend/.deps-lock"
+  [ "$ok" = 0 ] || { echo "rc=$RC ci=$(ci_count)"; echo "$OUT"; return 1; }
+}
+check "TASK-35#3 살아 있는 프로세스의 잠금은 기다리고, 시간 초과면 그 PID 를 알리며 실패한다" t_fd_lock_live
+t_fd_lock_stale() {
+  # 죽은 PID 의 잠금(중단된 이전 실행)은 치우고 진행한다
+  : >"$FAKE_NPM_LOG"
+  echo '{"lockfileVersion":3,"v":7}' >"$FD/frontend/package-lock.json"
+  sleep 0 & local dead=$!; wait "$dead"
+  mkdir -p "$FD/frontend/.deps-lock"; echo "$dead" >"$FD/frontend/.deps-lock/pid"
+  run_capture env FRONTEND_DEPS_LOCK_TIMEOUT=5 PATH="$FD/bin:$PATH" FRONTEND_DIR="$FD/frontend" "$ROOT/scripts/frontend-deps.sh"
+  rc_is 0 && has_text "남은 잠금" && [ "$(ci_count)" = 1 ] && [ ! -e "$FD/frontend/.deps-lock" ] || { echo "ci=$(ci_count)"; ls -la "$FD/frontend"; return 1; }
+}
+check "TASK-35#3 죽은 PID 가 남긴 잠금은 치우고 진행한다" t_fd_lock_stale
+t_fd_lock_released_on_fail() {
+  : >"$FAKE_NPM_LOG"
+  echo '{"lockfileVersion":3,"v":8}' >"$FD/frontend/package-lock.json"
+  run_capture env FAKE_NPM_FAIL=1 PATH="$FD/bin:$PATH" FRONTEND_DIR="$FD/frontend" "$ROOT/scripts/frontend-deps.sh"
+  [ "$RC" != 0 ] && [ ! -e "$FD/frontend/.deps-lock" ] || { echo "rc=$RC"; ls -la "$FD/frontend"; return 1; }
+}
+check "TASK-35#3 npm ci 가 실패해도 잠금을 푼다" t_fd_lock_released_on_fail
+check "TASK-35#3 잠금 디렉터리는 git 이 무시한다" sh -c 'git check-ignore -q frontend/.deps-lock/pid'
 check "TASK-35#3 scripts/test.sh 는 frontend-deps.sh 로 의존성을 맞춘다" sh -c 'grep -q "frontend-deps.sh" scripts/test.sh && ! grep -q "node_modules ] || npm ci" scripts/test.sh'
 for t in frontend-dev frontend-test frontend-build; do
   check "TASK-35#3 make $t 는 frontend-deps.sh 를 먼저 부른다" sh -c "make -n $t | grep -q 'scripts/frontend-deps.sh'"

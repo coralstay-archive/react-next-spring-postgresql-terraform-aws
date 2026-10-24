@@ -78,6 +78,9 @@ make frontend-dev   # 프론트 http://localhost:3000
 프론트 의존성: `make frontend-dev`·`frontend-test`·`frontend-build`, `make test`, `make e2e`는 먼저 `scripts/frontend-deps.sh`를 부른다.
 `package.json`·`package-lock.json`의 해시가 `frontend/node_modules/.deps-stamp`와 다르거나 `node_modules`가 없으면 `npm ci`를 돌린다
 (브랜치를 바꿔 lock이 달라졌을 때 옛 `node_modules`로 돌지 않게, TASK-35#3). `make frontend-install`은 해시와 상관없이 `npm ci`.
+`npm ci`는 `node_modules`를 지우고 다시 만들므로 그 전에 안내를 출력한다(실행 중인 `next dev`·vitest가 깨질 수 있다). 두 make가 동시에
+`npm ci`를 돌리지 않게 `frontend/.deps-lock`(PID 기록) 잠금을 잡고, 기다린 쪽은 앞 실행이 설치를 끝냈으면 건너뛴다. 죽은 PID가 남긴 잠금은
+치우고, `FRONTEND_DEPS_LOCK_TIMEOUT`(초, 기본 600)을 넘게 기다리면 잡고 있는 PID를 알리며 실패한다.
 
 백엔드 상태 확인:
 
