@@ -1,10 +1,10 @@
 ---
 id: TASK-35
 title: 로컬 도구 정리(테스트·E2E·Makefile)
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-23 07:26'
+updated_date: '2026-10-24 00:29'
 labels:
   - dx
 dependencies:
