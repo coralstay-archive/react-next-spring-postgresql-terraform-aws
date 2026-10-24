@@ -4,7 +4,7 @@ title: '[플랫폼] k3d 로컬 플랫폼 부트스트랩'
 status: In Progress
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 08:43'
+updated_date: '2026-10-24 08:49'
 labels:
   - platform
 dependencies: []
@@ -63,4 +63,6 @@ AC#2의 '경고'는 AC#7(예산 초과 시 실패, FORCE=1로만 통과)이 우�
 [리뷰 반영] e96ae61 M2+L2. 다음: L1(k3d 없을 때 docker 라벨)+L4(Job Failed 즉시 실패·로그) 커밋, 그다음 L5 문서+스키마 SHA 고정.
 
 [리뷰 반영] cb89855 L1+L4. 남은 것: L5 문서(k3d.sh 머리말 UPLOADS_BUCKET=ConfigMap, README POSTGRES_PASSWORD 변경 시 make k3d-down)+스키마 URL 커밋 SHA 고정 커밋. Docker Desktop 은 하위 에이전트가 open -a 로 재기동했음(유저 지적 — 이후 앱 실행 금지).
+
+[리뷰 반영 완료] 095b2a2(M1+L3) e96ae61(M2+L2) cb89855(L1+L4) 21f1329(L5+스키마 SHA). make test 통과: repo 236, deploy 144, tools 42, k8s 67, terraform 58, backend 888, frontend 577. 미결(유저 결정 대기): YAML→JSON 파서(ruby), 80 포트, 프로필 데이터 삭제. 실제 클러스터 스모크(AC#1·#4)는 여전히 미확인.
 <!-- SECTION:NOTES:END -->
