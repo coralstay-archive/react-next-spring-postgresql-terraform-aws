@@ -4,7 +4,7 @@ title: '[플랫폼] k3d 로컬 플랫폼 부트스트랩'
 status: In Progress
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 05:10'
+updated_date: '2026-10-24 05:32'
 labels:
   - platform
 dependencies: []
@@ -47,4 +47,8 @@ k3d(k3s) 단일 노드 로컬 클러스터와 로컬 레지스트리를 만들�
 
 <!-- SECTION:NOTES:BEGIN -->
 AC#2의 '경고'는 AC#7(예산 초과 시 실패, FORCE=1로만 통과)이 우선한다. 세션 중단 대비: 단계마다 이 노트에 진행 상황을 적는다.
+
+[구현 계획] scripts/_k3d.sh(사전 검사 공통 함수: Docker VM 메모리 4.5GiB 미만=5GB 설정 미만, Testcontainers 라벨 컨테이너, 프로필 예산 합계 > 상한(FORCE=1만 통과)) + scripts/k3d.sh(up·profile·smoke·stop·down·stop-if-running, 모든 기동 진입점이 같은 사전 검사) + deploy/k8s/budgets.txt(예산 단일 출처) + deploy/k8s/{k3d/cluster.yaml,base,profiles/core} + kubeconform 스키마 저장소 내 고정(deploy/k8s/schemas, 오프라인) + Flyway 마이그레이션 Job(백엔드 이미지의 MigrationJob main, 앱은 k8s 프로필에서 spring.flyway.enabled=false, initContainer가 await) + scripts/test/k8s_test.sh. 진행: 착수.
+
+[진행] AC#3 백엔드 MigrationJob(migrate·await)+application-k8s.properties 구현·테스트 통과(MigrationJobTest 4건). 스크립트(_k3d.sh·k3d.sh·k8s-validate.sh·test-integration.sh)·매니페스트(deploy/k8s)·k8s_test.sh(50건 통과)·README·CI(kubeconform) 작성 완료, 커밋 중.
 <!-- SECTION:NOTES:END -->

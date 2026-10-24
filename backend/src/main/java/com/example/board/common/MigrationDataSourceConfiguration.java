@@ -39,13 +39,22 @@ public class MigrationDataSourceConfiguration {
 		catch (SQLException ex) {
 			throw new IllegalStateException("앱 DataSource 가 Hikari 가 아니다", ex);
 		}
+		return migrationDataSource(pool.getJdbcUrl(), pool.getUsername(), pool.getPassword(),
+				pool.getDataSourceProperties(), lockTimeout);
+	}
+
+	/**
+	 * 마이그레이션 전용 커넥션(풀 없음): 드라이버 속성은 그대로, {@code statement_timeout}·{@code transaction_timeout}·{@code socketTimeout}
+	 * 은 끄고 {@code lock_timeout} 만 둔다. 앱 기동 마이그레이션과 k8s 마이그레이션 Job({@link MigrationJob}, TASK-36#3)이 같이 쓴다.
+	 */
+	static DataSource migrationDataSource(String url, String username, String password, Properties driverProperties,
+			String lockTimeout) {
 		Properties properties = new Properties();
-		properties.putAll(pool.getDataSourceProperties());
+		properties.putAll(driverProperties);
 		properties.setProperty("socketTimeout", "0");
 		properties.setProperty("options",
 				"-c lock_timeout=" + lockTimeout + " -c statement_timeout=0 -c transaction_timeout=0");
-		DriverManagerDataSource migration = new DriverManagerDataSource(pool.getJdbcUrl(), pool.getUsername(),
-				pool.getPassword());
+		DriverManagerDataSource migration = new DriverManagerDataSource(url, username, password);
 		migration.setConnectionProperties(properties);
 		return migration;
 	}
