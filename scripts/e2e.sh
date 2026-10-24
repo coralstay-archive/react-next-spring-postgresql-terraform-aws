@@ -97,7 +97,7 @@ jar="$(find "$ROOT/backend/build/libs" -name '*.jar' ! -name '*-plain.jar' | hea
 # 백엔드를 띄운다. 로그는 이어 쓴다(관리자 시드 뒤 재시작해도 OTP 시나리오가 같은 파일을 읽는다).
 start_backend() {
   log "백엔드 :$E2E_API_PORT (SMS_PROVIDER=console, ADMIN_EMAIL=$E2E_ADMIN_EMAIL) → $E2E_BACKEND_LOG"
-  # 로컬 env 파일(Makefile 이 export)의 값이 섞이지 않게 앱 설정은 여기서 모두 정한다. 시크릿은 E2E 전용 더미 값이다.
+  # 셸에 남은 값이 섞이지 않게 앱 설정은 여기서 모두 정한다(env -i). 시크릿은 E2E 전용 더미 값이다.
   # PUBLIC_BASE_URL 이 http 라 운영 모드가 아니다(운영 안전 검사·OTP 로그 숨김이 꺼진다, TASK-21).
   proc_start env -i PATH="$PATH" HOME="$HOME" ${JAVA_HOME:+JAVA_HOME="$JAVA_HOME"} \
     SERVER_PORT="$E2E_API_PORT" \
