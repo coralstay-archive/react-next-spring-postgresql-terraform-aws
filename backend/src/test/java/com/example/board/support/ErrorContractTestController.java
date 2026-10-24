@@ -76,10 +76,15 @@ public class ErrorContractTestController {
 	 * 문장 하나하나는 statement_timeout 안이지만 합치면 transaction_timeout 을 넘는 트랜잭션 (TASK-23#1, B2). 느리지만 살아 있는 DB 에서
 	 * 문장이 여러 개인 요청. 타임아웃을 짧게 준 컨텍스트(DbFailureTest: statement 1s, transaction 2s)에서만 부른다.
 	 */
+	static final int SLOW_TRANSACTION_STATEMENTS = 25;
+
+	/** 문장을 다 실행했을 때 걸리는 시간(25 × 0.6s). 타임아웃 상한(DbFailureTest)이 이보다 확실히 짧게. TASK-35 에서 8 → 25 문장. */
+	public static final java.time.Duration SLOW_TRANSACTION = java.time.Duration.ofMillis(SLOW_TRANSACTION_STATEMENTS * 600L);
+
 	@GetMapping("/test/errors/slow-transaction")
 	public Map<String, Object> slowTransaction() {
 		transaction.executeWithoutResult(status -> {
-			for (int i = 0; i < 8; i++) {
+			for (int i = 0; i < SLOW_TRANSACTION_STATEMENTS; i++) {
 				jdbc.queryForObject("SELECT pg_sleep(0.6)::text", String.class);
 			}
 		});

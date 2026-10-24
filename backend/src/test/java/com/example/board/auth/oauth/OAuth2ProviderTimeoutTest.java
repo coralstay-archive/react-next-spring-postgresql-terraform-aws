@@ -31,13 +31,19 @@ class OAuth2ProviderTimeoutTest {
 
 	static final String LOGIN_ERROR = OAuthFlow.PUBLIC_BASE_URL + "/auth/callback/?error=";
 
-	static final int DELAY_MILLIS = 8_000;
+	static final Duration READ_TIMEOUT = IntegrationTest.OAUTH_READ_TIMEOUT_DURATION;
+
+	/** 읽기 타임아웃의 두 배. TASK-35: 통합 테스트 읽기 타임아웃을 3s → 10s 로 늘리면서 지연도 8s → 20s 로 함께 늘렸다. */
+	static final int DELAY_MILLIS = (int) READ_TIMEOUT.multipliedBy(2).toMillis();
 
 	/**
-	 * 지연보다 짧으면 타임아웃이 끊은 것이다(타임아웃이 없으면 지연이 끝나는 8s 이후에야 응답). 읽기 타임아웃 3s 로 실측 3~3.6s 라 부하가 있어도
-	 * 여유가 있다. 지연은 12s 에서 줄였다(지연 응답이 WireMock 스레드를 붙잡는 시간도 함께 준다).
+	 * 지연보다 짧으면 타임아웃이 끊은 것이다(타임아웃이 없으면 지연이 끝나는 20s 이후에야 응답). 읽기 타임아웃 10s 위로 부하 여유 7s,
+	 * 지연과는 3s 차이.
 	 */
-	static final Duration BOUND = Duration.ofMillis(DELAY_MILLIS - 1_000);
+	static final Duration BOUND = Duration.ofMillis(DELAY_MILLIS - 3_000);
+
+	/** 읽기 타임아웃보다 빨리 끝나면 타임아웃이 아니라 다른 이유(즉시 오류)로 끝난 것이다. */
+	static final Duration AT_LEAST = READ_TIMEOUT.minusMillis(500);
 
 	@LocalServerPort
 	int port;
@@ -64,7 +70,7 @@ class OAuth2ProviderTimeoutTest {
 		HttpResponse<String> callback = flow.callback("google", "code=" + code + "&state=" + authorization.param("state"));
 
 		assertThat(OAuthFlow.location(callback)).isEqualTo(LOGIN_ERROR + "invalid_token_response");
-		assertThat(Duration.between(start, Instant.now())).isLessThan(BOUND);
+		assertThat(Duration.between(start, Instant.now())).isLessThan(BOUND).isGreaterThanOrEqualTo(AT_LEAST);
 	}
 
 	@Test
@@ -80,7 +86,7 @@ class OAuth2ProviderTimeoutTest {
 		HttpResponse<String> callback = flow.callback("github", "code=" + code + "&state=" + authorization.param("state"));
 
 		assertThat(OAuthFlow.location(callback)).isEqualTo(LOGIN_ERROR + "invalid_user_info_response");
-		assertThat(Duration.between(start, Instant.now())).isLessThan(BOUND);
+		assertThat(Duration.between(start, Instant.now())).isLessThan(BOUND).isGreaterThanOrEqualTo(AT_LEAST);
 	}
 
 	@Test
@@ -97,7 +103,7 @@ class OAuth2ProviderTimeoutTest {
 		}
 
 		assertThat(OAuthFlow.location(callback)).isEqualTo(LOGIN_ERROR + "invalid_id_token");
-		assertThat(Duration.between(start, Instant.now())).isLessThan(BOUND);
+		assertThat(Duration.between(start, Instant.now())).isLessThan(BOUND).isGreaterThanOrEqualTo(AT_LEAST);
 	}
 
 }
