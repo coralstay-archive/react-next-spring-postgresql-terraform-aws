@@ -271,5 +271,22 @@ t_mk_local_env() {
 }
 check "TASK-35#4 로컬 실행(make backend-run)은 env 파일을 그대로 읽는다" t_mk_local_env
 
+# ================================================================ TASK-35#5 Next.js 보안 패치 반영(GHSA-2464-fhr4-w9xw·GHSA-p3m5-59mp-jv5r·GHSA-673q-mjm6-r5xr: 16.0.0 – 16.4.0)
+t_next_patched() {
+  node -e '
+    const pkg = require("./frontend/package.json"), lock = require("./frontend/package-lock.json");
+    const want = pkg.dependencies.next, cfg = pkg.devDependencies["eslint-config-next"];
+    const inst = lock.packages["node_modules/next"].version;
+    const [ma, mi, pa] = inst.split(".").map(Number);
+    const errs = [];
+    if (!/^\d+\.\d+\.\d+$/.test(want)) errs.push("next 는 정확한 버전으로 고정한다: " + want);
+    if (want !== inst) errs.push("package.json next " + want + " ≠ lock " + inst);
+    if (cfg !== want) errs.push("eslint-config-next " + cfg + " ≠ next " + want);
+    if (ma === 16 && (mi < 4 || (mi === 4 && pa <= 0))) errs.push("next " + inst + " 은 16.0.0 – 16.4.0 취약 범위다");
+    if (errs.length) { console.log(errs.join("\n")); process.exit(1); }
+  '
+}
+check "TASK-35#5 next 는 취약 범위(16.0.0 – 16.4.0) 밖의 고정 버전이고 lock·eslint-config-next 와 같다" t_next_patched
+
 echo "tools: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]
