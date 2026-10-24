@@ -4,7 +4,7 @@ title: '[보안] 전체 보안 점검'
 status: Draft
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 03:46'
+updated_date: '2026-10-24 04:25'
 labels:
   - security
 dependencies: []
@@ -30,4 +30,5 @@ dependencies: []
 - [ ] #3 Argo·Rollouts·CI 토큰 권한, 섀도우 쓰기 차단, SSRF, DoS 한도 확인
 - [ ] #4 발견사항마다 심각도와 수정 태스크 연결, High는 수정 또는 승인된 예외
 - [ ] #5 결과 문서를 backlog/docs에 남김
+- [ ] #6 추가 점검 대상: eBPF 에이전트 권한(capability·호스트 접근), 검진센터(인증·장애 주입 기능의 운영 비활성), 배포 안전장치(서명·정책)
 <!-- AC:END -->

@@ -4,7 +4,7 @@ title: '[AWS] k3s·자체 LB 배포와 CloudWatch(나중 단계)'
 status: Draft
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 03:46'
+updated_date: '2026-10-24 04:25'
 labels:
   - aws
   - platform
@@ -31,4 +31,7 @@ dependencies: []
 - [ ] #3 CloudWatch 알람·로그(DRAFT-20과 합침), 카나리 분석에 연결
 - [ ] #4 엣지 보안: AWS WAF(관리형 규칙·rate-based), 현재 정적 배포 응답 헤더 정책(클릭재킹 차단)
 - [ ] #5 MQTT·Kafka TLS, 기존 EC2 compose 경로 철거 순서와 롤백 계획
+- [ ] #6 인증서·DNS: cert-manager + Let's Encrypt 자동 갱신, 도메인 메일 SPF·DKIM·DMARC
+- [ ] #7 비용: AWS Budgets 알림, 미사용 시간 인스턴스 자동 정지
+- [ ] #8 업그레이드 절차: k3s·Postgres·Kafka 버전 업그레이드 런북과 리허설
 <!-- AC:END -->
