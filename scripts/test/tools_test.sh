@@ -148,8 +148,9 @@ t_proc_unrelated() {
     sleep 300 & other=$!
     proc_start sleep 300; proc_start sleep 300; sleep 0.3
     [ "${#PROC_PIDS[@]}" = 2 ] || { echo "PROC_PIDS: ${PROC_PIDS[*]:-}"; kill "$other"; exit 1; }
+    gs=("${PROC_PIDS[@]}")
     proc_stop_all 2
-    for g in "${PROC_PIDS[@]}"; do kill -0 -- "-$g" 2>/dev/null && { echo "group $g alive"; kill "$other"; exit 1; }; done
+    for g in "${gs[@]}"; do kill -0 -- "-$g" 2>/dev/null && { echo "group $g alive"; kill "$other"; exit 1; }; done
     kill -0 "$other" || { echo "unrelated $other killed"; exit 1; }
     kill "$other"; echo ok-unrelated'
   rc_is 0 && has_text "ok-unrelated"

@@ -6,14 +6,20 @@
 #      관리자: ADMIN_EMAIL 로 API 가입 → 백엔드 재시작(기동 시 승격, TASK-21#3). 시나리오는 그 계정으로 로그인한다
 #   3) 프론트: next dev (:3100, /api → :18080 프록시). 같은 frontend 디렉터리의 next dev 는 하나만 뜬다 — make frontend-dev 는 먼저 끈다
 #   4) npx playwright test (chromium) → 결과·스크린샷 frontend/e2e/artifacts/ (gitignore)
-#   끝나면(성공·실패 모두) 프로세스를 끄고 compose down -v.
+#   끝나면(성공·실패 모두) 프로세스를 끄고 compose down -v. 백엔드·next dev 는 각자 프로세스 그룹으로 띄워 그 그룹만
+#   TERM → E2E_STOP_TIMEOUT(기본 10초) 안에 안 끝나면 KILL 한다(scripts/_proc.sh, TASK-35#2). 포트로 찾아 죽이지 않는다.
 # 인자는 playwright test 에 그대로 넘긴다. 예: make e2e E2E_ARGS="--headed"   ./scripts/e2e.sh -g "OTP"
-# 선택: E2E_KEEP=1 이면 끝나도 스택을 내리지 않는다(디버깅. 다음 실행 전에 docker compose -p board-e2e down -v).
+# 선택: E2E_KEEP=1 이면 끝나도 스택을 내리지 않는다(디버깅). 남긴 프로세스 그룹은 frontend/e2e/artifacts/kept-pids 에 적고,
+#   다음 실행이 시작할 때 그 그룹(시작 시각이 같은 것만)을 끄고 compose down -v 한 뒤 진행한다.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FRONTEND="$ROOT/frontend"
 ART="$FRONTEND/e2e/artifacts"
+KEPT="$ART/kept-pids"
+# shellcheck source=scripts/_proc.sh
+source "$ROOT/scripts/_proc.sh"
+PROC_STOP_TIMEOUT="${E2E_STOP_TIMEOUT:-10}"
 
 E2E_WEB_PORT="${E2E_WEB_PORT:-3100}"
 E2E_API_PORT="${E2E_API_PORT:-18080}"
@@ -36,6 +42,13 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 compose() { docker compose -p board-e2e -f "$ROOT/docker-compose.yml" -f "$FRONTEND/e2e/docker-compose.e2e.yml" "$@"; }
 
+# 이전 E2E_KEEP=1 실행이 남긴 스택
+if [ -f "$KEPT" ]; then
+  log "이전 E2E_KEEP=1 실행이 남긴 스택을 정리한다 ($KEPT)"
+  proc_stop_recorded "$KEPT"
+  compose down -v --remove-orphans >/dev/null 2>&1 || true
+fi
+
 port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
 for p in "$E2E_WEB_PORT" "$E2E_API_PORT" "$POSTGRES_PORT" "$MINIO_PORT" "$MINIO_CONSOLE_PORT"; do
   port_busy "$p" && die "포트 $p 를 이미 쓰고 있다(이전 e2e 가 남았으면 docker compose -p board-e2e down -v)"
@@ -44,25 +57,16 @@ done
 
 rm -rf "$ART"
 mkdir -p "$ART"
-pids=()
 cleanup() {
   local rc=$?
   if [ "${E2E_KEEP:-0}" = 1 ]; then
-    log "E2E_KEEP=1: 스택을 남긴다 (pids: ${pids[*]:-})"
+    proc_record "$KEPT"
+    log "E2E_KEEP=1: 스택을 남긴다 (프로세스 그룹: ${PROC_PIDS[*]:-} → $KEPT, 다음 실행이 정리한다)"
     exit "$rc"
   fi
   log "정리"
-  local pid
-  for pid in "${pids[@]:-}"; do
-    [ -n "$pid" ] || continue
-    pkill -TERM -P "$pid" 2>/dev/null || true
-    kill -TERM "$pid" 2>/dev/null || true
-  done
-  sleep 1
-  # next dev 가 띄운 하위 서버 등 남은 리스너 (시작할 때 비어 있던 포트라 이 실행이 띄운 것이다)
-  for p in "$E2E_WEB_PORT" "$E2E_API_PORT"; do
-    lsof -nP -t -iTCP:"$p" -sTCP:LISTEN 2>/dev/null | xargs kill -TERM 2>/dev/null || true
-  done
+  # 이 실행이 띄운 프로세스 그룹만 끈다(next dev 가 띄운 하위 서버도 같은 그룹이다). TERM → 시간 초과 시 KILL
+  proc_stop_all
   compose down -v --remove-orphans >/dev/null 2>&1 || true
   exit "$rc"
 }
@@ -94,7 +98,7 @@ start_backend() {
   log "백엔드 :$E2E_API_PORT (SMS_PROVIDER=console, ADMIN_EMAIL=$E2E_ADMIN_EMAIL) → $E2E_BACKEND_LOG"
   # 로컬 env 파일(Makefile 이 export)의 값이 섞이지 않게 앱 설정은 여기서 모두 정한다. 시크릿은 E2E 전용 더미 값이다.
   # PUBLIC_BASE_URL 이 http 라 운영 모드가 아니다(운영 안전 검사·OTP 로그 숨김이 꺼진다, TASK-21).
-  env -i PATH="$PATH" HOME="$HOME" ${JAVA_HOME:+JAVA_HOME="$JAVA_HOME"} \
+  proc_start env -i PATH="$PATH" HOME="$HOME" ${JAVA_HOME:+JAVA_HOME="$JAVA_HOME"} \
     SERVER_PORT="$E2E_API_PORT" \
     DB_URL="jdbc:postgresql://localhost:$POSTGRES_PORT/board" DB_USERNAME=board DB_PASSWORD=board \
     JWT_SECRET="e2e-only-jwt-signing-key-0123456789abcdef" \
@@ -107,9 +111,8 @@ start_backend() {
     UPLOADS_ENDPOINT="http://localhost:$MINIO_PORT" UPLOADS_PATH_STYLE=true \
     UPLOADS_ACCESS_KEY=minioadmin UPLOADS_SECRET_KEY=minioadmin \
     UPLOADS_PUBLIC_BASE_PATH="http://localhost:$MINIO_PORT/$UPLOADS_BUCKET/uploads/" \
-    java -jar "$jar" >>"$E2E_BACKEND_LOG" 2>&1 &
-  backend_pid=$!
-  pids+=("$backend_pid")
+    java -jar "$jar" >>"$E2E_BACKEND_LOG" 2>&1
+  backend_pid=$PROC_LAST
 }
 
 start_backend
@@ -127,14 +130,15 @@ code=$(curl -sS -o "$ART/admin-signup.json" -w '%{http_code}' -b "$cookies" -X P
   -H 'Content-Type: application/json' -H "X-XSRF-TOKEN: $xsrf" \
   --data "{\"email\":\"$E2E_ADMIN_EMAIL\",\"password\":\"$E2E_ADMIN_PASSWORD\",\"nickname\":\"$E2E_ADMIN_NICKNAME\"}")
 [ "$code" = 201 ] || [ "$code" = 409 ] || die "관리자 가입 실패: HTTP $code ($(cat "$ART/admin-signup.json"))"
-kill -TERM "$backend_pid"
-wait "$backend_pid" 2>/dev/null || true
+proc_stop "$backend_pid"
 start_backend
 
 log "프론트 next dev :$E2E_WEB_PORT → $ART/next.log"
-(cd "$FRONTEND" && BACKEND_URL="http://localhost:$E2E_API_PORT" NEXT_TELEMETRY_DISABLED=1 \
-  exec node node_modules/next/dist/bin/next dev -p "$E2E_WEB_PORT") >"$ART/next.log" 2>&1 &
-pids+=($!)
+run_next_dev() {
+  cd "$FRONTEND" && BACKEND_URL="http://localhost:$E2E_API_PORT" NEXT_TELEMETRY_DISABLED=1 \
+    exec node node_modules/next/dist/bin/next dev -p "$E2E_WEB_PORT"
+}
+proc_start run_next_dev >"$ART/next.log" 2>&1
 
 wait_http "백엔드(재시작)" "http://localhost:$E2E_API_PORT/api/actuator/health" 180
 # 승격은 ApplicationRunner 라 헬스가 UP 이 된 뒤에 돌 수 있다 — 30초까지 기다린다
