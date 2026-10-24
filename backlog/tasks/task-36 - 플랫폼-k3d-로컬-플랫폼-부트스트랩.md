@@ -4,7 +4,7 @@ title: '[플랫폼] k3d 로컬 플랫폼 부트스트랩'
 status: In Progress
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 08:15'
+updated_date: '2026-10-24 08:27'
 labels:
   - platform
 dependencies: []
@@ -57,4 +57,6 @@ AC#2의 '경고'는 AC#7(예산 초과 시 실패, FORCE=1로만 통과)이 우�
 [진행] 커밋 613497c(AC#3 MigrationJob)·42547a0(k3d 플랫폼·사전 검사·매니페스트·검증)·6fa87f5(Job 없는 프로필 대기 수정). make test 전체 통과(repo 236, deploy 144, tools 42, k8s 52, terraform 58, backend 888, frontend 577). 실제 이미지로 MigrationJob migrate·await, k8s 프로필 기동(health UP, 392MiB/768MiB) 확인. 실제 k3d-up·k3d-smoke(AC#1·#4)는 Docker VM 3.8GiB 라 사전 검사가 거부 — Docker Desktop 5GB 로 올린 뒤 make k3d-up && make k3d-smoke && make k3d-profile PROFILES=core && make k3d-stop 으로 확인 필요. 남은 일: 독립 서브에이전트 코드 리뷰, AC 체크.
 
 [리뷰 반영 착수] 독립 리뷰 지적(M1 Secret 임시 파일, M2 e2e·backend-test 메모리 강제, L1 k3d 없을 때 docker 로 감지, L2 test.sh 백엔드 직전 재검사, L3 MinIO 자격 증명 URL 인코딩, L4 Job Failed 즉시 실패+로그, L5 문서, 스키마 URL SHA 고정) 반영 시작. 순서: M1+L3 → M2+L2 → L1 → L4 → L5+스키마.
+
+[리뷰 반영] 095b2a2 M1(Secret stdin, 임시 파일 없음)+L3(MinIO 자격 증명 env→mc alias set). 다음: M2(make e2e·backend-test·backend-build 도 stop-if-running)+L2(test.sh 백엔드 직전 재검사).
 <!-- SECTION:NOTES:END -->

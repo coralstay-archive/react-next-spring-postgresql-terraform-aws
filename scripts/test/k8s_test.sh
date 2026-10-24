@@ -295,11 +295,13 @@ check "TASK-36#6 k3d 가 없으면(CI) 조용히 통과한다" t_stop_if_running
 # test.sh·test-integration.sh 를 임시 루트에 복사하고 다른 단계는 가짜로 바꿔 실행 순서를 본다
 TR="$TMP/tr"
 mkdir -p "$TR/scripts/test" "$TR/backend" "$TR/frontend" "$TR/infra" "$TR/bin"
-cp scripts/test.sh scripts/test-integration.sh scripts/k3d.sh scripts/_k3d.sh "$TR/scripts/"
+cp scripts/test.sh scripts/test-integration.sh scripts/e2e.sh scripts/_proc.sh scripts/k3d.sh scripts/_k3d.sh "$TR/scripts/"
 mkdir -p "$TR/deploy/k8s"; cp deploy/k8s/budgets.txt "$TR/deploy/k8s/"
 for s in repo_test deploy_test tools_test k8s_test; do
   printf '#!/usr/bin/env bash\necho "suite %s" >>"$FAKE_STATE/calls.log"\n' "$s" >"$TR/scripts/test/$s.sh"
 done
+# FAKE_RESTART_K3D=1: 테스트 도중 누가 클러스터를 다시 띄운 상황(시작 검사와 백엔드 테스트 사이의 TOCTOU)
+printf '[ "${FAKE_RESTART_K3D:-0}" = 1 ] && echo running >"$FAKE_STATE/k3d"\nexit 0\n' >>"$TR/scripts/test/k8s_test.sh"
 printf '#!/usr/bin/env bash\necho "gradlew $*" >>"$FAKE_STATE/calls.log"\n' >"$TR/backend/gradlew"
 printf '#!/usr/bin/env bash\necho "frontend-deps" >>"$FAKE_STATE/calls.log"\n' >"$TR/scripts/frontend-deps.sh"
 printf '#!/usr/bin/env bash\necho "npm $*" >>"$FAKE_STATE/calls.log"\n' >"$TR/bin/npm"
@@ -318,6 +320,45 @@ t_test_integration_stops_first() {
   rc_is 0 && has_text "멈췄다" && called_before "k3d cluster stop board" "gradlew"
 }
 check "TASK-36#6 make test-integration 도 맨 먼저 떠 있는 k3d 를 멈추고 출력한다" t_test_integration_stops_first
+t_test_sh_restops_before_backend() {
+  # 시작할 때 멈춘 뒤 테스트 도중 클러스터가 다시 떠도, 백엔드(Testcontainers) 직전에 한 번 더 멈춘다
+  fake_reset; echo running >"$FAKE_STATE/k3d"
+  run_capture env FAKE_RESTART_K3D=1 TF_PLUGIN_CACHE_DIR="$TMP/tfcache" PATH="$TR/bin:$FAKE/bin:$PATH" "$TR/scripts/test.sh"
+  rc_is 0 || return 1
+  [ "$(grep -c '^k3d cluster stop board' "$FAKE_STATE/calls.log")" = 2 ] || { echo "k3d 정지가 두 번이어야 한다"; calls; return 1; }
+  local last_stop gradle suite
+  last_stop="$(grep -n '^k3d cluster stop board' "$FAKE_STATE/calls.log" | tail -1 | cut -d: -f1)"
+  gradle="$(grep -n '^gradlew' "$FAKE_STATE/calls.log" | head -1 | cut -d: -f1)"
+  suite="$(grep -n '^suite k8s_test' "$FAKE_STATE/calls.log" | head -1 | cut -d: -f1)"
+  [ "$suite" -lt "$last_stop" ] && [ "$last_stop" -lt "$gradle" ] || { echo "순서: k8s 스위트($suite) → 정지($last_stop) → gradlew($gradle)"; calls; return 1; }
+  has_text "make test (backend)"
+}
+check "TASK-36#6 make test 는 백엔드(Testcontainers) 직전에 다시 검사해, 도중에 뜬 k3d 도 멈춘다(TOCTOU)" t_test_sh_restops_before_backend
+t_e2e_stops_first() {
+  fake_reset; echo running >"$FAKE_STATE/k3d"
+  # 백엔드 jar 가 없어 bootJar 뒤에 실패하지만, 그 전까지의 순서만 본다
+  run_capture env PATH="$TR/bin:$FAKE/bin:$PATH" "$TR/scripts/e2e.sh"
+  has_text "멈췄다" && has_text "make e2e" && called_before "k3d cluster stop board" "docker compose" \
+    && called_before "k3d cluster stop board" "gradlew"
+}
+check "TASK-36#6 make e2e(scripts/e2e.sh)도 맨 먼저 떠 있는 k3d 를 멈춘다(compose·백엔드보다 먼저)" t_e2e_stops_first
+t_make_targets_stop_before_gradle() {
+  # 감사: Testcontainers 를 띄우는 gradle test·build 를 직접 부르는 make 타깃은 모두 그 앞에서 stop-if-running 을 부른다
+  local t out g k found=""
+  for t in $(sed -n '/^\.PHONY:/,/^$/p' Makefile | tr -d '\134' | sed 's/^\.PHONY://'); do
+    out="$(make -n "$t" 2>/dev/null)" || continue
+    g="$(grep -nE 'gradlew +(test|build|check)' <<<"$out" | head -1 | cut -d: -f1)"
+    [ -n "$g" ] || continue
+    found+=" $t"
+    k="$(grep -nF 'scripts/k3d.sh stop-if-running' <<<"$out" | head -1 | cut -d: -f1)"
+    [ -n "$k" ] && [ "$k" -lt "$g" ] || { echo "make $t: gradle 앞에 stop-if-running 이 없다"; echo "$out"; return 1; }
+    grep -qF "stop-if-running \"make $t\"" <<<"$out" || { echo "make $t: 누가 멈췄는지(make $t) 출력하지 않는다"; return 1; }
+  done
+  case "$found" in *" backend-test"*) ;; *) echo "감사 대상에 backend-test 가 없다(found:$found)"; return 1 ;; esac
+  case "$found" in *" backend-build"*) ;; *) echo "감사 대상에 backend-build 가 없다(found:$found)"; return 1 ;; esac
+  make -n e2e | grep -q 'scripts/e2e.sh' && grep -qF 'k3d.sh" stop-if-running "make e2e"' scripts/e2e.sh
+}
+check "TASK-36#6 make backend-test·backend-build(gradle 테스트)·e2e 도 시작할 때 떠 있는 k3d 를 멈춘다(Makefile 감사)" t_make_targets_stop_before_gradle
 check "TASK-36#6 make test-integration 타깃은 scripts/test-integration.sh 를 부른다" sh -c 'grep -Eq "^test-integration:" Makefile && make -n test-integration | grep -q "scripts/test-integration.sh"'
 check "TASK-36#6 make test·test-integration 은 env 파일을 읽지 않는다" sh -c '! make -n test test-integration | grep -Eq "local-env"'
 

@@ -45,6 +45,8 @@ else
 fi
 
 echo "==> backend"
+# 시작 검사와 여기 사이(수 분)에 누가 클러스터를 다시 띄웠을 수 있다 — Testcontainers 직전에 한 번 더(TOCTOU)
+"$ROOT/scripts/k3d.sh" stop-if-running "make test (backend)"
 (cd "$ROOT/backend" && ./gradlew test --console=plain)
 
 echo "==> frontend"

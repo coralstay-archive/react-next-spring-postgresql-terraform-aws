@@ -50,10 +50,13 @@ dev-db-down: ## 로컬 PostgreSQL·MinIO 중지
 backend-run: ## 백엔드 실행 (http://localhost:8080/api)
 	$(LOCAL_ENV) cd backend && ./gradlew bootRun
 
-backend-test: ## 백엔드 테스트
+# gradle test·build 는 Testcontainers 를 띄운다 — 떠 있는 k3d 클러스터를 먼저 멈춘다(TASK-36#6, 8GB)
+backend-test: ## 백엔드 테스트 (떠 있는 k3d 클러스터는 먼저 멈춘다)
+	./scripts/k3d.sh stop-if-running "make backend-test"
 	cd backend && ./gradlew test
 
-backend-build: ## 백엔드 빌드 (bootJar)
+backend-build: ## 백엔드 빌드 (bootJar, 테스트 포함 — 떠 있는 k3d 클러스터는 먼저 멈춘다)
+	./scripts/k3d.sh stop-if-running "make backend-build"
 	cd backend && ./gradlew build
 
 frontend-install: ## 프론트 의존성 설치 (npm ci. frontend-* 타깃은 lock 이 바뀌었을 때만 자동으로 한다)
@@ -74,7 +77,7 @@ frontend-build: ## 프론트 정적 export (frontend/out)
 diagrams: ## diagrams/*.dot → docs/diagrams/*.svg 렌더 + 문서의 <!--dot:이름--> 블록 갱신 (graphviz 필요)
 	python3 scripts/build-diagrams.py
 
-e2e: ## Playwright E2E: 로컬 스택(compose·백엔드·next dev)을 띄워 chromium 시나리오 실행 후 정리 (느림, make test 에 없음). E2E_ARGS 로 인자 전달
+e2e: ## Playwright E2E: 로컬 스택(compose·백엔드·next dev)을 띄워 chromium 시나리오 실행 후 정리 (느림, make test 에 없음, 떠 있는 k3d 는 먼저 멈춘다). E2E_ARGS 로 인자 전달
 	./scripts/e2e.sh $(E2E_ARGS)
 
 # --- 배포 (TASK-17). CI(deploy.yml)와 같은 스크립트를 쓴다. 대상 값은 terraform output(infra/main)에서 읽는다(scripts/tf-outputs.sh).

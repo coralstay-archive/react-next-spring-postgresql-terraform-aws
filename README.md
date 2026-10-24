@@ -148,7 +148,7 @@ make k3d-down                     # 클러스터 삭제(데이터까지)
 | Docker VM 메모리 ≥ 4608 MiB(Docker Desktop 5GB 설정의 실측 ≈ 4.8GiB, 4GB 설정은 ≈ 3.8GiB) | `k3d-up`·`k3d-profile`·`k3d-smoke` | 실패: Settings → Resources → Memory 5GB |
 | Testcontainers 컨테이너(label `org.testcontainers=true`)가 없을 것 | `k3d-up`·`k3d-profile`·`k3d-smoke` | 실패: 테스트가 끝나길 기다리거나 남은 컨테이너 삭제 |
 | 켠 프로필 예산 합계 ≤ 상한 3072 MiB | `k3d-up`·`k3d-profile`·`k3d-smoke`(켜진 프로필) | 실패. `FORCE=1`이면 경고를 남기고 진행(이 검사만) |
-| k3d 클러스터와 테스트를 같이 띄우지 않는다 | `make test`·`make test-integration` 시작 | 떠 있는 클러스터를 멈추고 그 사실을 출력한 뒤 테스트 |
+| k3d 클러스터와 테스트를 같이 띄우지 않는다 | `make test`(시작 + 백엔드 직전)·`make test-integration`·`make backend-test`·`make backend-build`·`make e2e` 시작 | 떠 있는 클러스터를 멈추고 그 사실을 출력한 뒤 테스트 |
 
 세 진입점(up·profile·smoke)은 같은 함수 `k3d_preflight` 하나를 먼저 부른다 — 검사를 건너뛰는 진입점이 없다. 예산 숫자는
 [`deploy/k8s/budgets.txt`](deploy/k8s/budgets.txt) 하나에 있고 스크립트와 이 표가 그 값을 쓴다(테스트가 같은지 확인한다). 프로필 예산은
@@ -178,7 +178,7 @@ make smoke  # 배포 스모크: SMOKE_BASE_URL=https://<cloudfront> make smoke (
 - 로컬 도구: `scripts/test/tools_test.sh` (가짜 dot 으로 `build-diagrams.py --check`의 렌더 환경 고정, `scripts/_proc.sh` 프로세스 그룹 정리(TERM → KILL),
   가짜 npm 으로 `frontend-deps.sh`, 임시 Makefile 복사본으로 `.env`가 배포 타깃에 섞이지 않는지, Next.js 취약 버전 아님)
 - k8s: `scripts/test/k8s_test.sh` (kustomize 렌더 + kubeconform 오프라인 검증, requests/limits·예산, 마이그레이션 Job, 가짜 docker·k3d·kubectl 로
-  `scripts/k3d.sh`의 사전 검사·프로필 전환·스모크·자동 정지). `make test`·`make test-integration`은 시작할 때 떠 있는 k3d 클러스터를 멈춘다([메모리 규칙](#메모리-규칙-스크립트가-강제한다)).
+  `scripts/k3d.sh`의 사전 검사·프로필 전환·스모크·자동 정지). `make test`·`make test-integration`·`make backend-test`·`make backend-build`·`make e2e`는 시작할 때 떠 있는 k3d 클러스터를 멈춘다([메모리 규칙](#메모리-규칙-스크립트가-강제한다)).
 - Terraform: `terraform fmt -check -recursive infra` + 루트 스택(`infra/bootstrap`, `infra/main`)과 `tests/*.tftest.hcl`이 있는 모듈마다 `terraform init -backend=false`·`validate`·`test`.
   테스트는 `mock_provider "aws"`라 AWS 자격 증명이 필요 없다(provider는 처음 한 번 내려받아 `~/.terraform.d/plugin-cache`에 둔다).
   `terraform`이 없으면 경고만 내고 건너뛴다. 재사용 모듈의 `.terraform.lock.hcl`은 커밋하지 않고, 루트 스택(`infra/bootstrap`, `infra/main`)의 lock 파일은 커밋한다.

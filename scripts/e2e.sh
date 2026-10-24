@@ -42,6 +42,9 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 compose() { docker compose -p board-e2e -f "$ROOT/docker-compose.yml" -f "$FRONTEND/e2e/docker-compose.e2e.yml" "$@"; }
 
+# TASK-36#6 로컬 k3d 클러스터가 떠 있으면 먼저 멈춘다(compose·백엔드·next dev 와 동시에 띄우지 않는다 — 8GB)
+"$ROOT/scripts/k3d.sh" stop-if-running "make e2e"
+
 # 이전 E2E_KEEP=1 실행이 남긴 스택
 if [ -f "$KEPT" ]; then
   log "이전 E2E_KEEP=1 실행이 남긴 스택을 정리한다 ($KEPT)"
