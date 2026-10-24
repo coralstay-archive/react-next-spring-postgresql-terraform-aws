@@ -136,8 +136,14 @@ make k3d-down                     # 클러스터 삭제(데이터까지)
   (`application-k8s.properties`: `spring.flyway.enabled=false`)로 뜨고, 초기화 컨테이너(`MigrationJob await`)가 마이그레이션이 끝날 때까지 기다린다.
   docker-compose·테스트·AWS 는 지금처럼 기동 시 마이그레이션한다.
 - 프로필을 끄면 그 프로필의 리소스가 지워져 메모리가 돌아온다. StatefulSet 의 PVC(데이터)와 네임스페이스는 남는다(`make k3d-down`이 지운다).
+- Secret 값(env 파일의 `POSTGRES_*`·`MINIO_ROOT_*`·`JWT_SECRET`·`OTP_HASH_KEY`)은 `make k3d-up`·`k3d-profile`마다 다시 넣는다. 단 PostgreSQL 은
+  PVC 가 처음 만들어질 때 한 번만 initdb 하므로, PVC 가 생긴 뒤 `POSTGRES_PASSWORD`(·`POSTGRES_USER`·`POSTGRES_DB`)를 바꾸면 DB 쪽 값은 그대로이고
+  백엔드·마이그레이션이 인증에 실패한다. 로컬 데이터를 버려도 되면 `make k3d-down` → `make k3d-up`(클러스터·PVC 를 지우고 새로 initdb)으로 초기화하고,
+  데이터를 남기려면 env 파일 값을 원래대로 되돌린다. UPLOADS_BUCKET 같은 비밀이 아닌 설정은 env 파일이 아니라 ConfigMap
+  (`deploy/k8s/profiles/core/kustomization.yaml`)에 고정이다.
 - 매니페스트 검증: `make test`가 `scripts/k8s-validate.sh`로 base·모든 프로필을 `kubectl kustomize` → `kubeconform -strict` 검증한다(오프라인 —
-  스키마는 `deploy/k8s/schemas/`에 고정, k8s 1.36). 새 종류를 쓰면 `scripts/k8s-validate.sh --update-schemas`로 받아 커밋한다. CRD 는 스크립트 머리말 참고.
+  스키마는 `deploy/k8s/schemas/`에 고정, k8s 1.36). 새 종류를 쓰면 `scripts/k8s-validate.sh --update-schemas`로 받아 커밋한다(yannh/kubernetes-json-schema 를 움직이는
+  `master`가 아니라 스크립트의 `K8S_SCHEMA_REF` 커밋 SHA 에서 받는다 — 같은 입력이면 같은 파일. 올릴 때는 SHA 를 바꾸고 받은 diff 를 리뷰한다). CRD 는 스크립트 머리말 참고.
 
 ### 메모리 규칙 (스크립트가 강제한다)
 

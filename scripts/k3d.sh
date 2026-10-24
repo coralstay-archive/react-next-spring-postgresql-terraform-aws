@@ -8,10 +8,11 @@
 #   smoke            켜진 프로필로 사전 검사 → http://127.0.0.1:<K3D_HTTP_PORT>/api/actuator/health (Host: board.localhost)가 UP
 #   stop             클러스터·레지스트리 컨테이너 정지(데이터 유지, 메모리 회수). 다시: up
 #   down             클러스터 삭제(PVC 데이터까지)
-#   stop-if-running <누가>  떠 있으면 멈추고 출력(make test·test-integration 시작 시, TASK-36#6). k3d 가 없으면 아무것도 안 한다
+#   stop-if-running <누가>  떠 있으면 멈추고 출력(make test·test-integration·backend-test·backend-build·e2e 시작 시, TASK-36#6). k3d 가 없으면 docker 라벨로 찾아 docker stop
 # 환경변수: PROFILES, FORCE=1(예산 초과만 통과), SKIP_BUILD=1, K3D_WAIT_TIMEOUT(기본 300s), SMOKE_TIMEOUT(초, 기본 60),
 #   K3D_HTTP_PORT(기본 80 — cluster.yaml 의 포트와 같게), Secret 값: POSTGRES_DB·POSTGRES_USER·POSTGRES_PASSWORD·MINIO_ROOT_USER·
-#   MINIO_ROOT_PASSWORD·UPLOADS_BUCKET·JWT_SECRET·OTP_HASH_KEY(make 가 env 파일에서 읽어 넘긴다. 없으면 docker-compose 와 같은 로컬 기본값).
+#   MINIO_ROOT_PASSWORD·JWT_SECRET·OTP_HASH_KEY(make 가 env 파일에서 읽어 넘긴다. 없으면 docker-compose 와 같은 로컬 기본값).
+#   UPLOADS_BUCKET 등 비밀이 아닌 설정은 env 파일에서 읽지 않고 ConfigMap board-backend-config(deploy/k8s/profiles/core/kustomization.yaml)에 고정이다.
 set -euo pipefail
 
 # shellcheck source=scripts/_k3d.sh

@@ -4,6 +4,8 @@
 #   scripts/k8s-validate.sh [kustomization 디렉터리...]   기본: deploy/k8s/base + deploy/k8s/profiles/*
 #   scripts/k8s-validate.sh --update-schemas              지금 매니페스트가 쓰는 종류의 스키마를 받아 deploy/k8s/schemas/ 에 둔다(네트워크)
 # 스키마: yannh/kubernetes-json-schema 의 v$K8S_SCHEMA_VERSION-standalone-strict(클러스터 k3s 와 같은 마이너, deploy/k8s/k3d/cluster.yaml).
+# 받는 곳은 움직이는 master 가 아니라 K8S_SCHEMA_REF 커밋(SHA)으로 고정한다 — 같은 SHA 면 같은 내용(git 객체)이라 체크섬 없이도 재현된다.
+# 올릴 때: git ls-remote https://github.com/yannh/kubernetes-json-schema refs/heads/master 의 SHA 로 바꾸고 --update-schemas 후 diff 를 리뷰해 커밋한다.
 # 리포에 스키마가 없는 종류는 실패한다(조용히 건너뛰지 않는다) — 새 종류를 쓰면 --update-schemas 후 커밋한다.
 # CRD(Argo CD·Rollouts·Traefik IngressRoute 등)는 이 스키마 저장소에 없다. 쓰게 되면 CRD 스키마를 deploy/k8s/schemas/ 에 더하거나
 # (kubeconform 의 openapi2jsonschema), 종류를 K8S_SKIP_KINDS 에 적어 건너뛴다(쉼표 구분 — 건너뛴 종류는 출력에 남는다).
@@ -12,7 +14,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 K8S_SCHEMA_VERSION="1.36.0"
 SCHEMA_DIR="$ROOT/deploy/k8s/schemas"
-SCHEMA_URL="https://raw.githubusercontent.com/yannh/kubernetes-json-schema/master/v${K8S_SCHEMA_VERSION}-standalone-strict"
+# 2026-10-24 의 master. deploy/k8s/schemas/*.json 은 이 커밋의 파일과 같다
+K8S_SCHEMA_REF="f7d855e49c34b039c9ef2196444910275e31e09e"
+SCHEMA_URL="https://raw.githubusercontent.com/yannh/kubernetes-json-schema/${K8S_SCHEMA_REF}/v${K8S_SCHEMA_VERSION}-standalone-strict"
 K8S_SKIP_KINDS="${K8S_SKIP_KINDS:-}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }

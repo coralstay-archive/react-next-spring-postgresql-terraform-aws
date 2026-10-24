@@ -517,6 +517,18 @@ t_secret_newline_rejected() {
 }
 check "TASK-36#1 Secret 값에 줄바꿈(\\n·\\r)이 있으면 키 이름과 함께 분명한 오류로 거부한다(값은 출력하지 않는다)" t_secret_newline_rejected
 check "TASK-36#1 make k3d-up·k3d-profile 은 env 파일을 읽는다(LOCAL_ENV)" sh -c 'make -n k3d-up | grep -q "local-env.sh" && make -n k3d-profile PROFILES=core | grep -q "local-env.sh"'
+check "TASK-36#1 문서: UPLOADS_BUCKET 은 Secret 이 아니라 ConfigMap(core kustomization)에 고정 — k3d.sh 머리말이 그렇게 말한다" sh -c '
+  ! grep -E "^#.*Secret 값:.*UPLOADS_BUCKET" scripts/k3d.sh && grep -Eq "^#.*UPLOADS_BUCKET.*ConfigMap" scripts/k3d.sh \
+    && grep -q "UPLOADS_BUCKET=board-uploads" deploy/k8s/profiles/core/kustomization.yaml'
+t_readme_pg_password_reset() {
+  # initdb 를 말하는 README 항목(한 목록 항목) 안에 POSTGRES_PASSWORD 와 make k3d-down 이 같이 있다
+  local item
+  item="$(awk '/initdb/ { f = 1 } f && /^- / && !/initdb/ { exit } f { print }' README.md)"
+  if ! { [ -n "$item" ] && grep -q 'POSTGRES_PASSWORD' <<<"$item" && grep -q 'make k3d-down' <<<"$item"; }; then
+    echo "README 에 initdb·POSTGRES_PASSWORD·make k3d-down 안내가 없다"; return 1
+  fi
+}
+check "TASK-36#1 README: PVC 가 생긴 뒤 POSTGRES_PASSWORD 를 바꾸면 DB 비밀번호는 안 바뀐다(initdb 1회) — make k3d-down 으로 초기화 안내" t_readme_pg_password_reset
 t_smoke_ok() {
   fake_reset; echo running >"$FAKE_STATE/k3d"
   run_capture k3d_run FAKE_ACTIVE_PROFILES=core ./scripts/k3d.sh smoke
@@ -717,6 +729,9 @@ if need_tool kubectl && need_tool kubeconform; then
   }
   check "TASK-36#5 리포에 스키마가 없는 종류는 실패하고 --update-schemas 를 안내한다(조용히 건너뛰지 않는다)" t_validate_missing_schema
 fi
+check "TASK-36#5 --update-schemas 는 움직이는 master 가 아니라 고정한 커밋(40자리 SHA)에서 받는다" sh -c '
+  grep -Eq "^K8S_SCHEMA_REF=\"[0-9a-f]{40}\"$" scripts/k8s-validate.sh && grep -q "kubernetes-json-schema/\${K8S_SCHEMA_REF}/" scripts/k8s-validate.sh \
+    && ! grep -q "kubernetes-json-schema/master" scripts/k8s-validate.sh'
 check "TASK-36#5 scripts/test.sh 는 k8s 스위트를 돌린다" grep -q 'scripts/test/k8s_test.sh' scripts/test.sh
 check "TASK-36#5 CI 는 kubeconform 을 설치한다(REQUIRE_LINTERS=1 로 필수)" sh -c 'grep -q "kubeconform" .github/workflows/ci.yml'
 
