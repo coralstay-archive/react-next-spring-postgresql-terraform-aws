@@ -4,7 +4,7 @@ title: '[플랫폼] Rocky 개발 VM(UTM) + Podman'
 status: In Progress
 assignee: []
 created_date: '2026-10-24 09:06'
-updated_date: '2026-10-24 12:21'
+updated_date: '2026-10-25 01:08'
 labels:
   - platform
 dependencies: []
@@ -34,7 +34,7 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 make vm-create: Rocky 9 aarch64 GenericCloud 이미지 다운로드(체크섬 검증)·Apple Virtualization용 raw 변환, cloud-init seed ISO 생성, 저장소의 AppleScript(deploy/dev-vm/create-vm.applescript)로 UTM VM rocky-dev(5GB·CPU 4·디스크 40GB·VirtioFS로 저장소 공유) 생성. 이미 있으면 거부하고 안내
+- [ ] #1 make vm-create: Rocky 9 aarch64 GenericCloud 이미지 다운로드(체크섬 검증)·Apple Virtualization용 raw 변환, cloud-init seed ISO 생성, 저장소의 AppleScript(deploy/dev-vm/create-vm.applescript)로 UTM VM rocky-dev(5GB·CPU 4·디스크 40GB) 생성. 저장소는 rsync(ssh)로 VM /repo에 동기화하는 것이 기본이고, 유저가 UTM 화면에서 붙인 VirtioFS 공유가 있으면 자동 감지해 그것을 쓴다(UTM 샌드박스는 AppleScript로 받은 경로에 접근 권한을 남기지 못함 — 유저 결정 2026-10-25). 이미 있으면 거부하고 안내
 - [ ] #2 cloud-init: 전용 SSH 키, SELinux enforcing 유지, 고정 버전 설치(podman·Java 25·Node·clang/llvm/libbpf/bpftool/kernel-devel·kubectl·kubeconform·yq·git·make), podman 소켓 활성화. VM 안 설치 스크립트는 AWS Rocky EC2와 공유
 - [ ] #3 맥 ~/.ssh/config에 rocky-dev(별도 include 파일), make vm-start·vm-stop·vm-status·vm-ssh
 - [ ] #4 사전 검사: VM 메모리·맥 여유 메모리 측정, VM이 꺼져 있으면 켜지 않고 make vm-start를 안내하며 실패. k3s·테스트 진입점이 모두 같은 검사를 거침
@@ -65,4 +65,6 @@ documentation:
 [진행 9] 맥 make test(VM 프록시) 전부 통과: repo 236·deploy 143·tools 42·k8s 66·vm 57·terraform 9모듈·backend BUILD SUCCESSFUL·frontend 577. README rsync 방식·선택 공유 반영. 커밋 진행
 
 [진행 10] 커밋 eafd127(전체 + 부모 backlog 편집). 남은 결정: (선택) UTM GUI 로 저장소 공유 추가 여부, AC #1 의 'VirtioFS 공유' 문구를 rsync 기본으로 바꿀지
+
+[진행 11] 독립 리뷰 6건 반영(ba6b714, 커밋 전 make test rc=0 528초). (1) worktree: VM 에 맥 저장소 경로 → /repo 심볼릭 링크 + 공통 .git 을 /repo/.git 에 rsync(공유 밖 공통 .git 은 거부) (2) VM 안 /tmp/board-repo-test.lock(flock -n): rsync 전 확인·rsync·원격 실행 모두. 원격 명령은 setsid 그룹 + 부모(sshd) 감시로 ssh 가 끊기면 그룹 TERM/KILL — 실 VM 에서 맥 ssh 를 죽이자 15초 안에 원격 make test 정리·잠금 해제, 동시 make test 는 1.5초 만에 잠금 오류로 실패 확인 (3) scripts/test.sh 주석 rsync 기본 + 선택 VirtioFS. AC #1 의 'VirtioFS 로 저장소 공유'는 UTM 샌드박스가 AppleScript 로 받은 경로의 보안 범위 북마크를 남기지 않아 선택 사항(UTM 화면에서 직접 추가)이 됐다 — AC 문구는 부모가 유저와 갱신 (4) vm-min 4608→4500(실측 4649) (5) cloud-init status --wait 를 VM 안 timeout 1200 + ssh keepalive(15초×4)로, 맥에 남아 있던 옛 cloud-init 대기 ssh(PID 32530, PPID 1) 종료 (6) 공유를 나중에 붙였을 때 bind 덮기 재실행 명령(ssh rocky-dev sudo /usr/local/sbin/rocky-install.sh --profile dev --user rocky --share-tag share --share-path /repo)을 README·install.sh 에 기록, 빠져 있으면 make test 가 경고. README 에 커밋 훅 make test 의 600초 시간 제한(fail-open) 안내
 <!-- SECTION:NOTES:END -->
