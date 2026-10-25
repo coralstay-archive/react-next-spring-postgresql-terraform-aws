@@ -202,6 +202,9 @@ fi
 
 # 플랫폼이 다른 산출물은 맥과 섞이지 않게 VM 로컬 디렉터리를 bind 로 덮는다: frontend/node_modules(네이티브 모듈 darwin ↔ linux),
 # backend/build·backend/.gradle(맥 IDE 빌드와 동시 실행 충돌). 맥 쪽에는 빈 마운트 지점 디렉터리만 생긴다(gitignore 대상).
+# 공유가 마운트돼 있을 때만 설정된다 — VM 을 만든 뒤(cloud-init 이 이미 돈 뒤) UTM 창에서 공유를 붙였다면 VM 을 다시 켜고 한 번 다시 돌린다:
+#   ssh rocky-dev sudo /usr/local/sbin/rocky-install.sh --profile dev --user rocky --share-tag share --share-path /repo
+# (맥의 make test 가 bind 가 빠진 것을 알아보고 이 명령을 안내한다 — scripts/_vm.sh vm_check_overlays)
 overlay="$home/.local/share/repo-overlay"
 if mountpoint -q "$SHARE_PATH"; then
   for d in frontend/node_modules backend/build backend/.gradle; do

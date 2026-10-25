@@ -69,7 +69,12 @@ printf 'ssh %s\n' "$*" >>"$FAKE_STATE/calls.log"
 [ "${FAKE_SSH_FAIL:-0}" = 1 ] && { echo "ssh: connect to host rocky-dev port 22: Connection refused" >&2; exit 255; }
 case "$*" in
   *meminfo*) echo "${FAKE_VM_MEM_KB:-4900000}" ;;
+  # 잠금 사전 확인(flock -n -E 75 … true): FAKE_LOCK_BUSY=1 이면 다른 실행이 잡고 있다
+  *"-E 75"*) exit "$([ "${FAKE_LOCK_BUSY:-0}" = 1 ] && echo 75 || echo 0)" ;;
+  # VirtioFS 공유의 bind 덮기 확인: 빠진 디렉터리를 한 줄씩(FAKE_OVERLAY_MISSING)
+  *"frontend/node_modules"*) [ -n "${FAKE_OVERLAY_MISSING:-}" ] && echo "$FAKE_OVERLAY_MISSING"; exit 0 ;;
   *"mountpoint -q"*) exit "$([ "${FAKE_VIRTIOFS:-0}" = 1 ] && echo 0 || echo 1)" ;;
+  *"cloud-init status --wait"*) exit "${FAKE_CLOUD_INIT_RC:-0}" ;;
   *"make "*) echo "FAKE-REMOTE-MAKE"; exit "${FAKE_MAKE_RC:-0}" ;;
   *) exit 0 ;;
 esac
@@ -200,6 +205,17 @@ t_create_linux() {
   rc_is 1 && has_text "macOS" && not_called "osascript"
 }
 check "TASK-64#1 vm-create 는 맥에서만 돈다" t_create_linux
+t_create_cloud_init_timeout() {
+  # cloud-init status --wait 는 VM 안 timeout(기본 1200초 = 20분)으로 감싼다. ssh 는 keepalive 로 끊긴 연결을 알아챈다
+  fake_reset
+  run_capture vm_run FAKE_VM_IP=192.168.64.9 FAKE_CLOUD_INIT_RC=124 ./scripts/vm.sh create
+  rc_is 1 && has_text "20분" && has_text "cloud-init" && called "sudo -n timeout 1200 cloud-init status --wait" \
+    && called "ServerAliveInterval=15" && called "ServerAliveCountMax=4" || return 1
+  fake_reset
+  run_capture vm_run FAKE_VM_IP=192.168.64.9 FAKE_CLOUD_INIT_RC=1 ./scripts/vm.sh create
+  rc_is 1 && has_text "cloud-init 이 실패했다" && lacks_text "20분"
+}
+check "TASK-64#1 cloud-init 완료 대기는 20분 제한(timeout)·ssh keepalive — 넘으면 시간 초과를 알리고 실패" t_create_cloud_init_timeout
 
 # ================================================================ TASK-64#B1 권한 창은 vm-create 의 UTM 자동화 허용 1회, 실행 전 안내
 t_b1_announce() {
@@ -370,12 +386,20 @@ check "TASK-64#B2 VM 이 꺼져 있으면 켜지 않고 make vm-start 를 안내
 t_preflight_low_mem() {
   fake_reset; echo started >"$FAKE_STATE/vm"
   run_capture vm_run FAKE_VM_MEM_KB=3900000 ./scripts/vm.sh preflight
-  rc_is 1 && has_text "VM 메모리" && has_text "4608" || return 1
+  rc_is 1 && has_text "VM 메모리" && has_text "4500" || return 1
   fake_reset; echo started >"$FAKE_STATE/vm"
   run_capture vm_run FAKE_SSH_FAIL=1 ./scripts/vm.sh preflight
   rc_is 1 && has_text "ssh" && has_text "make vm-start"
 }
-check "TASK-64#4 VM 메모리가 vm-min(4608MiB) 미만이거나 ssh 가 안 되면 실패한다" t_preflight_low_mem
+check "TASK-64#4 VM 메모리가 vm-min(4500MiB) 미만이거나 ssh 가 안 되면 실패한다" t_preflight_low_mem
+t_vm_min_headroom() {
+  # 5GB VM 의 실측 MemTotal 4649MiB(커널 예약) — 경계가 실측에 너무 붙으면 커널 업데이트만으로 실패한다(100MiB 이상 여유).
+  # README 의 숫자는 budgets.txt 와 같아야 한다
+  local v; v="$(awk '$1 == "vm-min" { print $2 }' deploy/k8s/budgets.txt)"
+  [ -n "$v" ] && [ $((4649 - v)) -ge 100 ] && [ "$v" -ge 4096 ] || { echo "vm-min=$v (실측 4649 − 100 이하, 4096 이상이어야)"; return 1; }
+  grep -qF "\`vm-min\`($v MiB)" README.md || { echo "README 의 vm-min 숫자가 budgets.txt($v)와 다르다"; grep -n "vm-min" README.md; return 1; }
+}
+check "TASK-64#4 vm-min 은 실측(4649MiB)보다 100MiB 이상 낮고, README 숫자와 budgets.txt 가 같다" t_vm_min_headroom
 t_preflight_mac_low() {
   fake_reset; echo started >"$FAKE_STATE/vm"
   run_capture vm_run FAKE_MAC_FREE_PAGES=1000 FAKE_MAC_INACTIVE_PAGES=1000 ./scripts/vm.sh preflight
@@ -404,10 +428,12 @@ check "TASK-64#4 TASK-64#B2 k3d_preflight 도 VM 사전 검사를 거친다" t_k
 t_proxy() {
   fake_reset; echo started >"$FAKE_STATE/vm"
   run_capture vm_run ./scripts/test.sh
-  rc_is 0 && called "rocky-dev cd '/repo' && bash -lc 'make test'" && has_text "FAKE-REMOTE-MAKE" && lacks_text "==> repo" || return 1
+  rc_is 0 && called "cd '/repo' || exit 1" && called "setsid bash -lc 'make test'" && has_text "FAKE-REMOTE-MAKE" && lacks_text "==> repo" || return 1
   # 저장소는 rsync 로 VM 로컬 /repo 에 맞춘다(지운 파일도), 플랫폼별 산출물·비밀 파일은 빼고. 그 다음에 make
   called "rsync -a --delete" && called "$ROOT/ rocky-dev:/repo/" && called "--exclude=node_modules/" && called "--exclude=/backend/build/" \
     && called "--exclude=.terraform/" && called "--exclude=/.claude/worktrees/" || return 1
+  # rsync(VM 쪽)도 같은 잠금을 잡고(-n: 잡혀 있으면 바로 실패), make 전에 잠금을 먼저 확인한다
+  called "--rsync-path=mkdir -p '/repo' && flock -n '/tmp/board-repo-test.lock' rsync" && called "flock -n -E 75 '/tmp/board-repo-test.lock' true" || return 1
   [ "$(grep -n '^rsync' "$FAKE_STATE/calls.log" | cut -d: -f1)" -lt "$(grep -n "make test" "$FAKE_STATE/calls.log" | cut -d: -f1)" ] || { echo "rsync 가 make 보다 먼저여야 한다"; calls; return 1; }
   fake_reset; echo started >"$FAKE_STATE/vm"
   run_capture vm_run FAKE_MAKE_RC=3 ./scripts/test.sh
@@ -427,6 +453,28 @@ t_proxy_virtiofs() {
   rc_is 1 && has_text "rsync" && not_called "make test"
 }
 check "TASK-64#5 /repo 가 VirtioFS 공유면 rsync 를 건너뛰고, rsync 가 실패하면 make 를 돌리지 않는다" t_proxy_virtiofs
+t_proxy_virtiofs_overlay() {
+  # VirtioFS 공유를 나중에 붙여 VM 로컬 bind(node_modules·backend/build·.gradle)가 없으면 설치 스크립트 재실행 명령을 안내한다(경고, 계속 진행)
+  fake_reset; echo started >"$FAKE_STATE/vm"
+  run_capture vm_run FAKE_VIRTIOFS=1 FAKE_OVERLAY_MISSING="frontend/node_modules" ./scripts/test.sh
+  rc_is 0 && has_text "WARNING" && has_text "frontend/node_modules" \
+    && has_text "sudo /usr/local/sbin/rocky-install.sh --profile dev --user rocky --share-tag share --share-path /repo" && called "make test" || return 1
+  fake_reset; echo started >"$FAKE_STATE/vm"
+  run_capture vm_run FAKE_VIRTIOFS=1 ./scripts/test.sh
+  rc_is 0 && lacks_text "WARNING" || return 1
+  # rsync 방식(공유 없음)에서는 bind 를 확인하지 않는다
+  fake_reset; echo started >"$FAKE_STATE/vm"
+  run_capture vm_run FAKE_OVERLAY_MISSING="frontend/node_modules" ./scripts/test.sh
+  rc_is 0 && lacks_text "WARNING"
+}
+check "TASK-64#5 VirtioFS 공유인데 VM 로컬 bind 덮기가 없으면 install.sh 재실행 명령을 안내한다" t_proxy_virtiofs_overlay
+t_proxy_lock_busy() {
+  # 다른 실행(취소된 호출이 남긴 원격 make 등)이 잠금을 잡고 있으면 rsync 도 make 도 하지 않고 바로 실패한다
+  fake_reset; echo started >"$FAKE_STATE/vm"
+  run_capture vm_run FAKE_LOCK_BUSY=1 ./scripts/test.sh
+  rc_is 1 && has_text "다른" && has_text "/tmp/board-repo-test.lock" && not_called "rsync" && not_called "make test"
+}
+check "TASK-64#5 VM 안에서 다른 실행이 잠금(/tmp/board-repo-test.lock)을 잡고 있으면 rsync·make 없이 바로 실패한다" t_proxy_lock_busy
 t_proxy_stopped() {
   fake_reset; echo stopped >"$FAKE_STATE/vm"
   run_capture vm_run ./scripts/test.sh
@@ -445,6 +493,77 @@ t_proxy_worktree() {
   rc_is 1 && has_text "공유" && not_called "make test"
 }
 check "TASK-64#5 공유 디렉터리 아래의 경로는 /repo 기준 상대 경로로 바꾸고, 밖이면 실패한다" t_proxy_worktree
+t_proxy_git_worktree() {
+  # 진짜 git worktree: .git 은 "gitdir: <맥 절대 경로>/.git/worktrees/x" 파일이다. VM 안 git 이 이 경로를 읽도록
+  # (1) VM 에 맥 공유 경로 → /repo 심볼릭 링크(VM 안 sudo -n), (2) 공통 .git 을 VM /repo/.git 에 rsync, (3) worktree 를 rsync — 그 다음 make
+  fake_reset; echo started >"$FAKE_STATE/vm"
+  local sh; mkdir -p "$TMP/gshare"; sh="$(cd "$TMP/gshare" && pwd -P)"
+  local wt="$sh/.claude/worktrees/x"; rm -rf "$sh"/.git "$sh"/.claude; mkdir -p "$wt/scripts" "$sh/.git/worktrees/x"
+  cp scripts/test.sh scripts/_vm.sh "$wt/scripts/"; cp -R deploy "$wt/" 2>/dev/null || true
+  printf '../..\n' >"$sh/.git/worktrees/x/commondir"; printf '%s/.git\n' "$wt" >"$sh/.git/worktrees/x/gitdir"
+  printf 'gitdir: %s/.git/worktrees/x\n' "$sh" >"$wt/.git"
+  run_capture vm_run VM_SHARE_DIR="$sh" "$wt/scripts/test.sh"
+  # 링크 명령은 VM 안 sudo -n sh -c '…' 로 한 번 더 인용되므로 줄에 ln -sfn·/repo·공유 경로가 함께 있는지만 본다
+  linked() { grep "ln -sfn" "$FAKE_STATE/calls.log" | grep -F "/repo" | grep -qF "$sh" || { echo "링크 명령 없음"; calls; return 1; }; }
+  rc_is 0 && linked && called "$sh/.git/ rocky-dev:/repo/.git/" && called "$wt/ rocky-dev:/repo/.claude/worktrees/x/" \
+    && called "cd '/repo/.claude/worktrees/x'" || return 1
+  local ln com wtl mk
+  ln="$(grep -n 'ln -sfn' "$FAKE_STATE/calls.log" | head -n1 | cut -d: -f1)"; com="$(grep -nF "$sh/.git/ rocky-dev:" "$FAKE_STATE/calls.log" | head -n1 | cut -d: -f1)"
+  wtl="$(grep -nF "$wt/ rocky-dev:" "$FAKE_STATE/calls.log" | head -n1 | cut -d: -f1)"; mk="$(grep -n "setsid bash -lc 'make test'" "$FAKE_STATE/calls.log" | head -n1 | cut -d: -f1)"
+  [ "$ln" -lt "$mk" ] && [ "$com" -lt "$mk" ] && [ "$wtl" -lt "$mk" ] || { echo "링크($ln)·공통 .git($com)·worktree($wtl) 가 make($mk) 보다 먼저여야"; calls; return 1; }
+  # VirtioFS 공유면 rsync 없이 링크만
+  fake_reset; echo started >"$FAKE_STATE/vm"
+  run_capture vm_run VM_SHARE_DIR="$sh" FAKE_VIRTIOFS=1 "$wt/scripts/test.sh"
+  rc_is 0 && linked && not_called "rsync" || return 1
+  # 공통 .git 이 공유 디렉터리 밖이면(다른 저장소의 worktree) VM 안 git 이 못 읽는다 — 분명히 거부
+  fake_reset; echo started >"$FAKE_STATE/vm"
+  local other; mkdir -p "$TMP/other/.git/worktrees/x"; other="$(cd "$TMP/other" && pwd -P)"
+  printf '../..\n' >"$other/.git/worktrees/x/commondir"; printf 'gitdir: %s/.git/worktrees/x\n' "$other" >"$wt/.git"
+  run_capture vm_run VM_SHARE_DIR="$sh" "$wt/scripts/test.sh"
+  rc_is 1 && has_text "worktree" && has_text "$other/.git" && not_called "rsync" && not_called "make test"
+}
+check "TASK-64#5 git worktree(.git 파일의 맥 절대 gitdir): VM 에 맥 경로 → /repo 링크 + 공통 .git 동기화, 공유 밖 공통 .git 은 거부" t_proxy_git_worktree
+# 원격 실행 스크립트(vm_remote_script)를 이 호스트에서 직접 돌려 본다 — flock·setsid(util-linux)가 있는 리눅스(VM 안·CI)에서만
+if command -v flock >/dev/null 2>&1 && command -v setsid >/dev/null 2>&1; then
+  rs() { VM_LOCK_FILE="$TMP/rlock" bash -c 'source scripts/_vm.sh; vm_remote_script "$1" "$2"' _ "$@"; }
+  t_remote_rc() {
+    mkdir -p "$TMP/rdir"
+    local s out err rc
+    s="$(rs "$TMP/rdir" 'echo OUT-LINE; echo ERR-LINE >&2; pwd; exit 3')"
+    out="$(bash -c "$s" 2>"$TMP/rerr")"; rc=$?; err="$(cat "$TMP/rerr")"
+    [ "$rc" = 3 ] || { echo "rc=$rc (기대 3)"; return 1; }
+    # 표준 출력·오류가 섞이거나 줄바꿈이 바뀌지 않는다(가상 터미널을 쓰지 않는다)
+    [ "$out" = "OUT-LINE"$'\n'"$TMP/rdir" ] && [ "$err" = "ERR-LINE" ] || { echo "out=[$out] err=[$err]"; return 1; }
+  }
+  check "TASK-64#5 원격 실행: 지정 디렉터리에서 명령을 돌리고 종료 코드·stdout/stderr 를 그대로 돌려준다" t_remote_rc
+  t_remote_lock_busy() {
+    mkdir -p "$TMP/rdir"
+    flock "$TMP/rlock" sleep 30 & local holder=$!
+    sleep 1
+    local s rc; s="$(rs "$TMP/rdir" 'echo SHOULD-NOT-RUN')"
+    run_capture bash -c "$s"
+    kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+    rc_is 75 && has_text "다른" && lacks_text "SHOULD-NOT-RUN"
+  }
+  check "TASK-64#5 원격 실행: 잠금이 잡혀 있으면 기다리지 않고 75 로 실패한다" t_remote_lock_busy
+  t_remote_watchdog() {
+    # ssh 연결이 끊기면(= 원격 셸의 부모 sshd 가 사라지면) 원격 명령의 프로세스 그룹 전체를 멈추고 잠금을 푼다
+    mkdir -p "$TMP/rdir"; rm -f "$TMP/sleep.pid"
+    local s mid sp
+    s="$(rs "$TMP/rdir" "sleep 317 & echo \$! >$TMP/sleep.pid; wait")"
+    bash -c 'bash -c "$1"; echo after' _ "$s" >/dev/null 2>&1 & mid=$!
+    for _ in $(seq 1 50); do [ -s "$TMP/sleep.pid" ] && break; sleep 0.2; done
+    sp="$(cat "$TMP/sleep.pid" 2>/dev/null)"; [ -n "$sp" ] && kill -0 "$sp" || { echo "원격 명령이 시작되지 않았다"; return 1; }
+    kill -9 "$mid"
+    for _ in $(seq 1 30); do kill -0 "$sp" 2>/dev/null || break; sleep 0.5; done
+    ! kill -0 "$sp" 2>/dev/null || { kill "$sp"; echo "부모가 죽었는데 원격 명령(sleep $sp)이 살아 있다"; return 1; }
+    for _ in $(seq 1 30); do flock -n "$TMP/rlock" true && return 0; sleep 0.5; done
+    echo "잠금이 풀리지 않았다"; return 1
+  }
+  check "TASK-64#5 원격 실행: 호출한 ssh 가 죽으면 남은 원격 명령(프로세스 그룹)을 멈추고 잠금을 푼다" t_remote_watchdog
+else
+  echo "  WARNING: flock·setsid 가 없어(맥) 원격 실행 스크립트 동작 검사를 건너뛴다 — VM 안 make test 에서 돈다" >&2
+fi
 t_proxy_optout() {
   # VM_PROXY=0 이면 맥에서도 그대로(예: 다른 컨테이너 런타임) — 여기서는 첫 단계(k3d 정지)까지만 보고 끊는다
   fake_reset; echo started >"$FAKE_STATE/vm"
@@ -507,6 +626,18 @@ t_readme() {
   done
 }
 check "TASK-64#7 README 로컬 개발 환경 절(만들기·켜기·끄기·다시 만들기, 메모리 규칙, SELinux, 권한 창 1회)" t_readme
+t_readme_ops() {
+  local sec
+  sec="$(awk '/^## 로컬 개발 환경/ { f = 1; print; next } f && /^## / { exit } f { print }' README.md)"
+  # VirtioFS 공유를 나중에 붙였을 때의 재실행 명령, 동시 실행 잠금, worktree
+  grep -qF "sudo /usr/local/sbin/rocky-install.sh --profile dev --user rocky --share-tag share --share-path /repo" <<<"$sec" \
+    && grep -qF "/tmp/board-repo-test.lock" <<<"$sec" && grep -qF "worktree" <<<"$sec" || { echo "README 로컬 개발 환경 절에 재실행 명령·잠금·worktree 설명이 없다"; return 1; }
+  # 커밋 훅의 make test 는 Claude Code 훅 시간 제한(넘으면 막지 않고 통과)을 받는다 — 커밋 전에 직접 돌린다는 안내
+  awk '/^## 개발 워크플로/ { f = 1 } f' README.md | grep -q "시간 제한" || { echo "README 개발 워크플로 절에 훅 시간 제한 안내가 없다"; return 1; }
+  # 진입점 주석이 rsync 기본 + 선택 공유를 말한다(VirtioFS 가 기본인 것처럼 쓰지 않는다)
+  grep -q "rsync" scripts/test.sh && ! grep -q "저장소는 VirtioFS 공유 /repo" scripts/test.sh || { echo "scripts/test.sh 머리 주석이 저장소 공유 방식을 잘못 말한다"; return 1; }
+}
+check "TASK-64#7 README: 공유 추가 뒤 install.sh 재실행 명령·동시 실행 잠금·worktree·커밋 훅 시간 제한, test.sh 주석은 rsync 기본" t_readme_ops
 
 echo "vm: $passes passed, $failures failed"
 [ "$failures" -eq 0 ]

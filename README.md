@@ -102,7 +102,17 @@ VM 안(install.sh `--profile dev`): Podman + 사용자 소켓(`/run/user/<uid>/p
 `.env`·`deploy/*.local.txt` 같은 비밀 파일도 보내지 않는다. 한 방향(맥 → VM)이라 VM 안에서 고친 `/repo` 파일은 다음 동기화 때 덮인다.
 - (선택) 실시간 공유: UTM 창에서 `rocky-dev` → 편집 → 공유 → 디렉터리로 저장소를 직접 고르면(파일 선택 창이라 UTM 이 접근 권한을 기억한다)
   다음 부팅부터 VirtioFS(태그 `share`)가 `/repo`에 마운트되고, 스크립트가 이를 알아보고 rsync 를 건너뛴다. 이때는
-  `frontend/node_modules`·`backend/build`·`backend/.gradle`을 VM 로컬 디렉터리로 bind 해서 덮는다(설치 스크립트를 다시 돌리면 설정된다).
+  `frontend/node_modules`·`backend/build`·`backend/.gradle`을 VM 로컬 디렉터리로 bind 해서 덮어야 한다(맥의 darwin `node_modules`·빌드 산출물과
+  섞이지 않게). VM 을 만든 뒤에 공유를 붙였다면 이 bind 는 아직 없다 — 공유를 붙이고 VM 을 다시 켠 뒤 한 번 설치 스크립트를 다시 돌린다
+  (cloud-init 이 VM 안에 남겨 둔 스크립트, 다시 돌려도 된다):
+  `ssh rocky-dev sudo /usr/local/sbin/rocky-install.sh --profile dev --user rocky --share-tag share --share-path /repo`.
+  bind 가 빠져 있으면 맥의 `make test`가 이 명령을 경고로 안내한다.
+- 동시 실행 잠금: VM 안 실행과 rsync 는 `/tmp/board-repo-test.lock`(flock)을 잡는다. 다른 실행이 돌고 있으면 기다리지 않고 바로 실패한다
+  (rsync 가 실행 중인 gradle 아래의 `/repo`를 바꾸지 않게). 맥 쪽 호출이 취소되거나 시간 초과로 죽어 ssh 가 끊기면, VM 안 감시 루프가
+  남은 명령(프로세스 그룹)을 멈추고 잠금을 푼다.
+- git worktree(`.claude/worktrees/<이름>`): worktree 의 `.git` 파일에는 맥 절대 경로(`gitdir: /Users/…/.git/worktrees/<이름>`)가 적혀 있다.
+  스크립트가 VM 에 그 맥 저장소 경로 → `/repo` 심볼릭 링크를 만들고(VM 안 sudo, 맥은 건드리지 않는다) 공통 `.git`도 VM `/repo/.git`에 맞춘 뒤
+  worktree 를 `/repo/.claude/worktrees/<이름>`에 동기화하므로 VM 안 git 이 그대로 동작한다. 공통 `.git`이 저장소 밖이면 거부한다.
 
 **SELinux**: VM 은 enforcing 그대로다(설치 스크립트가 enforcing 이 아니면 실패한다 — 끄지 않는다). 공유 `/repo`는
 `context=system_u:object_r:container_file_t:s0`로 마운트해서(선택 공유를 붙인 경우) Podman 볼륨으로 써도 거부되지 않는다. VM 로컬 디렉터리를 컨테이너에 마운트할 때는
@@ -111,7 +121,7 @@ VM 안(install.sh `--profile dev`): Podman + 사용자 소켓(`/run/user/<uid>/p
 **메모리 규칙**(8GB 맥, 스크립트가 강제한다): VM 은 5GB 를 가져간다. 맥의 `make test`·`test-integration`·`backend-test`·`backend-build`와
 `k3d-up`·`k3d-profile`·`k3d-smoke`는 먼저 같은 사전 검사(`scripts/_vm.sh vm_preflight`)를 지난다.
 - VM 이 꺼져 있으면 **스스로 켜지 않고** `make vm-start`를 안내하며 실패한다(언제 5GB 를 쓸지는 사람이 정한다).
-- VM 메모리(VM 안 `/proc/meminfo`) < `vm-min`(4608 MiB)이면 실패, 맥 여유 메모리(`vm_stat`) < `mac-free-min`(512 MiB)이면 경고.
+- VM 메모리(VM 안 `/proc/meminfo`) < `vm-min`(4500 MiB)이면 실패(5GB VM 의 실측 MemTotal 4649 MiB 보다 약간 낮게 둔다), 맥 여유 메모리(`vm_stat`) < `mac-free-min`(512 MiB)이면 경고.
   기준값은 [`deploy/k8s/budgets.txt`](deploy/k8s/budgets.txt).
 - 쓰지 않을 때는 `make vm-stop`.
 
@@ -614,3 +624,7 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 
 이 리포는 [backlog.md](https://github.com/MrLesk/Backlog.md) 태스크 단위로 작업한다.
 `.claude-code-agile-hooks.json`에 테스트 명령(`make test`)과 test-first 대상 경로(`testFirst`)가 설정되어 있다.
+
+> 커밋 훅의 `make test`는 Claude Code 훅 시간 제한(600초)을 받는다. 시간 제한을 넘으면 훅이 취소되고 커밋은 **막히지 않고 통과한다**(fail-open).
+> 맥에서 VM 안 전체 `make test`는 600초를 넘을 수 있으므로, 훅 설정을 바꾸기 전까지는 커밋 전에 저장소 루트에서 `make test`를 직접 돌려
+> 종료 코드 0 을 확인한 뒤 커밋한다.

@@ -3,7 +3,8 @@
 # Terraform 은 fmt 검사 + 루트 스택(infra/bootstrap, infra/main)과 tests/*.tftest.hcl 이 있는 모듈마다 init(-backend=false)·validate·test(mock_provider, 오프라인). terraform 이 없으면 경고 후 건너뛴다.
 # 백엔드 테스트는 Testcontainers를 쓰므로 Docker(또는 Podman 소켓 — DOCKER_HOST)가 떠 있어야 한다.
 # TASK-64#5 맥에는 컨테이너 런타임이 없다 — 맥에서 실행하면 사전 검사(VM 이 꺼져 있으면 켜지 않고 실패) 뒤 Rocky 개발 VM 안에서
-# 같은 make test 를 돌린다(ssh rocky-dev, 저장소는 VirtioFS 공유 /repo). VM 안·CI(ubuntu)에서는 그대로 실행한다. VM_PROXY=0 이면 맥에서도 그대로.
+# 같은 make test 를 돌린다(ssh rocky-dev). 저장소는 기본으로 rsync 로 작업 트리를 VM 로컬 /repo 에 맞추고, UTM 창에서 VirtioFS 공유를
+# 직접 붙였으면(선택) 동기화 없이 그 /repo 를 쓴다(scripts/_vm.sh). VM 안·CI(ubuntu)에서는 그대로 실행한다. VM_PROXY=0 이면 맥에서도 그대로.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
