@@ -4,12 +4,13 @@ title: '[AWS] k3s 스팟 노드 실배포(나중 단계)'
 status: To Do
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-29 01:46'
+updated_date: '2026-10-29 03:25'
 labels:
   - aws
   - platform
 dependencies:
   - TASK-51
+  - TASK-65
 references:
   - decision-1
   - decision-2
