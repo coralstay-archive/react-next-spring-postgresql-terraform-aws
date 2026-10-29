@@ -1,10 +1,10 @@
 ---
 id: TASK-65
 title: '[AWS] 플랫폼 Terraform 얼개 (infra/platform)'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 03:25'
+updated_date: '2026-10-29 03:42'
 labels:
   - aws
   - platform
@@ -44,3 +44,25 @@ documentation:
 - [ ] #6 관리형 리소스 부재를 tftest 로 고정: NAT·LB·CloudFront·RDS·MSK·ECR·CloudWatch 알람이 없고, lb_node 를 켜면 생긴다. force-unlock·bootstrap state 백업 절차 문서(OPS-5)
 - [ ] #7 README 'AWS 실배포 설계' 절: 구성도(diagrams/*.dot → SVG), 비용 표(decision-11), apply 하지 않는 이유와 TASK-52 로 넘기는 항목
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+## 구현 계획 (승인된 계획 2026-10-29, decision-11)
+1. AC#1 infra/platform 루트 스택: versions(>=1.10, aws ~>6.0, lock 은 3플랫폼 해시 — darwin_arm64·linux_arm64·linux_amd64), providers(us-east-1, default_tags), backend.tf(bootstrap S3 state 재사용, key=platform/terraform.tfstate, use_lockfile), variables·main·outputs. network 는 ../main/modules/network 재사용. tests/platform.tftest.hcl(mock_provider, AMI 등 data 는 override_data) — scripts/test.sh 가 tests 디렉터리를 자동으로 찾는다.
+2. AC#2 modules/k3s_node: data aws_ami(owner 792107900819, Rocky-9-EC2-Base-9.8-*aarch64*), aws_instance(t4g.large 기본, instance_market_options spot persistent + interruption stop, metadata_options http_tokens=required, root gp3 암호화), aws_eip 1개, SG 80·443 ingress IPv4·IPv6만(22 없음, egress all), IAM role + AmazonSSMManagedInstanceCore + ssm:GetParameter(s)ByPath on parameter/board/*.
+3. AC#3 데이터 볼륨: aws_ebs_volume gp3 암호화(snapshot_id = var.data_snapshot_id, null 허용) + aws_volume_attachment. cloud-init 스크립트(templatefile)가 NVMe 장치를 볼륨 ID 로 찾고(/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol...), blkid 종료 코드 2 일 때만 mkfs.xfs, 그 밖의 오류면 실패, /data 에 마운트(fstab UUID, nofail 아님). 데이터 서비스(k3s 자리)는 systemd RequiresMountsFor=/data 드롭인으로 마운트 없이는 기동하지 않는다. 템플릿 렌더 결과를 tftest 와 셸 테스트로 확인.
+4. AC#4 user_data: cloud-init 이 저장소 고정 커밋의 deploy/rocky/install.sh --profile server 를 실행(dnf 재시도 3회), 끝에 cloud-init status 확인 필수. user_data 변경 정책: user_data_replace_on_change=true(노드는 가축 — 데이터는 별도 볼륨) 를 명시하고 README 에 이유. k3s 설치 자리는 TODO 대신 'TASK-36 스크립트 호출' 훅 변수(k3s_install_cmd, 기본 빈 값)로 둔다.
+5. AC#5 modules/lb_node(HAProxy, count = enable_lb_node ? 1 : 0, 기본 false, t4g.small), aws_dlm_lifecycle_policy(enable_snapshots), aws_budgets_budget(budget_monthly_usd·budget_email, 이메일 없으면 만들지 않음), cognito 모듈 재사용(콜백 URL 은 변수).
+6. AC#6 tftest: plan 결과에 aws_nat_gateway·aws_lb·aws_cloudfront_distribution·aws_db_instance·aws_msk_cluster·aws_ecr_repository·aws_cloudwatch_metric_alarm 이 없음을 고정(설정 파일 grep 셸 테스트 + tftest assert), enable_lb_node=true 면 생긴다. docs/terraform-state.md 에 force-unlock·bootstrap state 백업 절차(OPS-5).
+7. AC#7 README 'AWS 실배포 설계' 절 + diagrams/platform-aws.dot → docs/diagrams/platform-aws.svg(scripts/build-diagrams.py), 비용 표(decision-11), apply 하지 않는 이유와 TASK-52 로 넘기는 항목.
+- 실제 AWS 호출·apply·plan(자격 증명) 없음. 구현은 서브에이전트, 부모가 make test 재검증 → 독립 리뷰 → Done.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1 (0c138a9): infra/platform 루트 스택(versions·providers·backend·variables·main·outputs·envs), bootstrap 버킷 재사용 key=platform/terraform.tfstate, network 모듈 재사용, lock 3플랫폼 해시(aws 6.68.0 — infra/main 과 같은 버전), tests/platform.tftest.hcl + scripts/test/platform_test.sh(test.sh 가 부른다), test.sh 루트 목록에 infra/platform
+
+AC#2: modules/k3s_node — Rocky 9.8 arm64 AMI(792107900819), t4g.large 스팟 persistent/stop, IMDSv2, 루트 gp3 암호화, EIP 1개, SG 80·443 IPv4·IPv6 만(B1: 22 없음, key_name 없음), IAM SSM Core + /board/* 읽기(+SSM 경유 kms:Decrypt). 모듈 테스트 tests/k3s_node.tftest.hcl
+<!-- SECTION:NOTES:END -->

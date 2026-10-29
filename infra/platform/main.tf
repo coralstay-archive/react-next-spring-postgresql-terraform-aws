@@ -8,3 +8,13 @@ module "network" {
   name              = var.name
   availability_zone = var.availability_zone
 }
+
+module "k3s_node" {
+  source = "./modules/k3s_node"
+
+  name              = var.name
+  vpc_id            = module.network.vpc_id
+  subnet_id         = module.network.subnet_id
+  availability_zone = module.network.availability_zone
+  instance_type     = var.node_instance_type
+}

@@ -42,5 +42,12 @@ check "TASK-65#1 gitignore 가 platform 모듈 lock 파일을 무시" git check-
 check "TASK-65#1 scripts/test.sh 는 루트 스택 infra/platform 을 validate" grep -q 'infra/platform' scripts/test.sh
 check "TASK-65#1 scripts/test.sh 가 이 테스트를 부른다" grep -q 'scripts/test/platform_test.sh' scripts/test.sh
 
+# TASK-65#2 TASK-65#B1 k3s_node: 22 번 포트·SSH 키를 설정에 두지 않는다(접속은 SSM). 규칙 상세는 k3s_node.tftest.hcl
+N=$P/modules/k3s_node
+check "TASK-65#2 k3s_node 모듈 테스트 존재" test -f "$N/tests/k3s_node.tftest.hcl"
+check "TASK-65#B1 k3s_node 설정에 22 번 포트가 없다" sh -c "! grep -Eq '(from|to)_port *= *22\\b' $N/*.tf"
+check "TASK-65#B1 k3s_node 는 SSH 키(key_name)를 쓰지 않는다" sh -c "! grep -Eq '^\\s*key_name\\b' $N/*.tf"
+check "TASK-65#B1 k3s_node 는 SSM Core 정책을 붙인다" grep -q 'AmazonSSMManagedInstanceCore' "$N/main.tf"
+
 echo "platform tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

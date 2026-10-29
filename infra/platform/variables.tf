@@ -21,3 +21,9 @@ variable "availability_zone" {
   type        = string
   default     = "us-east-1a"
 }
+
+variable "node_instance_type" {
+  description = "k3s 노드 타입(arm64 스팟). decision-11: t4g.large"
+  type        = string
+  default     = "t4g.large"
+}

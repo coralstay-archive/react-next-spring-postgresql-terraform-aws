@@ -3,6 +3,34 @@
 
 mock_provider "aws" {}
 
+override_data {
+  target = module.k3s_node.data.aws_ami.rocky
+  values = {
+    id = "ami-0rocky98arm64000"
+  }
+}
+
+override_data {
+  target = module.k3s_node.data.aws_region.current
+  values = {
+    region = "us-east-1"
+  }
+}
+
+override_data {
+  target = module.k3s_node.data.aws_caller_identity.current
+  values = {
+    account_id = "123456789012"
+  }
+}
+
+override_resource {
+  target = module.k3s_node.aws_eip.this
+  values = {
+    public_ip = "3.1.2.3"
+  }
+}
+
 variables {
   name              = "board-test"
   availability_zone = "us-east-1a"
@@ -23,5 +51,23 @@ run "network_reuse" {
   assert {
     condition     = output.region == "us-east-1"
     error_message = "리전 us-east-1(decision-11)"
+  }
+}
+
+# TASK-65#2 노드는 network 의 public subnet·AZ 에 t4g.large 로 붙고, 공개 주소는 EIP 하나
+run "node_wiring" {
+  command = apply
+
+  assert {
+    condition     = module.k3s_node.subnet_id == module.network.subnet_id && module.k3s_node.availability_zone == "us-east-1a"
+    error_message = "노드는 network 의 public subnet"
+  }
+  assert {
+    condition     = module.k3s_node.instance_type == "t4g.large"
+    error_message = "기본 노드 타입 t4g.large(decision-11)"
+  }
+  assert {
+    condition     = output.node_public_ip == "3.1.2.3" && output.node_instance_id == module.k3s_node.instance_id
+    error_message = "출력: node_public_ip(EIP), node_instance_id(SSM 접속 대상)"
   }
 }
