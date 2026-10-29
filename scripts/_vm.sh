@@ -22,6 +22,8 @@ VM_NAME="${VM_NAME:-rocky-dev}"
 VM_SSH_HOST="${VM_SSH_HOST:-$VM_NAME}"
 VM_USER="${VM_USER:-rocky}"
 VM_GUEST_REPO="/repo"
+# VirtioFS 태그(share)를 마운트하는 곳 — 그 안의 저장소 디렉터리를 /repo 로 bind 한다(deploy/rocky/install.sh dev_share_setup)
+VM_GUEST_SHARE_STAGE="/mnt/share"
 UTMCTL="${UTMCTL:-/Applications/UTM.app/Contents/MacOS/utmctl}"
 VM_CACHE_DIR="${VM_CACHE_DIR:-$HOME/.cache/rocky-dev}"
 VM_DHCP_LEASES="${VM_DHCP_LEASES:-/var/db/dhcpd_leases}"
@@ -154,8 +156,17 @@ VM_SYNC_EXCLUDES=(
 # VM 로컬 bind 로 덮는 디렉터리(deploy/rocky/install.sh 와 같은 목록)
 VM_OVERLAY_DIRS="frontend/node_modules backend/build backend/.gradle"
 
+# /repo 는 /mnt/share 안 저장소 디렉터리의 bind 다(findmnt: SOURCE share[/<폴더>], FSTYPE virtiofs). stat -f 는 virtiofs 를 fuseblk 로
+# 보고해서 쓰지 않는다(2026-10-29 실측)
 vm_repo_is_virtiofs() {
-  vm_ssh "mountpoint -q $(vm_q "$VM_GUEST_REPO") && [ \"\$(stat -f -c %T $(vm_q "$VM_GUEST_REPO"))\" = virtiofs ]" 2>/dev/null
+  vm_ssh "[ \"\$(findmnt -n -o FSTYPE -M $(vm_q "$VM_GUEST_REPO"))\" = virtiofs ]" 2>/dev/null
+}
+
+# 공유를 VM 을 만든 뒤에 붙이면 태그는 /mnt/share 에 마운트되지만 /repo bind 는 없다 — rsync 로 계속하되 재실행 명령을 안내한다
+vm_check_share_unbound() {
+  vm_ssh "mountpoint -q $(vm_q "$VM_GUEST_SHARE_STAGE")" 2>/dev/null || return 0
+  vm_warn "VM $VM_GUEST_SHARE_STAGE 에 VirtioFS 공유가 붙어 있는데 $VM_GUEST_REPO 로 bind 되지 않았다 — 이번에는 rsync 로 맞춘다.
+  해결(한 번, 다시 돌려도 된다): ssh $VM_SSH_HOST $VM_REINSTALL_CMD"
 }
 
 # VirtioFS 공유를 VM 을 만든 뒤에 붙이면 install.sh 의 bind 덮기가 설정되지 않은 채다 — 맥의 node_modules(darwin)·빌드 산출물과 섞인다
@@ -266,6 +277,7 @@ vm_proxy_if_mac() {
     vm_check_overlays
     vm_prepare_worktree "$here" "$share" virtiofs
   else
+    vm_check_share_unbound
     vm_prepare_worktree "$here" "$share"
     vm_sync_repo "$here" "$dir"
   fi

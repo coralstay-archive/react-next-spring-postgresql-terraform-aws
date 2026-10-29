@@ -73,7 +73,9 @@ case "$*" in
   *"-E 75"*) exit "$([ "${FAKE_LOCK_BUSY:-0}" = 1 ] && echo 75 || echo 0)" ;;
   # VirtioFS 공유의 bind 덮기 확인: 빠진 디렉터리를 한 줄씩(FAKE_OVERLAY_MISSING)
   *"frontend/node_modules"*) [ -n "${FAKE_OVERLAY_MISSING:-}" ] && echo "$FAKE_OVERLAY_MISSING"; exit 0 ;;
-  *"mountpoint -q"*) exit "$([ "${FAKE_VIRTIOFS:-0}" = 1 ] && echo 0 || echo 1)" ;;
+  # /repo 가 VirtioFS(/mnt/share 안 저장소의 bind)인지(FAKE_VIRTIOFS), 태그만 /mnt/share 에 붙고 bind 는 없는지(FAKE_STAGE_MOUNTED)
+  *findmnt*) exit "$([ "${FAKE_VIRTIOFS:-0}" = 1 ] && echo 0 || echo 1)" ;;
+  *"mountpoint -q '/mnt/share'"*) exit "$([ "${FAKE_STAGE_MOUNTED:-0}" = 1 ] && echo 0 || echo 1)" ;;
   *"cloud-init status --wait"*) exit "${FAKE_CLOUD_INIT_RC:-0}" ;;
   *"make "*) echo "FAKE-REMOTE-MAKE"; exit "${FAKE_MAKE_RC:-0}" ;;
   *) exit 0 ;;
@@ -272,6 +274,111 @@ check "TASK-64#2 install.sh 의 shellcheck·kubeconform 버전은 ci.yml 고정�
     [ -n \"\$ci\" ] && [ \"\$ci\" = \"\$loc\" ] || { echo \"\$v ci=\$ci install=\$loc\"; exit 1; }
   done"
 
+# install.sh 저장소 공유(dev_share_setup): ROCKY_INSTALL_LIB=1 로 함수만 읽고 가짜 mount·umount·mountpoint 로 부른다.
+# 가짜 mount 는 fstab 의 bind 줄이면 대상(빈 디렉터리)을 원본으로 가는 심볼릭 링크로 바꾸고, virtiofs 는 FAKE_SHARE=1 일 때만 된다.
+IFAKE="$TMP/ifake"; IS="$TMP/istate"
+mkdir -p "$IFAKE/bin"
+cat >"$IFAKE/bin/mount" <<'SH'
+#!/usr/bin/env bash
+printf 'mount %s\n' "$*" >>"$FAKE_ISTATE/calls.log"
+t="$1"; line="$(awk -v p="$t" '$2 == p' "$FAKE_FSTAB" | tail -n1)"
+[ -n "$line" ] || exit 1
+set -- $line
+case "$3" in
+  virtiofs) [ "${FAKE_SHARE:-0}" = 1 ] || exit 32 ;;
+  none) rmdir "$t" 2>/dev/null || exit 32; ln -s "${1//\\040/ }" "$t" ;;
+esac
+echo "$t" >>"$FAKE_ISTATE/mounted"
+SH
+cat >"$IFAKE/bin/umount" <<'SH'
+#!/usr/bin/env bash
+printf 'umount %s\n' "$*" >>"$FAKE_ISTATE/calls.log"
+t="${*: -1}"
+awk -v p="$t" '$0 != p && index($0, p "/") != 1' "$FAKE_ISTATE/mounted" >"$FAKE_ISTATE/mounted.tmp"; mv "$FAKE_ISTATE/mounted.tmp" "$FAKE_ISTATE/mounted"
+[ -L "$t" ] && { rm "$t"; mkdir "$t"; }
+exit 0
+SH
+cat >"$IFAKE/bin/mountpoint" <<'SH'
+#!/usr/bin/env bash
+grep -qxF -- "${*: -1}" "$FAKE_ISTATE/mounted"
+SH
+cat >"$IFAKE/bin/runuser" <<'SH'
+#!/usr/bin/env bash
+shift 3; "$@"
+SH
+cat >"$IFAKE/bin/systemctl" <<'SH'
+#!/usr/bin/env bash
+printf '%s %s\n' "${0##*/}" "$*" >>"$FAKE_ISTATE/calls.log"
+SH
+cp "$IFAKE/bin/systemctl" "$IFAKE/bin/chown"
+chmod +x "$IFAKE/bin/"*
+SHARE_OPTS="rw,nofail,context=system_u:object_r:container_file_t:s0"
+ist_reset() {
+  rm -rf "$IS"; mkdir -p "$IS/mnt/share" "$IS/repo"
+  echo "UUID=f871 / xfs defaults 0 1" >"$IS/fstab"; : >"$IS/mounted"; : >"$IS/calls.log"
+}
+inst_share() {
+  env PATH="$IFAKE/bin:$PATH" FAKE_ISTATE="$IS" FAKE_FSTAB="$IS/fstab" ROCKY_INSTALL_LIB=1 "$@" bash -c '
+    . deploy/rocky/install.sh
+    FSTAB="$FAKE_FSTAB"; SHARE_STAGE="$FAKE_ISTATE/mnt/share"; SHARE_PATH="$FAKE_ISTATE/repo"; TARGET_USER=rocky
+    dev_share_setup "$FAKE_ISTATE/overlay"'
+}
+fstab_has() { grep -qxF -- "$1" "$IS/fstab" || { echo "fstab 에 없음: $1"; echo "--- fstab:"; cat "$IS/fstab"; echo "--- output:"; echo "$OUT"; return 1; }; }
+fstab_lacks() { ! grep -qF -- "$1" "$IS/fstab" || { echo "fstab 에 있으면 안 됨: $1"; cat "$IS/fstab"; return 1; }; }
+called_i() { grep -qF -- "$1" "$IS/calls.log" || { echo "호출 없음: $1"; cat "$IS/calls.log"; return 1; }; }
+same_dir() { [ "$(cd "$1" && pwd -P)" = "$(cd "$2" && pwd -P)" ] || { echo "$1 → $(cd "$1" && pwd -P) (기대 $2)"; return 1; }; }
+t_share_nested() {
+  # Apple Virtualization 백엔드: 태그 루트 아래에 고른 폴더 이름의 디렉터리 하나 → 그것을 /repo 로 bind, 그 아래 VM 로컬 덮기
+  ist_reset; mkdir -p "$IS/mnt/share/react-x/frontend" "$IS/mnt/share/react-x/backend"; touch "$IS/mnt/share/react-x/Makefile"
+  run_capture inst_share FAKE_SHARE=1
+  rc_is 0 && fstab_has "share $IS/mnt/share virtiofs $SHARE_OPTS 0 0" \
+    && fstab_has "$IS/mnt/share/react-x $IS/repo none bind,nofail,x-systemd.requires-mounts-for=$IS/mnt/share 0 0" \
+    && fstab_has "$IS/overlay/frontend-node_modules $IS/repo/frontend/node_modules none bind,nofail,x-systemd.requires-mounts-for=$IS/repo 0 0" \
+    && fstab_has "$IS/overlay/backend-build $IS/repo/backend/build none bind,nofail,x-systemd.requires-mounts-for=$IS/repo 0 0" \
+    && fstab_has "$IS/overlay/backend-.gradle $IS/repo/backend/.gradle none bind,nofail,x-systemd.requires-mounts-for=$IS/repo 0 0" || return 1
+  [ -f "$IS/repo/Makefile" ] || { echo "/repo 에 저장소 파일이 없다"; return 1; }
+  same_dir "$IS/repo/frontend/node_modules" "$IS/overlay/frontend-node_modules" && same_dir "$IS/repo/backend/build" "$IS/overlay/backend-build" || return 1
+  # 다시 돌려도 fstab·마운트가 그대로
+  cp "$IS/fstab" "$IS/fstab.1"; cp "$IS/mounted" "$IS/mounted.1"
+  run_capture inst_share FAKE_SHARE=1
+  rc_is 0 && diff "$IS/fstab.1" "$IS/fstab" && diff "$IS/mounted.1" "$IS/mounted"
+}
+check "TASK-64#1 install.sh 공유: Apple 백엔드(태그 루트 아래 폴더 하나) → /mnt/share/<폴더> 를 /repo 로 bind + VM 로컬 덮기, 다시 돌려도 그대로" t_share_nested
+t_share_root_repo() {
+  # 태그 루트가 곧 저장소(.git·Makefile)면 루트를 bind
+  ist_reset; mkdir -p "$IS/mnt/share/.git" "$IS/mnt/share/frontend" "$IS/mnt/share/docs"; touch "$IS/mnt/share/Makefile"
+  run_capture inst_share FAKE_SHARE=1
+  rc_is 0 && fstab_has "$IS/mnt/share $IS/repo none bind,nofail,x-systemd.requires-mounts-for=$IS/mnt/share 0 0" \
+    && fstab_lacks "$IS/mnt/share/docs" && [ -f "$IS/repo/Makefile" ] && same_dir "$IS/repo/frontend/node_modules" "$IS/overlay/frontend-node_modules"
+}
+check "TASK-64#1 install.sh 공유: 태그 루트가 저장소(.git·Makefile)면 루트를 /repo 로 bind" t_share_root_repo
+t_share_ambiguous() {
+  # 저장소 표시도 없고 하위 디렉터리가 여럿이면 고르지 않고 실패
+  ist_reset; mkdir -p "$IS/mnt/share/a" "$IS/mnt/share/b"
+  run_capture inst_share FAKE_SHARE=1
+  rc_is 1 && has_text "하위 디렉터리" && has_text "a b" && fstab_lacks " $IS/repo "
+}
+check "TASK-64#1 install.sh 공유: 저장소를 고를 수 없으면(하위 디렉터리 여럿) 실패하고 /repo 를 건드리지 않는다" t_share_ambiguous
+t_share_migrate() {
+  # 옛 배치(share 를 /repo 에 바로 마운트)의 fstab 줄을 지우고 내린 뒤 스테이징 + bind 로
+  ist_reset; mkdir -p "$IS/mnt/share/react-x/frontend"; touch "$IS/mnt/share/react-x/Makefile"
+  echo "share $IS/repo virtiofs $SHARE_OPTS 0 0" >>"$IS/fstab"; echo "$IS/repo" >"$IS/mounted"
+  run_capture inst_share FAKE_SHARE=1
+  rc_is 0 && fstab_lacks "share $IS/repo virtiofs" && called_i "umount -R $IS/repo" \
+    && fstab_has "share $IS/mnt/share virtiofs $SHARE_OPTS 0 0" \
+    && fstab_has "$IS/mnt/share/react-x $IS/repo none bind,nofail,x-systemd.requires-mounts-for=$IS/mnt/share 0 0" && [ -f "$IS/repo/Makefile" ] || return 1
+  [ "$(grep -c " $IS/repo " "$IS/fstab")" = 1 ] || { echo "/repo 줄이 하나가 아니다"; cat "$IS/fstab"; return 1; }
+}
+check "TASK-64#1 install.sh 공유: 옛 fstab 줄(share /repo virtiofs)을 내리고 /mnt/share + bind 로 바꾼다" t_share_migrate
+t_share_none() {
+  # 공유가 없으면(rsync 방식) /repo 는 VM 로컬 그대로 사용자 소유, bind 없음
+  ist_reset
+  run_capture inst_share FAKE_SHARE=0
+  rc_is 0 && has_text "rsync" && fstab_has "share $IS/mnt/share virtiofs $SHARE_OPTS 0 0" && fstab_lacks " $IS/repo " \
+    && called_i "chown rocky: $IS/repo" && [ -d "$IS/repo" ] && [ ! -L "$IS/repo" ]
+}
+check "TASK-64#1 install.sh 공유: 공유가 없으면 /repo 는 VM 로컬(사용자 소유, rsync 방식)" t_share_none
+
 # ================================================================ TASK-64#3 ~/.ssh/config Include + make vm-*
 for t in vm-create vm-start vm-stop vm-status vm-ssh; do
   check "TASK-64#3 make $t 타깃" sh -c "grep -Eq '^$t:' Makefile"
@@ -447,7 +554,7 @@ t_proxy_virtiofs() {
   # UTM 에서 공유 디렉터리를 붙여 /repo 가 VirtioFS 로 마운트돼 있으면 rsync 없이 바로
   fake_reset; echo started >"$FAKE_STATE/vm"
   run_capture vm_run FAKE_VIRTIOFS=1 ./scripts/test.sh
-  rc_is 0 && not_called "rsync" && called "make test" || return 1
+  rc_is 0 && not_called "rsync" && called "make test" && called "findmnt -n -o FSTYPE -M '/repo'" || return 1
   fake_reset; echo started >"$FAKE_STATE/vm"
   run_capture vm_run FAKE_RSYNC_RC=12 ./scripts/test.sh
   rc_is 1 && has_text "rsync" && not_called "make test"
@@ -468,6 +575,15 @@ t_proxy_virtiofs_overlay() {
   rc_is 0 && lacks_text "WARNING"
 }
 check "TASK-64#5 VirtioFS 공유인데 VM 로컬 bind 덮기가 없으면 install.sh 재실행 명령을 안내한다" t_proxy_virtiofs_overlay
+t_proxy_share_unbound() {
+  # 공유를 VM 을 만든 뒤에 붙여 태그만 /mnt/share 에 있고 /repo bind 는 없으면: rsync 로 계속하되 재실행 명령을 안내한다
+  fake_reset; echo started >"$FAKE_STATE/vm"
+  run_capture vm_run FAKE_STAGE_MOUNTED=1 ./scripts/test.sh
+  rc_is 0 && has_text "WARNING" && has_text "/mnt/share" \
+    && has_text "sudo /usr/local/sbin/rocky-install.sh --profile dev --user rocky --share-tag share --share-path /repo" \
+    && called "rsync -a --delete" && called "make test"
+}
+check "TASK-64#1 공유가 /mnt/share 에만 있고 /repo bind 가 없으면 rsync 로 계속하며 install.sh 재실행 명령을 안내한다" t_proxy_share_unbound
 t_proxy_lock_busy() {
   # 다른 실행(취소된 호출이 남긴 원격 make 등)이 잠금을 잡고 있으면 rsync 도 make 도 하지 않고 바로 실패한다
   fake_reset; echo started >"$FAKE_STATE/vm"

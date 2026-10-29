@@ -5,7 +5,8 @@
 #   --profile dev      server + 개발 도구(Java 25 Temurin·Node·clang/llvm/libbpf-devel/bpftool/kernel-devel·kubectl·kubeconform·yq·
 #                      ShellCheck·actionlint·terraform·graphviz) + 저장소 공유(VirtioFS → /repo) + VM 로컬 빌드 디렉터리
 #   --user <이름>      Podman 사용자 소켓·linger 를 켤 사용자(필수)
-#   --share-tag/--share-path  dev 의 VirtioFS 태그(UTM 기본 share)와 마운트 위치(기본 /repo)
+#   --share-tag/--share-path  dev 의 VirtioFS 태그(UTM 기본 share)와 저장소 위치(기본 /repo). 태그는 /mnt/share 에 마운트하고 그 안의
+#                      저장소 디렉터리를 /repo 로 bind 한다(UTM Apple Virtualization 백엔드는 고른 폴더를 태그 루트의 하위 디렉터리로 내보낸다)
 # SELinux 는 enforcing 그대로 둔다 — 끄지 않고, enforcing 이 아니면 실패한다. 저장소 공유는 context=container_file_t 로 마운트해서
 # Podman 볼륨으로 써도 거부되지 않게 한다.
 # 고정 버전은 아래 *_VERSION·*_SHA256(aarch64 — 개발 VM·t4g EC2). 버전을 올릴 때는 sha256 도 같이 바꾸고, CI(ci.yml)에도 있는
@@ -33,6 +34,62 @@ STAMP_DIR="/usr/local/lib/rocky-install"
 
 log() { echo "==> [install] $*" >&2; }
 die() { echo "ERROR: [install] $*" >&2; exit 1; }
+
+# ---------------------------------------------------------------- 저장소 공유(dev) — 함수는 vm_test.sh 가 가짜 mount 로 부르게 여기 둔다
+SHARE_STAGE="/mnt/share"; FSTAB="/etc/fstab"
+fstab_add() { grep -qF " $2 " "$FSTAB" || echo "$1 $2 $3 $4 0 0" >>"$FSTAB"; }
+fstab_del() { awk -v p="$1" '$2 != p' "$FSTAB" >"$FSTAB.tmp" && cat "$FSTAB.tmp" >"$FSTAB" && rm -f "$FSTAB.tmp"; }
+# 공유 안의 저장소 루트: 루트에 .git·Makefile 이 있으면 루트(QEMU 백엔드), 아니면 하위 디렉터리가 하나뿐일 때 그것(Apple Virtualization
+# 백엔드 — 디렉터리 공유를 "여러 디렉터리 공유"로 내보내 태그 루트 아래에 고른 맥 폴더 이름의 디렉터리가 하나 생긴다, 2026-10-29 실측)
+share_root() {
+  local d n=0 only=""
+  if [ -e "$1/.git" ] || [ -f "$1/Makefile" ]; then printf '%s' "$1"; return 0; fi
+  for d in "$1"/*; do [ -d "$d" ] && { n=$((n + 1)); only="$d"; }; done
+  [ "$n" = 1 ] && printf '%s' "$only"
+}
+# VirtioFS 태그를 SHARE_STAGE 에 마운트하고 저장소 루트를 SHARE_PATH 로 bind, 그 아래 플랫폼별 산출물은 VM 로컬 디렉터리($1)로 덮는다.
+# context=container_file_t: SELinux 레이블이 없는 공유 파일을 Podman 볼륨으로 써도 거부되지 않게. 다시 돌려도 된다.
+dev_share_setup() {
+  local overlay="$1" root line d src
+  # 옛 배치(태그를 SHARE_PATH 에 바로 마운트)는 지우고 아래에서 스테이징 + bind 로 다시 만든다
+  if awk -v p="$SHARE_PATH" '$2 == p && $3 == "virtiofs" { f = 1 } END { exit !f }' "$FSTAB"; then
+    log "옛 fstab 줄($SHARE_PATH virtiofs)을 $SHARE_STAGE + bind 로 바꾼다"
+    fstab_del "$SHARE_PATH"
+    ! mountpoint -q "$SHARE_PATH" || umount -R "$SHARE_PATH" || die "$SHARE_PATH 를 내리지 못했다(쓰는 프로세스가 있다?) — 끝낸 뒤 다시 돌린다"
+  fi
+  mkdir -p "$SHARE_STAGE" "$SHARE_PATH"
+  fstab_add "$SHARE_TAG" "$SHARE_STAGE" virtiofs "rw,nofail,context=system_u:object_r:container_file_t:s0"
+  systemctl daemon-reload
+  # 공유는 선택이다: UTM 창에서 디렉터리를 직접 붙였을 때만 마운트된다. 없으면 SHARE_PATH 는 VM 로컬 디렉터리이고, 맥의 make test 가
+  # rsync 로 작업 트리를 맞춘다(scripts/_vm.sh vm_sync_repo) — 그래서 사용자 소유로 둔다.
+  if ! mountpoint -q "$SHARE_STAGE" && ! mount "$SHARE_STAGE" 2>/dev/null; then
+    log "공유 디렉터리(VirtioFS 태그 $SHARE_TAG)가 없다 — $SHARE_PATH 는 VM 로컬(맥의 make test 가 rsync 로 맞춘다)"
+    mountpoint -q "$SHARE_PATH" || chown "$TARGET_USER:" "$SHARE_PATH"
+    return 0
+  fi
+  root="$(share_root "$SHARE_STAGE")" || die "공유($SHARE_STAGE)에서 저장소를 고르지 못했다 — 루트에 .git·Makefile 이 없고 하위 디렉터리가 하나가 아니다: $(cd "$SHARE_STAGE" && printf '%s ' *)
+  해결: UTM 창의 공유 디렉터리를 저장소 폴더 하나로 고친다"
+  line="${root// /\\040} $SHARE_PATH none bind,nofail,x-systemd.requires-mounts-for=$SHARE_STAGE 0 0"
+  if ! grep -qxF "$line" "$FSTAB"; then
+    fstab_del "$SHARE_PATH"
+    ! mountpoint -q "$SHARE_PATH" || umount -R "$SHARE_PATH" || die "$SHARE_PATH 를 내리지 못했다(쓰는 프로세스가 있다?) — 끝낸 뒤 다시 돌린다"
+    echo "$line" >>"$FSTAB"
+    systemctl daemon-reload
+  fi
+  mountpoint -q "$SHARE_PATH" || mount "$SHARE_PATH" || die "$root → $SHARE_PATH bind 마운트 실패"
+  log "저장소 공유: $SHARE_TAG($root) → $SHARE_PATH"
+  # 플랫폼이 다른 산출물은 맥과 섞이지 않게 VM 로컬 디렉터리를 bind 로 덮는다: frontend/node_modules(네이티브 모듈 darwin ↔ linux),
+  # backend/build·backend/.gradle(맥 IDE 빌드와 동시 실행 충돌). 맥 쪽에는 빈 마운트 지점 디렉터리만 생긴다(gitignore 대상).
+  for d in frontend/node_modules backend/build backend/.gradle; do
+    [ -d "$SHARE_PATH/${d%%/*}" ] || continue
+    src="$overlay/${d//\//-}"
+    runuser -u "$TARGET_USER" -- mkdir -p "$src" "$SHARE_PATH/$d"
+    fstab_add "$src" "$SHARE_PATH/$d" none "bind,nofail,x-systemd.requires-mounts-for=$SHARE_PATH"
+    systemctl daemon-reload
+    mountpoint -q "$SHARE_PATH/$d" || mount "$SHARE_PATH/$d" || die "$src → $SHARE_PATH/$d bind 마운트 실패"
+  done
+}
+[ "${ROCKY_INSTALL_LIB:-0}" = 1 ] && return 0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -187,33 +244,9 @@ if ! installed "terraform-$TERRAFORM_VERSION"; then
   mark "terraform-$TERRAFORM_VERSION"
 fi
 
-# ---------------------------------------------------------------- 저장소 공유(VirtioFS) + VM 로컬 빌드 디렉터리(dev)
-# 맥의 저장소를 SHARE_PATH 에 마운트한다. context=container_file_t: SELinux 레이블이 없는 공유 파일을 Podman 볼륨으로 써도 거부되지 않게.
-mkdir -p "$SHARE_PATH"
-fstab_add() { grep -qF " $2 " /etc/fstab || echo "$1 $2 $3 $4 0 0" >>/etc/fstab; }
-fstab_add "$SHARE_TAG" "$SHARE_PATH" virtiofs "rw,nofail,context=system_u:object_r:container_file_t:s0"
-systemctl daemon-reload
-# 공유는 선택이다: UTM 창에서 디렉터리를 직접 붙였을 때만 마운트된다. 없으면 SHARE_PATH 는 VM 로컬 디렉터리이고, 맥의 make test 가
-# rsync 로 작업 트리를 맞춘다(scripts/_vm.sh vm_sync_repo) — 그래서 사용자 소유로 둔다.
-if ! mountpoint -q "$SHARE_PATH" && ! mount "$SHARE_PATH" 2>/dev/null; then
-  log "공유 디렉터리(VirtioFS 태그 $SHARE_TAG)가 없다 — $SHARE_PATH 는 VM 로컬(맥의 make test 가 rsync 로 맞춘다)"
-  chown "$TARGET_USER:" "$SHARE_PATH"
-fi
-
-# 플랫폼이 다른 산출물은 맥과 섞이지 않게 VM 로컬 디렉터리를 bind 로 덮는다: frontend/node_modules(네이티브 모듈 darwin ↔ linux),
-# backend/build·backend/.gradle(맥 IDE 빌드와 동시 실행 충돌). 맥 쪽에는 빈 마운트 지점 디렉터리만 생긴다(gitignore 대상).
-# 공유가 마운트돼 있을 때만 설정된다 — VM 을 만든 뒤(cloud-init 이 이미 돈 뒤) UTM 창에서 공유를 붙였다면 VM 을 다시 켜고 한 번 다시 돌린다:
+# ---------------------------------------------------------------- 저장소 공유(VirtioFS) + VM 로컬 빌드 디렉터리(dev) — 위 dev_share_setup
+# 공유가 마운트돼 있을 때만 bind 가 설정된다 — VM 을 만든 뒤(cloud-init 이 이미 돈 뒤) UTM 창에서 공유를 붙였다면 VM 을 다시 켜고 한 번 다시 돌린다:
 #   ssh rocky-dev sudo /usr/local/sbin/rocky-install.sh --profile dev --user rocky --share-tag share --share-path /repo
-# (맥의 make test 가 bind 가 빠진 것을 알아보고 이 명령을 안내한다 — scripts/_vm.sh vm_check_overlays)
-overlay="$home/.local/share/repo-overlay"
-if mountpoint -q "$SHARE_PATH"; then
-  for d in frontend/node_modules backend/build backend/.gradle; do
-    [ -d "$SHARE_PATH/${d%%/*}" ] || continue
-    src="$overlay/${d//\//-}"
-    runuser -u "$TARGET_USER" -- mkdir -p "$src" "$SHARE_PATH/$d"
-    fstab_add "$src" "$SHARE_PATH/$d" none "bind,nofail,x-systemd.requires-mounts-for=$SHARE_PATH"
-  done
-  systemctl daemon-reload
-  mount -a
-fi
+# (맥의 make test 가 bind 가 빠진 것을 알아보고 이 명령을 안내한다 — scripts/_vm.sh vm_check_overlays·vm_check_share_unbound)
+dev_share_setup "$home/.local/share/repo-overlay"
 log "완료(dev): 저장소 $SHARE_PATH, Podman 소켓 /run/user/$uid/podman/podman.sock"

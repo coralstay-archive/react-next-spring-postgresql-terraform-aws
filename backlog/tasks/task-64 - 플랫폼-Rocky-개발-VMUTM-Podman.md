@@ -4,7 +4,7 @@ title: '[플랫폼] Rocky 개발 VM(UTM) + Podman'
 status: In Progress
 assignee: []
 created_date: '2026-10-24 09:06'
-updated_date: '2026-10-25 01:08'
+updated_date: '2026-10-29 02:49'
 labels:
   - platform
 dependencies: []
@@ -67,4 +67,6 @@ documentation:
 [진행 10] 커밋 eafd127(전체 + 부모 backlog 편집). 남은 결정: (선택) UTM GUI 로 저장소 공유 추가 여부, AC #1 의 'VirtioFS 공유' 문구를 rsync 기본으로 바꿀지
 
 [진행 11] 독립 리뷰 6건 반영(ba6b714, 커밋 전 make test rc=0 528초). (1) worktree: VM 에 맥 저장소 경로 → /repo 심볼릭 링크 + 공통 .git 을 /repo/.git 에 rsync(공유 밖 공통 .git 은 거부) (2) VM 안 /tmp/board-repo-test.lock(flock -n): rsync 전 확인·rsync·원격 실행 모두. 원격 명령은 setsid 그룹 + 부모(sshd) 감시로 ssh 가 끊기면 그룹 TERM/KILL — 실 VM 에서 맥 ssh 를 죽이자 15초 안에 원격 make test 정리·잠금 해제, 동시 make test 는 1.5초 만에 잠금 오류로 실패 확인 (3) scripts/test.sh 주석 rsync 기본 + 선택 VirtioFS. AC #1 의 'VirtioFS 로 저장소 공유'는 UTM 샌드박스가 AppleScript 로 받은 경로의 보안 범위 북마크를 남기지 않아 선택 사항(UTM 화면에서 직접 추가)이 됐다 — AC 문구는 부모가 유저와 갱신 (4) vm-min 4608→4500(실측 4649) (5) cloud-init status --wait 를 VM 안 timeout 1200 + ssh keepalive(15초×4)로, 맥에 남아 있던 옛 cloud-init 대기 ssh(PID 32530, PPID 1) 종료 (6) 공유를 나중에 붙였을 때 bind 덮기 재실행 명령(ssh rocky-dev sudo /usr/local/sbin/rocky-install.sh --profile dev --user rocky --share-tag share --share-path /repo)을 README·install.sh 에 기록, 빠져 있으면 make test 가 경고. README 에 커밋 훅 make test 의 600초 시간 제한(fail-open) 안내
+
+[진행 12] UTM Apple Virtualization 백엔드는 디렉터리 공유를 '여러 디렉터리 공유'로 내보내 태그 share 루트 아래에 고른 맥 폴더 이름의 디렉터리가 하나 생긴다(실측: /repo/react-next-…) — /repo 가 저장소가 아니었다. install.sh dev_share_setup: 태그를 /mnt/share 에 마운트, 루트에 .git·Makefile 이 있으면 루트·아니면 하위 디렉터리 하나를 /repo 로 bind(fstab x-systemd.requires-mounts-for), 여럿이면 실패. 옛 줄(share /repo virtiofs)은 지우고 내린 뒤 옮긴다. _vm.sh: VirtioFS 판정을 findmnt FSTYPE 로(stat -f 는 fuseblk 로 보고 — 실측), /mnt/share 만 있고 bind 가 없으면 재실행 명령 경고. vm_test 72 통과(가짜 mount 로 중첩·루트·모호·옛 줄 이전·재실행). 실 VM: 재설치 후·재부팅 후 /repo = share[/react-…] virtiofs, node_modules·backend/build·.gradle VM 로컬 bind, 재실행 fstab 그대로. 맥 make test(VirtioFS 감지·rsync 생략) rc=0
 <!-- SECTION:NOTES:END -->

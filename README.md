@@ -101,10 +101,13 @@ VM 안(install.sh `--profile dev`): Podman + 사용자 소켓(`/run/user/<uid>/p
 실행한다. `node_modules`·`backend/build`·`.gradle`·`.terraform`처럼 플랫폼이 다른 산출물은 보내지 않고 VM 쪽 것을 그대로 쓰며(네이티브 모듈 darwin ↔ linux),
 `.env`·`deploy/*.local.txt` 같은 비밀 파일도 보내지 않는다. 한 방향(맥 → VM)이라 VM 안에서 고친 `/repo` 파일은 다음 동기화 때 덮인다.
 - (선택) 실시간 공유: UTM 창에서 `rocky-dev` → 편집 → 공유 → 디렉터리로 저장소를 직접 고르면(파일 선택 창이라 UTM 이 접근 권한을 기억한다)
-  다음 부팅부터 VirtioFS(태그 `share`)가 `/repo`에 마운트되고, 스크립트가 이를 알아보고 rsync 를 건너뛴다. 이때는
-  `frontend/node_modules`·`backend/build`·`backend/.gradle`을 VM 로컬 디렉터리로 bind 해서 덮어야 한다(맥의 darwin `node_modules`·빌드 산출물과
-  섞이지 않게). VM 을 만든 뒤에 공유를 붙였다면 이 bind 는 아직 없다 — 공유를 붙이고 VM 을 다시 켠 뒤 한 번 설치 스크립트를 다시 돌린다
-  (cloud-init 이 VM 안에 남겨 둔 스크립트, 다시 돌려도 된다):
+  VirtioFS(태그 `share`)가 VM `/mnt/share`에 마운트된다. UTM 의 Apple Virtualization 백엔드는 디렉터리 공유를 "여러 디렉터리 공유"로 내보내서
+  `/mnt/share` 바로 아래에 고른 맥 폴더 이름의 디렉터리(`/mnt/share/react-next-spring-postgresql-terraform-aws`)가 하나 생긴다 — 설치 스크립트가
+  그 디렉터리(태그 루트에 `.git`·`Makefile`이 있으면 루트)를 `/repo`로 bind 하고(fstab, 부팅 때도), 스크립트가 이를 알아보고 rsync 를 건너뛴다.
+  하위 디렉터리가 여럿이라 저장소를 고를 수 없으면 실패한다 — 공유는 저장소 폴더 하나만 고른다. 이때
+  `frontend/node_modules`·`backend/build`·`backend/.gradle`을 VM 로컬 디렉터리로 bind 해서 덮는다(맥의 darwin `node_modules`·빌드 산출물과
+  섞이지 않게). VM 을 만든 뒤에 공유를 붙였다면 `/repo` bind 와 덮기는 아직 없다 — 공유를 붙이고 VM 을 다시 켠 뒤 한 번 설치 스크립트를 다시 돌린다
+  (cloud-init 이 VM 안에 남겨 둔 스크립트, 다시 돌려도 된다. 옛 배치 — 태그를 `/repo`에 바로 마운트한 fstab 줄 — 도 이것으로 옮겨진다):
   `ssh rocky-dev sudo /usr/local/sbin/rocky-install.sh --profile dev --user rocky --share-tag share --share-path /repo`.
   bind 가 빠져 있으면 맥의 `make test`가 이 명령을 경고로 안내한다.
 - 동시 실행 잠금: VM 안 실행과 rsync 는 `/tmp/board-repo-test.lock`(flock)을 잡는다. 다른 실행이 돌고 있으면 기다리지 않고 바로 실패한다
@@ -114,7 +117,7 @@ VM 안(install.sh `--profile dev`): Podman + 사용자 소켓(`/run/user/<uid>/p
   스크립트가 VM 에 그 맥 저장소 경로 → `/repo` 심볼릭 링크를 만들고(VM 안 sudo, 맥은 건드리지 않는다) 공통 `.git`도 VM `/repo/.git`에 맞춘 뒤
   worktree 를 `/repo/.claude/worktrees/<이름>`에 동기화하므로 VM 안 git 이 그대로 동작한다. 공통 `.git`이 저장소 밖이면 거부한다.
 
-**SELinux**: VM 은 enforcing 그대로다(설치 스크립트가 enforcing 이 아니면 실패한다 — 끄지 않는다). 공유 `/repo`는
+**SELinux**: VM 은 enforcing 그대로다(설치 스크립트가 enforcing 이 아니면 실패한다 — 끄지 않는다). 공유(`/mnt/share` → `/repo`)는
 `context=system_u:object_r:container_file_t:s0`로 마운트해서(선택 공유를 붙인 경우) Podman 볼륨으로 써도 거부되지 않는다. VM 로컬 디렉터리를 컨테이너에 마운트할 때는
 `-v 경로:경로:Z`처럼 레이블을 붙인다. 거부가 의심되면 VM 안에서 `sudo ausearch -m avc -ts recent`.
 
