@@ -76,7 +76,7 @@ jacoco {
 
 tasks.test {
 	extensions.configure<JacocoTaskExtension> {
-		isEnabled = providers.gradleProperty("coverage").isPresent
+		isEnabled = providers.gradleProperty("coverage").map { it != "false" }.getOrElse(false)
 	}
 }
 

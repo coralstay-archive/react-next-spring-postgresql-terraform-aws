@@ -4,7 +4,7 @@ title: '[품질] SonarQube·SonarQube for IDE 로컬·CI'
 status: In Progress
 assignee: []
 created_date: 2026-10-29 01:21
-updated_date: '2026-10-29T11:46:00Z'
+updated_date: '2026-10-29T11:51:00Z'
 labels:
   - quality
   - platform
@@ -68,4 +68,6 @@ AC#5 진행: .sonarlint/connectedMode.json(board-backend)·.sonarlint/frontend.j
 AC#6 진행: .github/workflows/sonar.yml — pull_request·workflow_dispatch, permissions contents: read 만, services sonar-db(postgres:18-alpine)·sonarqube(26.10 Community, compose 와 같은 다이제스트 — 테스트가 비교), SONAR_ES_BOOTSTRAP_CHECKS_DISABLE(서비스가 단계보다 먼저 떠 러너 sysctl 을 못 바꾼다), checkout fetch-depth 0 → setup-java@v6·setup-node@v7 → scripts/sonar.sh init(SONAR_CONFIG_DIR=$RUNNER_TEMP/sonar, 실행마다 무작위 관리자 비밀번호·토큰, ::add-mask::) → scripts/sonar.sh scan(게이트). secret 없음. actionlint 통과(VM, shellcheck 연동). 한계: 서버가 매번 새로 떠 매번 첫 분석 → 새 코드 게이트는 사실상 통과(README 명시). 실제 GitHub 러너 실행은 하지 않았다(push 없음).
 
 리뷰 반영 1(B1·B2 보강): k3d_preflight(k3d-up·profile·smoke)도 scripts/sonar.sh refuse-if-running 으로 SonarQube 가 떠 있으면 거부(맥에서는 ssh 로 VM 안 podman ps — k3s 재작업에도 그대로 쓰는 진입점). 잠금 확인 flock 이 0·75 가 아니면 거부, podman ps 실패는 '없음'이 아니라 거부(실패 쪽으로 닫힘). 9000 은 VM 127.0.0.1 에만 공개 — 맥은 ssh -N -L 9000:localhost:9000 rocky-dev 터널(connectedMode 주소와 같다), 자격 증명을 맞추지 못하면 compose stop 후 실패. curl -K 설정 값의 \ " 이스케이프. 실 VM: sonar-up 뒤 맥에서 http://192.168.64.13:9000 → 연결 안 됨(000), 터널로 UP 확인, 맥 make k3d-up 은 'SonarQube 가 떠 있다 … make sonar-down' 으로 거부. sonar_test·k8s_test 에 테스트 추가(가짜 ps 실패·flock 실패·맥 ssh 확인·k3d 3 진입점).
+
+리뷰 반영 2: JaCoCo 에이전트는 coverage 속성 값이 false 가 아닐 때만(-Pcoverage=false 는 끔). @vitest/coverage-v8 범위를 vitest 와 같은 ^5.0.3 으로(lock 설치 버전 5.0.3 그대로 — 최신 5.0.5 는 vitest 5.0.5 를 요구해 맞추지 않았다).
 <!-- SECTION:NOTES:END -->
