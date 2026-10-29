@@ -1,15 +1,19 @@
 ---
-id: DRAFT-25
+id: TASK-66
 title: '[비용] Infracost 로컬·CI'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 01:22'
+updated_date: '2026-10-29 03:25'
 labels:
   - cost
   - platform
 dependencies:
-  - TASK-64
+  - TASK-65
+references:
+  - decision-11
+documentation:
+  - backlog/docs/doc-4 - 플랫폼-전환-결정-기록-2026-10-24.md
 ---
 
 ## Description

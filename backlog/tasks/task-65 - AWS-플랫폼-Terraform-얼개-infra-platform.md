@@ -1,15 +1,19 @@
 ---
-id: DRAFT-24
+id: TASK-65
 title: '[AWS] 플랫폼 Terraform 얼개 (infra/platform)'
-status: Draft
+status: To Do
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 01:22'
+updated_date: '2026-10-29 03:25'
 labels:
   - aws
   - platform
 dependencies:
   - TASK-64
+references:
+  - decision-11
+documentation:
+  - backlog/docs/doc-4 - 플랫폼-전환-결정-기록-2026-10-24.md
 ---
 
 ## Description
