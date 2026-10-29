@@ -395,7 +395,10 @@ if need_linter yq; then
   check "TASK-66#5 권한 최소: contents: read + pull-requests: write 만" t_wf_perms
   t_wf_secret_skip() {
     local j='.jobs.cost'
-    [ "$(yq -r "$j.env.INFRACOST_API_KEY" $W)" = '${{ secrets.INFRACOST_API_KEY }}' ] || { echo "job env 에 secret 없음"; return 1; }
+    # 키는 쓰는 단계(키 확인·cost diff·PR 코멘트)에만 env 로 준다 — job·워크플로 env 나 다른 단계(checkout·설치·guard)에는 없다
+    [ "$(yq -r '[.env, .jobs[].env] | map(select(. != null) | has("INFRACOST_API_KEY")) | any' $W)" = false ] || { echo "job·워크플로 env 에 키"; return 1; }
+    [ "$(yq -r "[$j.steps[] | select(.env.INFRACOST_API_KEY == \"\${{ secrets.INFRACOST_API_KEY }}\") | .name] | join(\",\")" $W)" \
+      = "Check Infracost API key,Cost diff (base branch → PR),Comment on PR" ] || { echo "키를 받는 단계가 다르다"; yq -r "$j.steps[] | .name + \" \" + (.env.INFRACOST_API_KEY // \"-\")" $W; return 1; }
     # 키 확인 단계(id: key)가 맨 앞이고, 나머지 단계는 모두 steps.key.outputs.present == 'true' 일 때만
     [ "$(yq -r "$j.steps[0].id" $W)" = key ] || { echo "첫 단계가 키 확인이 아니다"; return 1; }
     yq -r "$j.steps[0].run" $W | grep -q '::warning' || { echo "키가 없을 때 경고가 없다"; return 1; }

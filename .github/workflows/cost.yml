@@ -28,12 +28,13 @@ jobs:
   cost:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+    # 키(secret)는 쓰는 단계(키 확인·cost diff·PR 코멘트)에만 env 로 준다 — checkout·설치·guard 에는 넘기지 않는다
     steps:
       # 결과 JSON(base·diff)은 COST_OUT_DIR 에 남긴다(scripts/cost.sh). job env 에서는 runner 컨텍스트를 못 쓴다
       - name: Check Infracost API key
         id: key
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
         run: |
           echo "COST_OUT_DIR=$RUNNER_TEMP/cost" >> "$GITHUB_ENV"
           if [ -n "$INFRACOST_API_KEY" ]; then
@@ -58,12 +59,16 @@ jobs:
       - name: Cost diff (base branch → PR)
         if: steps.key.outputs.present == 'true'
         env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
           BASE_REF: ${{ github.base_ref }}
         run: scripts/cost.sh diff "origin/$BASE_REF"
 
+      # infracost v0.10.47 comment github 은 토큰을 --github-token 플래그로만 받는다(필수 플래그, 환경변수 없음 —
+      # cmd/infracost/comment_github.go). 값은 env 에서 풀어 넘기고 러너는 작업마다 새로 만들어진다
       - name: Comment on PR
         if: steps.key.outputs.present == 'true'
         env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
