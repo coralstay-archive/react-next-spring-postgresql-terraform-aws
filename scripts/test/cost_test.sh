@@ -95,6 +95,14 @@ t_ci_install_skip_same() {
   rc_is 0 && has_text "건너뛴다" && [ ! -s "$FAKE_STATE/calls.log" ]
 }
 check "TASK-66#1 CI 설치: 같은 버전이 이미 있으면 받지 않고 건너뛴다" t_ci_install_skip_same
+t_ci_install_exact_version() {
+  # v0.10.47 이 v0.10.470 같은 다른 버전에 부분 일치하지 않는다 — 다르면 다시 받는다
+  fake_reset; rm -rf "$TMP/dest"; mkdir -p "$TMP/dest"
+  printf '#!/bin/sh\necho "Infracost v%s0"\n' "$(iver $C)" >"$TMP/dest/infracost"; chmod +x "$TMP/dest/infracost"
+  ci_install env FAKE_ARCH=x86_64
+  lacks_text "건너뛴다" && grep -q '^curl ' "$FAKE_STATE/calls.log"
+}
+check "TASK-66#1 CI 설치: 버전 문자열이 정확히 같을 때만 건너뛴다(v…470 은 다시 받는다)" t_ci_install_exact_version
 t_ci_install_bad_arch() {
   fake_reset; rm -rf "$TMP/dest"
   ci_install env FAKE_ARCH=riscv64

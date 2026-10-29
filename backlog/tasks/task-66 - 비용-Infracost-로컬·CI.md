@@ -4,7 +4,7 @@ title: '[비용] Infracost 로컬·CI'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 07:21'
+updated_date: '2026-10-29 07:27'
 labels:
   - cost
   - platform
@@ -64,4 +64,6 @@ AC#2: infracost.yml(platform=infra/platform, 비교용 main=infra/main, envs/pro
 AC#4·B1: scripts/cost-guard.sh [--project <이름>] <JSON> [상한] — totalMonthlyCost(또는 프로젝트 breakdown) 를 jq 로 읽어 상한(인자 > COST_LIMIT_USD > 30) 초과면 1, 같으면 통과, 형식 오류(깨진 JSON·null·파일 없음·모르는 프로젝트·숫자 아닌 상한)는 2. breakdown·diff JSON 모두 같은 키. 샘플 JSON 7개(scripts/test/fixtures/infracost)로 cost_test 10개, make test 의 ==> cost 단계(오프라인).
 
 AC#5·B2: .github/workflows/cost.yml — pull_request(paths: infra/**·infracost*.yml·cost 스크립트·워크플로), 권한 contents: read + pull-requests: write 만. 첫 단계에서 secret INFRACOST_API_KEY 확인 → 없으면 ::warning 후 나머지 단계 모두 if 로 건너뜀. checkout(fetch-depth 0, @v7 — ci.yml 과 같은 메이저 태그 방식) → scripts/ci/install-infracost.sh → scripts/cost.sh diff origin/$BASE_REF → infracost comment github --behavior update → cost-guard --project platform diff.json. run 에 ${{ }} 직접 사용 없음(env 로). actionlint 1.7.12 통과(job env 의 runner.temp 사용을 actionlint 가 잡아 GITHUB_ENV 로 옮김). cost_test #5 10개. 미검증(실제 GitHub 실행·키 필요): PR 코멘트 실제 게시, diff JSON 의 프로젝트 매칭.
+
+리뷰 반영 #7(AC#1): install-infracost.sh 는 --version 첫 줄이 정확히 'Infracost v<버전>' 일 때만 건너뜀(v0.10.470 부분 일치 방지). 테스트 추가.
 <!-- SECTION:NOTES:END -->

@@ -20,7 +20,8 @@ case "$(uname -m)" in
   *) die "고정하지 않은 아키텍처: $(uname -m) (linux arm64·amd64 만)" ;;
 esac
 
-if [ -x "$dest/infracost" ] && "$dest/infracost" --version 2>/dev/null | grep -qF "v$INFRACOST_VERSION"; then
+# 정확히 같은 버전 문자열일 때만(부분 일치 — v0.10.470 — 로 건너뛰지 않게)
+if [ -x "$dest/infracost" ] && [ "$("$dest/infracost" --version 2>/dev/null | head -n1)" = "Infracost v$INFRACOST_VERSION" ]; then
   log "v$INFRACOST_VERSION 이 이미 있다 — 건너뛴다"
   exit 0
 fi
