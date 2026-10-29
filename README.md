@@ -701,7 +701,10 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 가격은 Infracost 호스팅 가격 API 로 조회한다 — 보내는 것은 리소스 메타데이터(종류·크기·리전)뿐이고 상태·자격 증명은 보내지 않는다.
 
 - 설정: `infracost.yml`(프로젝트 `platform` = `infra/platform`, 비교용 `main` = `infra/main`, 둘 다 `envs/prod.tfvars`) +
-  `infracost-usage.yml`(가동 시간·데이터 전송량).
+  usage 파일은 프로젝트마다 따로 — `infracost-usage.yml`(platform: 가동 시간·데이터 전송량), `infracost-usage-main.yml`(main: 가동 시간만).
+  사용량 전용 리소스(`aws_data_transfer`)는 usage 파일을 쓰는 프로젝트마다 더해져서 한 파일을 같이 쓰면 두 번 센다.
+- 버전: Infracost **v0.10.47** 로 고정했다. 새 CLI(v2, infracost/cli)가 나와 있다 — CI 에 기대기 전(TASK-52)에 v0.10 가격 API 지원이
+  계속되는지 다시 확인한다.
 - **스팟 보정**: Infracost v0.10.x 는 `aws_instance` 에 `spot_price` 가 있을 때만 스팟 단가를 쓴다. 노드는 `instance_market_options`
   로 스팟이라 그대로면 온디맨드(t4g.large 약 $49/월)로 계산된다. 그래서 usage 파일의 노드 `monthly_hrs` 를 "온디맨드 환산 시간"
   (730 × 스팟 상한 $0.026 / 온디맨드 $0.0672 ≈ 282)으로 둔다 — 표의 시간은 실제 가동 시간이 아니다. 단가가 바뀌면 usage 파일의

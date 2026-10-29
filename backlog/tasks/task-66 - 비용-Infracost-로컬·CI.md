@@ -4,7 +4,7 @@ title: '[비용] Infracost 로컬·CI'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 07:27'
+updated_date: '2026-10-29 07:35'
 labels:
   - cost
   - platform
@@ -66,4 +66,6 @@ AC#4·B1: scripts/cost-guard.sh [--project <이름>] <JSON> [상한] — totalMo
 AC#5·B2: .github/workflows/cost.yml — pull_request(paths: infra/**·infracost*.yml·cost 스크립트·워크플로), 권한 contents: read + pull-requests: write 만. 첫 단계에서 secret INFRACOST_API_KEY 확인 → 없으면 ::warning 후 나머지 단계 모두 if 로 건너뜀. checkout(fetch-depth 0, @v7 — ci.yml 과 같은 메이저 태그 방식) → scripts/ci/install-infracost.sh → scripts/cost.sh diff origin/$BASE_REF → infracost comment github --behavior update → cost-guard --project platform diff.json. run 에 ${{ }} 직접 사용 없음(env 로). actionlint 1.7.12 통과(job env 의 runner.temp 사용을 actionlint 가 잡아 GITHUB_ENV 로 옮김). cost_test #5 10개. 미검증(실제 GitHub 실행·키 필요): PR 코멘트 실제 게시, diff JSON 의 프로젝트 매칭.
 
 리뷰 반영 #7(AC#1): install-infracost.sh 는 --version 첫 줄이 정확히 'Infracost v<버전>' 일 때만 건너뜀(v0.10.470 부분 일치 방지). 테스트 추가.
+
+리뷰 반영 #2·#3(AC#2): usage 파일을 프로젝트마다 나눔 — infracost-usage.yml(platform: 노드 스팟 보정·aws_data_transfer 10GB), infracost-usage-main.yml(레거시 노드 730h 만). aws_data_transfer 는 usage 파일을 쓰는 프로젝트마다 더해져 공용 파일이면 이중 계산. '100GB 무료 구간' 주석은 틀려 고침(Infracost 는 계정 무료 전송량을 빼지 않음). **AC#2 실측은 여전히 미완 — 유저 API 키 등록 후 make cost 로 확인 필요.** Infracost v0.10.47 고정, 새 CLI v2(infracost/cli)가 있음 — CI 에 기대기 전(TASK-52) v0.10 지원 지속 여부 재확인(README 에도 적음).
 <!-- SECTION:NOTES:END -->

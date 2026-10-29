@@ -119,8 +119,9 @@ fi
 # monthly_hrs 를 "온디맨드 환산 시간"(730 × 스팟 상한/온디맨드)으로 보정한다. DLM 스냅샷은 Infracost 가 계산하지 않는다(README).
 CFG=infracost.yml
 USAGE=infracost-usage.yml
+USAGE_MAIN=infracost-usage-main.yml
 yqv() { yq -r "$1" "$2"; }
-check "TASK-66#2 $CFG·$USAGE 존재" sh -c "test -f $CFG && test -f $USAGE"
+check "TASK-66#2 $CFG·$USAGE·$USAGE_MAIN 존재" sh -c "test -f $CFG && test -f $USAGE && test -f $USAGE_MAIN"
 if need_linter yq; then
   t_cfg_projects() {
     [ "$(yqv '.version' $CFG)" = 0.1 ] || { echo "version 0.1 아님"; return 1; }
@@ -131,11 +132,20 @@ if need_linter yq; then
       v="$(yqv ".projects[] | select(.name == \"$p\") | .terraform_var_files[0]" $CFG)"
       [ "$v" = envs/prod.tfvars ] || { echo "$p var file: $v"; return 1; }
       [ -f "$(yqv ".projects[] | select(.name == \"$p\") | .path" $CFG)/$v" ] || { echo "$p: $v 없음"; return 1; }
-      u="$(yqv ".projects[] | select(.name == \"$p\") | .usage_file" $CFG)"
-      [ "$u" = "$USAGE" ] || { echo "$p usage_file: $u"; return 1; }
     done
+    # usage 파일은 프로젝트마다 따로 — aws_data_transfer 같은 사용량 전용 리소스는 usage 파일을 쓰는 프로젝트마다 더해진다(이중 계산 방지)
+    u="$(yqv '.projects[] | select(.name == "platform") | .usage_file' $CFG)"; [ "$u" = "$USAGE" ] || { echo "platform usage_file: $u"; return 1; }
+    u="$(yqv '.projects[] | select(.name == "main") | .usage_file' $CFG)"; [ "$u" = "$USAGE_MAIN" ] || { echo "main usage_file: $u"; return 1; }
   }
-  check "TASK-66#2 $CFG: platform(infra/platform)·비교용 main(infra/main), envs/prod.tfvars, 같은 usage 파일" t_cfg_projects
+  check "TASK-66#2 $CFG: platform(infra/platform)·비교용 main(infra/main), envs/prod.tfvars, usage 파일은 프로젝트마다 따로" t_cfg_projects
+  t_usage_main() {
+    [ "$(yqv '.version' $USAGE_MAIN)" = 0.1 ] || return 1
+    [ "$(yqv '.resource_usage."module.backend_host.aws_instance.this".monthly_hrs' $USAGE_MAIN)" = 730 ] || { echo "main 노드 730h 아님"; return 1; }
+    [ "$(yqv '[.resource_usage | keys[] | select(test("^module\\.k3s_node\\.|^aws_data_transfer\\."))] | length' $USAGE_MAIN)" = 0 ] || { echo "main usage 에 platform·데이터 전송 항목"; return 1; }
+    [ "$(yqv '[.resource_usage | keys[] | select(test("^module\\.backend_host\\."))] | length' $USAGE)" = 0 ] || { echo "platform usage 에 레거시 항목"; return 1; }
+  }
+  check "TASK-66#2 $USAGE_MAIN: 레거시 노드(730h)만, 데이터 전송·platform 항목은 platform usage 에만" t_usage_main
+  check "TASK-66#2 $USAGE: Infracost 는 AWS 무료 구간을 빼지 않는다 — '무료 구간' 이라 쓰지 않는다" sh -c "! grep -q '무료 구간' $USAGE"
   t_usage_spot() {
     local h a="module.k3s_node.aws_instance.this"
     [ "$(yqv '.version' $USAGE)" = 0.1 ] || { echo "version 0.1 아님"; return 1; }
@@ -160,7 +170,7 @@ if need_linter yq; then
     [ \"\$(yq -r '.resource_usage | to_entries[] | select(.key | test(\"^aws_data_transfer\\\\.\")) | .value.region' $USAGE)\" = us-east-1 ]"
 fi
 readme_cost() { awk '/^### 비용 추정 \(Infracost/{f=1; print; next} f && /^##/{exit} f' README.md; }
-for w in "infracost.yml" "infracost-usage.yml" "spot_price" "monthly_hrs" "DLM" "TASK-52"; do
+for w in "infracost.yml" "infracost-usage.yml" "infracost-usage-main.yml" "v0.10.47" "v2" "spot_price" "monthly_hrs" "DLM" "TASK-52"; do
   check "TASK-66#2 README '비용 추정 (Infracost)' 절에 '$w'" sh -c "$(declare -f readme_cost); readme_cost | grep -qF -- '$w'"
 done
 
@@ -331,7 +341,7 @@ if need_linter yq; then
   t_wf_trigger() {
     local p
     [ "$(yq -r '.on | keys | join(",")' $W)" = pull_request ] || { echo "트리거는 pull_request 만"; return 1; }
-    for p in 'infra/**' infracost.yml infracost-usage.yml scripts/cost.sh scripts/cost-guard.sh scripts/ci/install-infracost.sh .github/workflows/cost.yml; do
+    for p in 'infra/**' infracost.yml infracost-usage.yml infracost-usage-main.yml scripts/cost.sh scripts/cost-guard.sh scripts/ci/install-infracost.sh .github/workflows/cost.yml; do
       yq -e ".on.pull_request.paths[] | select(. == \"$p\")" $W >/dev/null || { echo "paths 에 $p 없음"; return 1; }
     done
   }

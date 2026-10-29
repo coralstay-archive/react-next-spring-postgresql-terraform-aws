@@ -1,0 +1,8 @@
+# Infracost 사용량 — 레거시 비교용 main 프로젝트(infra/main, TASK-66#2). platform 은 infracost-usage.yml.
+# 데이터 전송량은 넣지 않는다(platform 과 같은 트래픽을 두 번 세지 않게 — 비교는 리소스 비용만).
+version: 0.1
+resource_usage:
+  # 온디맨드 t4g.small 상시 가동
+  module.backend_host.aws_instance.this:
+    operating_system: linux
+    monthly_hrs: 730

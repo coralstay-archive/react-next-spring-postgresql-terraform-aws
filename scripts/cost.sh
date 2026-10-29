@@ -57,7 +57,7 @@ case "$cmd" in
     base="$(mktemp -d)"
     # 기준 트리는 infra 만 꺼낸다. 설정 파일이 그 ref 에 없으면(도입 전) 지금 것을 써서 같은 프로젝트로 비교한다
     git archive "$ref" infra | tar -x -C "$base"
-    for f in "$CFG" infracost-usage.yml; do
+    for f in "$CFG" infracost-usage.yml infracost-usage-main.yml; do
       if git cat-file -e "$ref:$f" 2>/dev/null; then git show "$ref:$f" >"$base/$f"; else cp "$f" "$base/$f"; fi
     done
     log "기준 $ref breakdown"

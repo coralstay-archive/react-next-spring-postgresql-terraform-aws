@@ -10,6 +10,7 @@ on:
       - "infra/**"
       - infracost.yml
       - infracost-usage.yml
+      - infracost-usage-main.yml
       - scripts/cost.sh
       - scripts/cost-guard.sh
       - scripts/ci/install-infracost.sh

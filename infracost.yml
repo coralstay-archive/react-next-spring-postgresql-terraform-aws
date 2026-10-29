@@ -1,6 +1,7 @@
 # Infracost 프로젝트 (TASK-66). make cost·cost-diff(scripts/cost.sh)와 CI(.github/workflows/cost.yml)가 저장소 루트에서 쓴다.
 # 가격은 Infracost 호스팅 가격 API 로 조회한다(리소스 메타데이터만 보낸다 — 상태·자격 증명·변수 값 X). 키 등록은 README 비용 추정.
-# terraform_var_files 는 프로젝트 path 기준, usage_file 은 저장소 루트 기준.
+# terraform_var_files 는 프로젝트 path 기준, usage_file 은 저장소 루트 기준. usage 파일은 프로젝트마다 따로 둔다(사용량 전용
+# 리소스 aws_data_transfer 가 usage 파일을 쓰는 프로젝트마다 더해진다).
 version: 0.1
 projects:
   # 실배포 플랫폼(decision-11). 비용 상한(scripts/cost-guard.sh, 기본 $30)은 이 프로젝트에 건다
@@ -14,4 +15,4 @@ projects:
     name: main
     terraform_var_files:
       - envs/prod.tfvars
-    usage_file: infracost-usage.yml
+    usage_file: infracost-usage-main.yml
