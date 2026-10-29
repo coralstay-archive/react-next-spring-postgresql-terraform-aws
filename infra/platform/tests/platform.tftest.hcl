@@ -185,3 +185,35 @@ run "toggles_on" {
     error_message = "사용자 도메인 + 추가 콜백"
   }
 }
+
+# TASK-65#6 TASK-65#B3 관리형 서비스 없음: 스택이 만드는 EC2 는 k3s 노드 하나뿐이고 LB 자리는 비어 있다. lb_node 를 켜면 HAProxy EC2 가 생긴다.
+# 리소스 종류 전체(NAT·ALB/NLB·CloudFront·RDS·MSK·ECR·CloudWatch 알람이 없음)는 scripts/test/platform_test.sh 가 허용 목록으로 본다
+run "b3_no_lb_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(module.lb_node) == 0
+    error_message = "B3 기본 구성에는 LB(관리형 ALB/NLB 도, HAProxy 도) 없음"
+  }
+  assert {
+    condition     = output.managed_services == toset(["cognito", "ebs-snapshots", "ssm"])
+    error_message = "B3 쓰는 관리형은 예외 목록(Cognito·SSM·EBS 스냅샷, 이메일이 있으면 Budgets)뿐 — SMS 는 앱 권한이라 TASK-52"
+  }
+}
+
+run "b3_lb_node_on" {
+  command = plan
+
+  variables {
+    enable_lb_node = true
+  }
+
+  assert {
+    condition     = length(module.lb_node) == 1
+    error_message = "lb_node 를 켜면 HAProxy LB 노드가 생긴다"
+  }
+  assert {
+    condition     = output.managed_services == toset(["cognito", "ebs-snapshots", "ssm"])
+    error_message = "lb_node 는 EC2 라 관리형 목록이 그대로"
+  }
+}

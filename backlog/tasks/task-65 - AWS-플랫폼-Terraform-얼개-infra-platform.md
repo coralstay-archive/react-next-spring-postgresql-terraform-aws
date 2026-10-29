@@ -4,7 +4,7 @@ title: '[AWS] 플랫폼 Terraform 얼개 (infra/platform)'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 05:56'
+updated_date: '2026-10-29 06:03'
 labels:
   - aws
   - platform
@@ -71,4 +71,6 @@ AC#3: k3s_node 데이터 볼륨 gp3 암호화(data_snapshot_id 로 스냅샷 복
 AC#4: user_data — 저장소 고정 커밋(repo_commit 40자리 검증)을 git fetch --depth 1 로 받아 deploy/rocky/install.sh --profile server --user rocky, dnf·fetch·install.sh 재시도 3회, set -euo pipefail, 끝 표식 /var/lib/board-node/bootstrap.done. files/node-ready.sh → board-node-ready(cloud-init status --wait 가 done + 표식일 때만 0; error·degraded 실패), 출력 node_ready_check. user_data_replace_on_change=true(OPS-2). k3s_install_cmd(기본 빈 값 — TASK-36 스크립트 자리)
 
 AC#5: modules/lb_node(HAProxy t4g.small 온디맨드, 80·443 TCP 패스스루 → 노드 사설 IP, SSM, EIP, count=enable_lb_node 기본 false), snapshots.tf(DLM, enable_snapshots 기본 true, 7개), budgets.tf(budget_email 없으면 안 만듦, ACTUAL 80%·FORECASTED 100%), cognito 는 ../main/modules/cognito 재사용(공개 주소 = domain_name 또는 <EIP>.sslip.io, 추가 콜백 변수)
+
+AC#6: B3 — platform_test.sh 가 infra/platform 과 source 로 부르는 모듈(재귀)의 resource 종류를 허용 목록(EC2·VPC·IAM·EBS·DLM·Budgets·Cognito)과 금지 목록(NAT·ALB/NLB/ELB·CloudFront·RDS·MSK·ECR·CloudWatch 알람 등)으로 검사(+ red: 모듈 안 NAT·스택 알람을 잡는지). tftest b3_no_lb_by_default/b3_lb_node_on + 출력 managed_services. docs/terraform-state.md(force-unlock, S3 버전 복구, bootstrap 로컬 state 백업·import 복구)
 <!-- SECTION:NOTES:END -->

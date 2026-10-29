@@ -62,3 +62,14 @@ output "cognito_client_secret" {
   value       = module.cognito.client_secret
   sensitive   = true
 }
+
+# B3 이 스택이 쓰는 관리형 서비스(예외 목록 안). 리소스 종류 전체 검사는 scripts/test/platform_test.sh
+output "managed_services" {
+  description = "쓰는 관리형 서비스(decision-11 예외: Cognito·SSM·EBS 스냅샷·Budgets)"
+  value = toset(compact([
+    "cognito",
+    "ssm", # Session Manager·Parameter Store(노드 role)
+    var.enable_snapshots ? "ebs-snapshots" : "",
+    var.budget_email != "" ? "budgets" : "",
+  ]))
+}

@@ -199,5 +199,54 @@ for k in enable_lb_node enable_snapshots budget_monthly_usd budget_email cognito
   check "TASK-65#5 envs/prod.tfvars 에 $k" grep -Eq "^$k += " "$P/envs/prod.tfvars"
 done
 
+# TASK-65#6 TASK-65#B3 관리형 서비스 리소스를 만들지 않는다: infra/platform 과 그것이 부르는 모듈(../main/modules/*)의 aws 리소스 종류가
+# 모두 허용 목록 안이어야 한다(EC2·VPC·IAM·EBS·DLM 스냅샷·Budgets·Cognito). 금지 목록(NAT·ALB/NLB·CloudFront·RDS·MSK·ECR·CloudWatch 알람)은 따로 본다
+B3_ALLOWED='^aws_(vpc|subnet|internet_gateway|route|route_table|route_table_association|security_group|vpc_security_group_(ingress|egress)_rule|instance|eip|ebs_volume|volume_attachment|iam_role|iam_role_policy|iam_role_policy_attachment|iam_instance_profile|dlm_lifecycle_policy|budgets_budget|cognito_[a-z_]+)$'
+B3_FORBIDDEN='^aws_(nat_gateway|lb|alb|elb|lb_listener|lb_target_group|cloudfront_[a-z_]+|db_instance|rds_[a-z_]+|msk_[a-z_]+|ecr_[a-z_]+|cloudwatch_metric_alarm|cloudwatch_composite_alarm|elasticache_[a-z_]+|mq_broker|opensearch_domain)$'
+# b3_types <스택 디렉터리> — 스택과 그것이 source 로 부르는 로컬 모듈(재귀)의 resource 종류
+b3_types() {
+  local seen=" " queue=("$1") d src
+  while [ ${#queue[@]} -gt 0 ]; do
+    d="$(cd "${queue[0]}" && pwd -P)"; queue=("${queue[@]:1}")
+    case "$seen" in *" $d "*) continue ;; esac
+    seen+="$d "
+    grep -hoE '^resource "aws_[a-z0-9_]+"' "$d"/*.tf | sed -E 's/^resource "(.*)"/\1/'
+    while IFS= read -r src; do queue+=("$d/$src"); done < <(grep -hoE '^\s*source\s*=\s*"\.[^"]*"' "$d"/*.tf | sed -E 's/.*"(.*)"/\1/')
+  done | sort -u
+}
+b3_check() {
+  local types bad
+  types="$(b3_types "$1")"
+  [ -n "$types" ] || { echo "리소스를 못 찾았다"; return 1; }
+  bad="$(grep -vE "$B3_ALLOWED" <<<"$types")"; [ -z "$bad" ] || { echo "허용 목록 밖: $bad"; return 1; }
+  bad="$(grep -E "$B3_FORBIDDEN" <<<"$types")"; [ -z "$bad" ] || { echo "관리형: $bad"; return 1; }
+}
+check "TASK-65#B3 infra/platform(+ 부르는 모듈)의 리소스 종류는 허용 목록 안이고 관리형(NAT·LB·CloudFront·RDS·MSK·ECR·알람)이 없다" b3_check "$P"
+t_b3_follows() {
+  local t r; t="$(b3_types "$P")"
+  for r in aws_vpc aws_cognito_user_pool aws_ebs_volume aws_dlm_lifecycle_policy aws_budgets_budget aws_instance; do
+    grep -qx "$r" <<<"$t" || { echo "없음: $r"; echo "$t"; return 1; }
+  done
+}
+check "TASK-65#6 b3_types 는 network·cognito·k3s_node·lb_node 모듈까지 따라간다" t_b3_follows
+t_b3_red() {
+  local d; d="$(mktemp -d "$TMP/b3.XXXX")"
+  cp -R "$P" "$d/platform"; mkdir -p "$d/main"; cp -R infra/main/modules "$d/main/"
+  rm -rf "$d/platform/.terraform" "$d"/platform/modules/*/.terraform
+  printf 'resource "aws_nat_gateway" "x" {}\n' >>"$d/main/modules/network/main.tf"
+  ! b3_check "$d/platform" >/dev/null 2>&1 || { echo "모듈 안의 NAT 를 못 잡았다"; return 1; }
+  sed -i.bak '/aws_nat_gateway/d' "$d/main/modules/network/main.tf"
+  printf 'resource "aws_cloudwatch_metric_alarm" "x" {}\n' >>"$d/platform/main.tf"
+  ! b3_check "$d/platform" >/dev/null 2>&1 || { echo "알람을 못 잡았다"; return 1; }
+}
+check "TASK-65#B3 검사는 부르는 모듈 안의 NAT·스택의 CloudWatch 알람을 잡는다(red)" t_b3_red
+
+# TASK-65#6 OPS-5 state 운영 문서: force-unlock(고착된 S3 lockfile) 절차, bootstrap 로컬 state 백업·복구
+check "TASK-65#6 docs/terraform-state.md 존재" test -f docs/terraform-state.md
+for w in "force-unlock <LOCK_ID>" "use_lockfile" ".tflock" "platform/terraform.tfstate" "main/prod/terraform.tfstate" "infra/bootstrap" "백업" "복구" "terraform import" "list-object-versions"; do
+  check "TASK-65#6 terraform-state.md 에 '$w'" grep -qF -- "$w" docs/terraform-state.md
+done
+check "TASK-65#6 platform backend.tf 가 terraform-state.md 를 가리킨다" grep -q 'docs/terraform-state.md' "$P/backend.tf"
+
 echo "platform tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]
