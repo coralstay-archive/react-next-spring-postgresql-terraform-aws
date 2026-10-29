@@ -1,9 +1,25 @@
 #!/bin/bash
-# k3s_node user_data (TASK-65). 첫 부팅에 한 번 cloud-init 이 실행한다. 실패하면 cloud-init status 가 error 가 된다.
+# k3s_node user_data (TASK-65). 첫 부팅에 한 번 cloud-init 이 실행한다. 한 단계라도 실패하면 멈추고 cloud-init status 가 error 가 된다.
+# 바뀌면 노드를 새로 만든다(user_data_replace_on_change). 준비 여부는 board-node-ready 로 확인한다(OPS-10).
 set -euo pipefail
 
+# 일시적인 미러·네트워크 오류 대비(OPS-10): retry <횟수> <명령...>
+retry() {
+  local max="$1" n=1
+  shift
+  until "$@"; do
+    [ "$n" -ge "$max" ] && return 1
+    echo "retry $n/$max: $*" >&2
+    sleep $((n * 15))
+    n=$((n + 1))
+  done
+}
+
+install -d -m 755 /usr/local/sbin /var/lib/board-node
+echo '${node_ready_b64}' | base64 -d >/usr/local/sbin/board-node-ready
+chmod 755 /usr/local/sbin/board-node-ready
+
 # --- 데이터 볼륨(TASK-65#3): 서비스 가드 → 볼륨 ID 로 장치 찾기 → 빈 장치만 포맷 → ${data_mount_path} 마운트
-install -d -m 755 /usr/local/sbin
 echo '${data_volume_b64}' | base64 -d >/usr/local/sbin/board-data-volume.sh
 chmod 755 /usr/local/sbin/board-data-volume.sh
 /usr/local/sbin/board-data-volume.sh ${volume_id} ${data_mount_path} ${data_services}
@@ -15,3 +31,23 @@ cat >/etc/rancher/k3s/config.yaml.d/10-data.yaml <<'YAML'
 data-dir: ${data_mount_path}/k3s
 default-local-storage-path: ${data_mount_path}/local-path
 YAML
+
+# --- 호스트 설치(TASK-65#4): 저장소 고정 커밋의 deploy/rocky/install.sh --profile server (개발 VM 과 같은 스크립트)
+retry 3 dnf -y install git
+rm -rf /opt/board-src
+git init -q /opt/board-src
+git -C /opt/board-src remote add origin ${repo_url}
+retry 3 git -C /opt/board-src fetch -q --depth 1 origin ${repo_commit}
+git -C /opt/board-src checkout -q FETCH_HEAD
+[ "$(git -C /opt/board-src rev-parse HEAD)" = "${repo_commit}" ]
+# install.sh 는 다시 돌려도 된다(설치된 고정 버전은 건너뛴다) — 안의 dnf 가 일시적으로 실패하면 통째로 다시
+retry 3 /opt/board-src/deploy/rocky/install.sh --profile server --user ${node_user}
+
+# --- k3s 설치 자리: TASK-36 스크립트를 k3s_install_cmd 로 부른다
+%{ if k3s_install_cmd != "" ~}
+${k3s_install_cmd}
+%{ else ~}
+echo "k3s_install_cmd 없음 — k3s 는 설치하지 않았다(TASK-36 스크립트를 넘기면 여기서 부른다)"
+%{ endif ~}
+
+echo "${repo_commit} $(date -u +%FT%TZ)" >/var/lib/board-node/bootstrap.done

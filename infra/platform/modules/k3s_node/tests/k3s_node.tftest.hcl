@@ -31,6 +31,7 @@ override_resource {
 }
 
 variables {
+  repo_commit       = "0123456789abcdef0123456789abcdef01234567"
   name              = "board-test"
   vpc_id            = "vpc-123"
   subnet_id         = "subnet-123"
@@ -262,4 +263,91 @@ run "user_data_data_volume" {
     condition     = !strcontains(aws_instance.this.user_data, "mkfs")
     error_message = "포맷은 스크립트 안에서만(blkid 종료 코드 2 일 때) — user_data 에 직접 mkfs 를 쓰지 않는다"
   }
+}
+
+# TASK-65#4 user_data: 저장소 고정 커밋의 deploy/rocky/install.sh --profile server 를 돌린다(dnf·git·설치 재시도 3회 — OPS-10).
+# 노드 준비 확인 스크립트(board-node-ready: cloud-init status --wait + 끝 표식)를 먼저 깔고, 마지막에 끝 표식을 남긴다
+run "user_data_install" {
+  command = apply
+
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "retry 3 dnf -y install git")
+    error_message = "dnf 재시도(OPS-10)"
+  }
+  assert {
+    condition = (
+      strcontains(aws_instance.this.user_data, "remote add origin https://github.com/coralstay/react-next-spring-postgresql-terraform-aws.git")
+      && strcontains(aws_instance.this.user_data, "fetch -q --depth 1 origin 0123456789abcdef0123456789abcdef01234567")
+      && strcontains(aws_instance.this.user_data, "checkout -q FETCH_HEAD")
+    )
+    error_message = "저장소를 고정 커밋으로 받는다(브랜치가 움직여도 노드가 바뀌지 않게)"
+  }
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "retry 3 /opt/board-src/deploy/rocky/install.sh --profile server --user rocky")
+    error_message = "install.sh --profile server(사용자 rocky), 재시도 3회(다시 돌려도 되는 스크립트)"
+  }
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, base64encode(file("files/node-ready.sh"))) && strcontains(aws_instance.this.user_data, "/usr/local/sbin/board-node-ready")
+    error_message = "준비 확인 스크립트(files/node-ready.sh)를 /usr/local/sbin/board-node-ready 로"
+  }
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "/var/lib/board-node/bootstrap.done")
+    error_message = "끝까지 돌았다는 표식"
+  }
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "set -euo pipefail")
+    error_message = "한 단계라도 실패하면 멈추고 cloud-init 이 error 가 된다"
+  }
+  assert {
+    condition     = length(aws_instance.this.user_data) < 16384
+    error_message = "EC2 user_data 16KB 한도"
+  }
+  assert {
+    condition     = output.ready_check_command == "sudo /usr/local/sbin/board-node-ready"
+    error_message = "출력: 배포 전에 반드시 돌릴 준비 확인 명령"
+  }
+}
+
+# TASK-65#4 user_data 변경 정책(OPS-2): 바뀌면 노드를 새로 만든다(노드는 가축 — 데이터는 별도 볼륨). stop/start 로 넘어가 스크립트가 다시 안 도는 일을 막는다
+run "user_data_replace_policy" {
+  command = plan
+
+  assert {
+    condition     = aws_instance.this.user_data_replace_on_change
+    error_message = "user_data_replace_on_change = true"
+  }
+}
+
+# TASK-65#4 k3s 설치 자리: 기본은 비워 두고(TASK-36 스크립트), k3s_install_cmd 를 주면 install.sh 다음에 부른다
+run "k3s_install_hook_default" {
+  command = apply
+
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "k3s_install_cmd 없음") && !strcontains(aws_instance.this.user_data, "get.k3s.io")
+    error_message = "기본은 k3s 를 설치하지 않는다(TASK-36 스크립트 자리)"
+  }
+}
+
+run "k3s_install_hook_set" {
+  command = apply
+
+  variables {
+    k3s_install_cmd = "/opt/board-src/scripts/k3s-node.sh install"
+  }
+
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "/opt/board-src/scripts/k3s-node.sh install") && !strcontains(aws_instance.this.user_data, "k3s_install_cmd 없음")
+    error_message = "k3s_install_cmd 를 부른다"
+  }
+}
+
+# TASK-65#4 repo_commit 은 40자리 커밋 SHA(브랜치·태그 이름 불가)
+run "repo_commit_invalid" {
+  command = plan
+
+  variables {
+    repo_commit = "main"
+  }
+
+  expect_failures = [var.repo_commit]
 }

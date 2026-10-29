@@ -32,6 +32,7 @@ override_resource {
 }
 
 variables {
+  repo_commit       = "0123456789abcdef0123456789abcdef01234567"
   name              = "board-test"
   availability_zone = "us-east-1a"
 }
@@ -69,5 +70,23 @@ run "node_wiring" {
   assert {
     condition     = output.node_public_ip == "3.1.2.3" && output.node_instance_id == module.k3s_node.instance_id
     error_message = "출력: node_public_ip(EIP), node_instance_id(SSM 접속 대상)"
+  }
+}
+
+# TASK-65#4 노드 부트스트랩: 고정 커밋·k3s 설치 자리를 노드로 넘기고, 배포 전 준비 확인 명령을 출력한다
+run "node_bootstrap" {
+  command = apply
+
+  variables {
+    k3s_install_cmd = "/opt/board-src/scripts/k3s-node.sh install"
+  }
+
+  assert {
+    condition     = output.node_ready_check == "sudo /usr/local/sbin/board-node-ready"
+    error_message = "출력: node_ready_check(OPS-10)"
+  }
+  assert {
+    condition     = output.repo_commit == "0123456789abcdef0123456789abcdef01234567"
+    error_message = "출력: 노드가 설치한 커밋"
   }
 }

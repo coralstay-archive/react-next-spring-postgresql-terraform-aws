@@ -152,7 +152,14 @@ resource "aws_instance" "this" {
     data_mount_path = var.data_mount_path
     data_services   = join(" ", var.data_services)
     data_volume_b64 = filebase64("${path.module}/files/data-volume.sh")
+    node_ready_b64  = filebase64("${path.module}/files/node-ready.sh")
+    repo_url        = var.repo_url
+    repo_commit     = var.repo_commit
+    node_user       = var.node_user
+    k3s_install_cmd = var.k3s_install_cmd
   })
+  # OPS-2: user_data 가 바뀌면 stop/start 로는 스크립트가 다시 돌지 않는다 — 노드를 새로 만든다(노드는 가축, 데이터는 별도 볼륨·EIP 유지)
+  user_data_replace_on_change = true
 
   tags = merge(var.tags, { Name = "${var.name}-node" })
 

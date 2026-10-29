@@ -88,6 +88,34 @@ variable "data_services" {
   default     = ["k3s.service"]
 }
 
+variable "repo_url" {
+  description = "노드가 deploy/rocky/install.sh 를 받을 저장소(공개, https)"
+  type        = string
+  default     = "https://github.com/coralstay/react-next-spring-postgresql-terraform-aws.git"
+}
+
+variable "repo_commit" {
+  description = "install.sh 를 받을 고정 커밋(40자리 SHA). 바꾸면 노드를 새로 만든다"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9a-f]{40}$", var.repo_commit))
+    error_message = "repo_commit 은 40자리 커밋 SHA(브랜치·태그 이름 불가)."
+  }
+}
+
+variable "node_user" {
+  description = "Podman 사용자 소켓·linger 를 켤 사용자(Rocky AMI 기본 사용자)"
+  type        = string
+  default     = "rocky"
+}
+
+variable "k3s_install_cmd" {
+  description = "install.sh 다음에 부를 k3s 설치 명령(TASK-36 스크립트). 비우면 설치하지 않는다"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "추가 태그"
   type        = map(string)

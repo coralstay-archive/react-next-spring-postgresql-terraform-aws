@@ -157,5 +157,39 @@ if command -v shellcheck >/dev/null 2>&1; then
   check "TASK-65#3 data-volume.sh shellcheck" shellcheck "$DV"
 fi
 
+# TASK-65#4 노드 준비 확인(files/node-ready.sh → board-node-ready, OPS-10): cloud-init 이 성공(status: done)으로 끝나고
+# user_data 끝 표식이 있을 때만 0. 가짜 cloud-init·timeout 으로 부른다
+NR=$N/files/node-ready.sh
+cat >"$FAKE/cloud-init" <<'SH'
+#!/usr/bin/env bash
+echo "cloud-init $*" >>"$DV_STATE/calls.log"
+case " $* " in *" --wait "*) echo "status: ${FAKE_CI_STATUS:-done}"; exit "${FAKE_CI_RC:-0}" ;; esac
+echo "status: ${FAKE_CI_STATUS:-done}"; echo "detail: fake"
+SH
+cat >"$FAKE/timeout" <<'SH'
+#!/usr/bin/env bash
+shift; exec "$@"
+SH
+chmod +x "$FAKE"/*
+# nr_run <cloud-init 종료 코드> <상태> <표식 만들기 0|1>
+nr_run() {
+  DV_STATE="$(cd "$(mktemp -d "$TMP/r.XXXX")" && pwd -P)"; export DV_STATE; : >"$DV_STATE/calls.log"
+  [ "$3" = 1 ] && echo "0123abc" >"$DV_STATE/bootstrap.done"
+  NR_RC=0
+  NR_OUT="$(PATH="$FAKE:$PATH" FAKE_CI_RC="$1" FAKE_CI_STATUS="$2" MARKER="$DV_STATE/bootstrap.done" bash "$NR" 2>&1)" || NR_RC=$?
+}
+check "TASK-65#4 node-ready.sh 는 실행 가능하고 bash 문법이 맞다" sh -c "test -x $NR && bash -n $NR"
+t_nr_ok() { nr_run 0 "done" 1; [ "$NR_RC" = 0 ] && grep -q "0123abc" <<<"$NR_OUT" && dv_called "cloud-init status --wait"; }
+check "TASK-65#4 cloud-init done + 끝 표식 → 준비됨(0)" t_nr_ok
+t_nr_error() { nr_run 1 error 1; [ "$NR_RC" != 0 ] && grep -q "cloud-init" <<<"$NR_OUT" && dv_called "cloud-init status --long"; }
+check "TASK-65#4 cloud-init error → 실패 + status --long 을 보인다" t_nr_error
+t_nr_degraded() { nr_run 2 degraded 1; [ "$NR_RC" != 0 ]; }
+check "TASK-65#4 cloud-init degraded(복구된 오류도) → 실패" t_nr_degraded
+t_nr_no_marker() { nr_run 0 "done" 0; [ "$NR_RC" != 0 ] && grep -q "bootstrap.done" <<<"$NR_OUT"; }
+check "TASK-65#4 cloud-init 은 done 이어도 user_data 끝 표식이 없으면 실패" t_nr_no_marker
+if command -v shellcheck >/dev/null 2>&1; then
+  check "TASK-65#4 node-ready.sh shellcheck" shellcheck "$NR"
+fi
+
 echo "platform tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

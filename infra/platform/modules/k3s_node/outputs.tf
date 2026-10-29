@@ -57,3 +57,8 @@ output "snapshot_tag" {
   description = "데이터 볼륨 스냅샷(DLM) 대상 태그"
   value       = local.snapshot_tag
 }
+
+output "ready_check_command" {
+  description = "배포 전에 노드에서 반드시 돌릴 준비 확인(cloud-init done + user_data 끝 표식, OPS-10)"
+  value       = "sudo /usr/local/sbin/board-node-ready"
+}

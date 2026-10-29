@@ -27,3 +27,26 @@ variable "node_instance_type" {
   type        = string
   default     = "t4g.large"
 }
+
+variable "data_volume_size" {
+  description = "데이터 볼륨 GB (k3s·PV — DB·Kafka·MinIO)"
+  type        = number
+  default     = 20
+}
+
+variable "data_snapshot_id" {
+  description = "데이터 볼륨을 만들 스냅샷(snap-…). null 이면 빈 볼륨. 복원 리허설은 TASK-52"
+  type        = string
+  default     = null
+}
+
+variable "repo_commit" {
+  description = "노드가 deploy/rocky/install.sh 를 받을 저장소 고정 커밋(40자리 SHA). 바꾸면 노드를 새로 만든다(데이터 볼륨·EIP 는 그대로)"
+  type        = string
+}
+
+variable "k3s_install_cmd" {
+  description = "install.sh 다음에 부를 k3s 설치 명령(TASK-36 스크립트). 비우면 설치하지 않는다"
+  type        = string
+  default     = ""
+}

@@ -17,4 +17,8 @@ module "k3s_node" {
   subnet_id         = module.network.subnet_id
   availability_zone = module.network.availability_zone
   instance_type     = var.node_instance_type
+  data_volume_size  = var.data_volume_size
+  data_snapshot_id  = var.data_snapshot_id
+  repo_commit       = var.repo_commit
+  k3s_install_cmd   = var.k3s_install_cmd
 }
