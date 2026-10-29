@@ -245,6 +245,50 @@ make k3d-down                     # 클러스터 삭제(데이터까지)
 상한 3072 MiB = 5GB VM − k3s 서버·Traefik·CoreDNS·local-path·LB·레지스트리(약 0.9GiB) − 이미지 빌드·여유(약 0.9GiB).
 이후 태스크가 프로필(gitops·protocols·delivery·shadow·ops)을 더할 때 `budgets.txt`에 줄을, `deploy/k8s/profiles/<이름>/`에 매니페스트를 같이 만든다.
 
+## 코드 품질 (SonarQube, TASK-67)
+
+SonarQube Community Build 를 Rocky 개발 VM 안 Podman 에 **단독**으로 띄워 분석하고, IDE 는 SonarQube for IDE(옛 SonarLint) 연결 모드로 붙인다.
+서비스는 [`deploy/sonar/compose.yaml`](deploy/sonar/compose.yaml)(SonarQube 26.10 Community·postgres:18-alpine, 태그@sha256 고정, DB 포트 비공개, 이름 있는 볼륨).
+
+```bash
+make sonar-up       # 사전 검사 → podman compose up → UP 대기 → (처음) 관리자 비밀번호·분석 토큰 → http://<VM IP>:9000
+make sonar-scan     # 백엔드(gradle JaCoCo XML + org.sonarqube) → 프론트(vitest lcov + 스캐너 컨테이너), 품질 게이트 실패면 non-zero
+make sonar-status   # 실행 여부·접속 주소·컨테이너 메모리
+make sonar-down     # 내리기(메모리 회수, 분석 이력은 남는다). make sonar-down PURGE=1 은 볼륨·VM 설정까지 지운다
+```
+
+- **단독 모드(스크립트가 강제한다)**: `make sonar-up` 은 k3s·k3d 실행 중, make test 잠금(`/tmp/board-repo-test.lock`)·Testcontainers 컨테이너,
+  VM 사용 가능 메모리(MemAvailable) < 2600 MiB(`deploy/k8s/budgets.txt` 의 `sonar`)이면 이유·해결을 출력하고 실패한다. 반대로
+  `make test`·`test-integration`·`backend-test`·`backend-build`·`e2e` 는 SonarQube 가 떠 있으면 `make sonar-down` 을 안내하고 실패한다 —
+  **커밋 훅의 make test 도 막히므로 분석이 끝나면 내린다**. 힙은 web·ce·search 모두 `-Xmx384m`(기본 512m), 기동 직후 실측
+  SonarQube + DB 약 2000 MiB(`sonar-rss`). `make sonar-scan` 은 SonarQube 를 띄운 채 gradle test(Testcontainers)를 돌리므로 시작할 때
+  남은 Gradle 데몬을 내리고 `--no-daemon` 으로 돈다.
+- **커널 값**: 내장 Elasticsearch 가 `vm.max_map_count` ≥ 262144 를 요구한다(기본 65530 이면 부트스트랩 검사로 곧바로 멈춘다 — sonar-up 이
+  원인을 알린다). `deploy/rocky/install.sh` dev 프로필이 `/etc/sysctl.d/99-sonarqube.conf`(vm.max_map_count = 524288, fs.file-max 는 커널 값이
+  131072 보다 작을 때만 131072)와 `/etc/security/limits.d/99-sonarqube.conf`(nofile 131072)를 쓴다. 기존 VM 에는 한 번
+  `ssh rocky-dev 'sudo install -m 0755 /repo/deploy/rocky/install.sh /usr/local/sbin/rocky-install.sh && sudo /usr/local/sbin/rocky-install.sh --profile dev --user rocky --share-tag share --share-path /repo'`
+  (podman compose 공급자 docker-compose 플러그인도 이때 설치된다).
+- **관리자 비밀번호·토큰(저장소·`.env` 에 두지 않는다)**: 처음 `make sonar-up` 이 API 로 관리자 비밀번호를 무작위 값으로 바꾸고 분석 토큰
+  (GLOBAL_ANALYSIS_TOKEN)을 만들어 VM 의 `~/.config/board-sonar/`(0700, 파일 0600)에만 둔다. 출력하지 않고 curl 인자에도 싣지 않는다.
+  UI 로그인은 `admin` / 비밀번호 보기: `ssh rocky-dev cat ~/.config/board-sonar/admin-password`. 볼륨이 지워져 서버가 admin/admin 으로 돌아가면
+  저장된 비밀번호로 다시 바꾸고, 토큰이 무효면 새로 만든다. UI 에서 비밀번호를 바꿨다면 그 파일을 고치거나 `make sonar-down PURGE=1` 로 처음부터.
+- **품질 게이트**: 기본 "Sonar way"(새 코드 기준). 새 코드 기준은 `PREVIOUS_VERSION`(sonar-up 이 설정) — 버전이 그대로라 첫 분석이 기준선이 되고
+  그 뒤 바뀐 코드만 게이트에 걸린다(첫 분석은 기존 부채로 막히지 않는다). 프로젝트는 `board-backend`(`backend/build.gradle.kts` 의 `sonar {}`)·
+  `board-frontend`(`frontend/sonar-project.properties`). 커버리지: JaCoCo 에이전트는 `-Pcoverage` 일 때만 붙고(평소 make test 에는 없다),
+  프론트는 `npm run test:coverage`(@vitest/coverage-v8, lcov).
+- **스캐너 컨테이너**: 공식 `sonarsource/sonar-scanner-cli` 이미지는 amd64 뿐이라 VM(arm64)에서 돌지 않는다. [`deploy/sonar/scanner/Containerfile`](deploy/sonar/scanner/Containerfile)
+  이 다중 아키텍처 JRE 베이스(다이제스트 고정)에 Maven Central 의 스캐너 jar(sha256 고정)를 얹어 처음 한 번 빌드한다(CI 도 같다).
+- **IDE 연결 모드(SonarQube for IDE)**: `.sonarlint/connectedMode.json`(board-backend)·`.sonarlint/frontend.json`(board-frontend)을 커밋했다.
+  주소는 `http://localhost:9000` — VM IP 는 DHCP 로 바뀔 수 있어서 맥에서 ssh 터널을 연다: `ssh -N -L 9000:localhost:9000 rocky-dev`.
+  토큰은 IDE 가 따로 쓴다(UI → My Account → Security 에서 User Token 을 만든다 — 분석 토큰과 별개, 저장소에 두지 않는다).
+  - VS Code: 확장 "SonarQube for IDE" 설치 → 저장소를 열면 `.sonarlint` 설정을 찾아 "Use Configuration" 을 묻는다 → 고르고(백엔드·프론트 중 하나,
+    멀티 루트 워크스페이스면 폴더마다) SonarQube Server 연결을 `http://localhost:9000` + 토큰으로 만든다.
+  - IntelliJ: 플러그인 "SonarQube for IDE" 설치 → 프로젝트를 열면 공유 설정으로 바인딩을 제안한다 → Settings → Tools → SonarQube for IDE 에서
+    연결(`http://localhost:9000`, 토큰)을 만들고 프로젝트(모듈)를 `board-backend`(프론트 모듈은 `board-frontend`)로 묶는다.
+- CI(`.github/workflows/sonar.yml`): PR 마다 서비스 컨테이너로 같은 다이제스트의 SonarQube·Postgres 를 띄우고 `scripts/sonar.sh init`(실행마다
+  무작위 관리자 비밀번호·토큰, 로그 마스킹) → `scripts/sonar.sh scan`(게이트). secret 이 필요 없다. 서버가 매번 새로 떠서 매번 "첫 분석"이라
+  새 코드 게이트는 사실상 통과한다 — 새 코드 게이트는 로컬 서버(분석 이력이 남는다)에서 본다.
+
 ## 테스트
 
 ```bash
