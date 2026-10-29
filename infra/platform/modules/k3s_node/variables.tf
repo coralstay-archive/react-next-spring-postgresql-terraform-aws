@@ -54,9 +54,15 @@ variable "ssm_parameter_path" {
 }
 
 variable "data_volume_size" {
-  description = "데이터 볼륨 GB (k3s·PV — DB·Kafka·MinIO)"
+  description = "데이터 볼륨 GB (k3s data-dir — containerd 이미지 포함 — 와 PV: DB·Kafka·MinIO). 키우면 부팅 때 xfs_growfs"
   type        = number
-  default     = 20
+  default     = 30
+}
+
+variable "node_name" {
+  description = "k3s 노드 이름(고정). 노드를 새로 만들어도 같아야 local-path PV(nodeAffinity)가 이어진다 — 바꾸면 기존 PV 가 고아가 된다"
+  type        = string
+  default     = "board-node"
 }
 
 variable "data_snapshot_id" {

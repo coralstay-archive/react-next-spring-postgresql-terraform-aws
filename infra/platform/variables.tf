@@ -29,9 +29,9 @@ variable "node_instance_type" {
 }
 
 variable "data_volume_size" {
-  description = "데이터 볼륨 GB (k3s·PV — DB·Kafka·MinIO)"
+  description = "데이터 볼륨 GB (k3s data-dir — containerd 이미지 포함 — 와 PV). 키우면 부팅 때 xfs_growfs"
   type        = number
-  default     = 20
+  default     = 30
 }
 
 variable "data_snapshot_id" {

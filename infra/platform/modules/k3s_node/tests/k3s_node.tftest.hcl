@@ -189,8 +189,8 @@ run "data_volume" {
   command = apply
 
   assert {
-    condition     = aws_ebs_volume.data.type == "gp3" && aws_ebs_volume.data.encrypted && aws_ebs_volume.data.size == 20
-    error_message = "gp3 20GB 암호화"
+    condition     = aws_ebs_volume.data.type == "gp3" && aws_ebs_volume.data.encrypted && aws_ebs_volume.data.size == 30
+    error_message = "gp3 30GB 암호화(k3s data-dir 의 containerd 이미지도 /data)"
   }
   assert {
     condition     = aws_ebs_volume.data.availability_zone == aws_instance.this.availability_zone
@@ -217,9 +217,24 @@ run "data_volume" {
   }
 }
 
-# TASK-65#3 data_snapshot_id 를 주면 그 스냅샷에서 볼륨을 만든다(복원 리허설은 TASK-52)
-run "data_volume_from_snapshot" {
+# TASK-65#3 이미 있는 볼륨은 data_snapshot_id 를 나중에 바꿔도 그대로다(ignore_changes — 스냅샷으로 덮어쓰지 않는다)
+run "data_snapshot_id_later_ignored" {
   command = apply
+
+  variables {
+    data_snapshot_id = "snap-0123456789abcdef0"
+  }
+
+  assert {
+    condition     = aws_ebs_volume.data.snapshot_id != "snap-0123456789abcdef0" && aws_ebs_volume.data.id == "vol-0abc123def4567890"
+    error_message = "기존 볼륨을 갈아엎지 않는다(복원은 docs/terraform-state.md 절차로 -replace)"
+  }
+}
+
+# TASK-65#3 data_snapshot_id 를 주고 처음 만들면 그 스냅샷에서 볼륨을 만든다(새 state — 복원 리허설은 TASK-52)
+run "data_volume_from_snapshot" {
+  command   = apply
+  state_key = "from_snapshot"
 
   variables {
     data_snapshot_id = "snap-0123456789abcdef0"
@@ -228,6 +243,20 @@ run "data_volume_from_snapshot" {
   assert {
     condition     = aws_ebs_volume.data.snapshot_id == "snap-0123456789abcdef0"
     error_message = "스냅샷에서 복원"
+  }
+}
+
+# TASK-65#3 노드 이름은 변수로 바꿀 수 있다(바꾸면 기존 PV 가 고아가 된다 — README)
+run "node_name" {
+  command = plan
+
+  variables {
+    node_name = "board-node-2"
+  }
+
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "node-name: board-node-2")
+    error_message = "node_name 을 k3s 설정에"
   }
 }
 
@@ -258,6 +287,14 @@ run "user_data_data_volume" {
   assert {
     condition     = strcontains(aws_instance.this.user_data, "data-dir: /data/k3s") && strcontains(aws_instance.this.user_data, "default-local-storage-path: /data/local-path")
     error_message = "k3s 데이터·PV(local-path) 디렉터리는 데이터 볼륨 위"
+  }
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "node-name: board-node")
+    error_message = "노드를 새로 만들어도 k3s 노드 이름이 같다 — local-path PV 의 nodeAffinity·/data/k3s 의 노드 등록이 이어진다"
+  }
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "retry 3 dnf -y install policycoreutils-python-utils")
+    error_message = "데이터 볼륨 스크립트의 semanage(SELinux 레이블)를 먼저 설치"
   }
   assert {
     condition     = !strcontains(aws_instance.this.user_data, "mkfs")

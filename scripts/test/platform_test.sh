@@ -78,6 +78,28 @@ cat >"$FAKE/systemctl" <<'SH'
 #!/usr/bin/env bash
 echo "systemctl $*" >>"$DV_STATE/calls.log"
 SH
+# SELinux: FAKE_SELINUX=0 이면 꺼진 것처럼. semanage 는 fcontext -a 를 $DV_STATE/fcontext 에 적고 -l 로 보여 준다
+cat >"$FAKE/selinuxenabled" <<'SH'
+#!/usr/bin/env bash
+[ "${FAKE_SELINUX:-1}" = 1 ]
+SH
+cat >"$FAKE/semanage" <<'SH'
+#!/usr/bin/env bash
+echo "semanage $*" >>"$DV_STATE/calls.log"
+case "$*" in
+  "fcontext -l -C") cat "$DV_STATE/fcontext" 2>/dev/null || true ;;
+  "fcontext -a -e "*) echo "$5 = $4" >>"$DV_STATE/fcontext" ;;
+  "fcontext -a -t "*) echo "$5    all files    system_u:object_r:$4:s0" >>"$DV_STATE/fcontext" ;;
+esac
+SH
+cat >"$FAKE/restorecon" <<'SH'
+#!/usr/bin/env bash
+echo "restorecon $*" >>"$DV_STATE/calls.log"
+SH
+cat >"$FAKE/xfs_growfs" <<'SH'
+#!/usr/bin/env bash
+echo "xfs_growfs $*" >>"$DV_STATE/calls.log"
+SH
 chmod +x "$FAKE"/*
 
 # dv_run <blkid 종료 코드> <장치 링크 만들기 0|1> — 새 임시 루트에서 스크립트 main 을 부른다. 결과는 DV_RC·DV_STATE
@@ -96,6 +118,14 @@ dv_called() { grep -qF -- "$1" "$DV_STATE/calls.log" || { echo "호출 없음: $
 dv_not_called() { ! grep -qF -- "$1" "$DV_STATE/calls.log" || { echo "호출되면 안 됨: $1"; cat "$DV_STATE/calls.log"; return 1; }; }
 dv_dropin() { cat "$DV_STATE/systemd/k3s.service.d/10-data-mount.conf" 2>/dev/null; }
 
+# TASK-65#3 데이터 볼륨은 실수로 지우지 않는다(prevent_destroy), data_snapshot_id 를 나중에 바꿔도 기존 볼륨을 갈아엎지 않는다(ignore_changes).
+# 복원은 문서 절차(새 볼륨 → 교체)로만
+dv_block() { awk '/^resource "aws_ebs_volume" "data"/{f=1} f{print} f && /^}/{exit}' "$N/main.tf"; }
+check "TASK-65#3 데이터 볼륨 lifecycle: prevent_destroy = true, ignore_changes = [snapshot_id]" sh -c "
+  $(declare -f dv_block); N=$N; b=\$(dv_block); grep -q 'prevent_destroy *= *true' <<<\"\$b\" && grep -q 'ignore_changes *= *\\[snapshot_id\\]' <<<\"\$b\""
+for w in "## 데이터 볼륨 복원" "prevent_destroy" "data_snapshot_id" "-replace=module.k3s_node.aws_ebs_volume.data" "board-node-ready"; do
+  check "TASK-65#3 terraform-state.md 데이터 볼륨 복원 절차에 '$w'" grep -qF -- "$w" docs/terraform-state.md
+done
 check "TASK-65#3 data-volume.sh 는 실행 가능하고 bash 문법이 맞다" sh -c "test -x $DV && bash -n $DV"
 check "TASK-65#3 장치는 볼륨 ID 의 by-id 링크로만 찾는다(/dev/sdf·xvdf 이름 대체 없음 — OPS-11)" sh -c "
   grep -q 'nvme-Amazon_Elastic_Block_Store_' $DV && ! grep -Eq '/dev/(sd|xvd)[a-z]' $DV"
@@ -153,6 +183,38 @@ t_dv_mount_fail() {
     bash -c 'DATA_VOLUME_LIB=1 . "$1"; is_block() { [ -e "$1" ]; }; main vol-0abc123def4567890 "$DV_STATE/data" k3s.service' _ "$DV" >/dev/null 2>&1
 }
 check "TASK-65#B2 마운트에 실패하면 스크립트도 실패한다(cloud-init 오류로 드러난다)" t_dv_mount_fail
+t_dv_layout() {
+  dv_run 2 1
+  [ "$DV_RC" = 0 ] || { cat "$DV_STATE/out"; return 1; }
+  [ -d "$DV_STATE/data/k3s" ] && [ -d "$DV_STATE/data/local-path" ] || { echo "k3s·local-path 디렉터리 없음"; return 1; }
+  dv_called "semanage fcontext -a -e /var/lib/rancher/k3s $DV_STATE/data/k3s" \
+    && dv_called "semanage fcontext -a -t container_file_t $DV_STATE/data/local-path(/.*)?" \
+    && dv_called "restorecon -R $DV_STATE/data" && dv_called "xfs_growfs $DV_STATE/data"
+}
+check "TASK-65#3 /data/k3s 는 /var/lib/rancher/k3s 와 같은 SELinux 레이블(equivalence), local-path 는 container_file_t, restorecon -R, xfs_growfs(볼륨을 키우면 반영)" t_dv_layout
+t_dv_selinux_rerun() {
+  dv_run 2 1
+  PATH="$FAKE:$PATH" FAKE_BLKID_RC=0 BY_ID_DIR="$DV_STATE/by-id" FSTAB="$DV_STATE/fstab" SYSTEMD_DIR="$DV_STATE/systemd" \
+    bash -c 'DATA_VOLUME_LIB=1 . "$1"; is_block() { [ -e "$1" ]; }; main vol-0abc123def4567890 "$DV_STATE/data" k3s.service' _ "$DV" >/dev/null 2>&1 || return 1
+  [ "$(grep -c "semanage fcontext -a" "$DV_STATE/calls.log")" = 2 ] || { cat "$DV_STATE/calls.log"; return 1; }
+  [ "$(grep -c "restorecon -R" "$DV_STATE/calls.log")" = 2 ]
+}
+check "TASK-65#3 다시 돌려도 fcontext 규칙을 더하지 않는다(restorecon 은 매번)" t_dv_selinux_rerun
+t_dv_selinux_off() {
+  DV_STATE="$(cd "$(mktemp -d "$TMP/s.XXXX")" && pwd -P)"; export DV_STATE
+  mkdir -p "$DV_STATE/by-id" "$DV_STATE/systemd"; : >"$DV_STATE/fstab"; : >"$DV_STATE/calls.log"; : >"$DV_STATE/nvme1n1"
+  ln -s "$DV_STATE/nvme1n1" "$DV_STATE/by-id/nvme-Amazon_Elastic_Block_Store_vol0abc123def4567890"
+  PATH="$FAKE:$PATH" FAKE_SELINUX=0 FAKE_BLKID_RC=0 BY_ID_DIR="$DV_STATE/by-id" FSTAB="$DV_STATE/fstab" SYSTEMD_DIR="$DV_STATE/systemd" \
+    bash -c 'DATA_VOLUME_LIB=1 . "$1"; is_block() { [ -e "$1" ]; }; main vol-0abc123def4567890 "$DV_STATE/data" k3s.service' _ "$DV" >/dev/null 2>&1 || return 1
+  dv_not_called "semanage" && dv_not_called "restorecon"
+}
+check "TASK-65#3 SELinux 가 꺼져 있으면 레이블을 건너뛴다" t_dv_selinux_off
+t_dv_reload_after_fstab() {
+  dv_run 2 1
+  # fstab 줄을 더한 뒤 mount 전에 daemon-reload(systemd 가 새 mount 유닛을 알게)
+  awk '/^mkfs.xfs/{m=1} m && /^systemctl daemon-reload/{r=1} r && /^mount /{ok=1} END{exit !ok}' "$DV_STATE/calls.log" || { cat "$DV_STATE/calls.log"; return 1; }
+}
+check "TASK-65#3 fstab 에 줄을 더하면 mount 전에 systemctl daemon-reload" t_dv_reload_after_fstab
 if command -v shellcheck >/dev/null 2>&1; then
   check "TASK-65#3 data-volume.sh shellcheck" shellcheck "$DV"
 fi

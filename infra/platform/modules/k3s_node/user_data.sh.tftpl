@@ -19,15 +19,18 @@ install -d -m 755 /usr/local/sbin /var/lib/board-node
 echo '${node_ready_b64}' | base64 -d >/usr/local/sbin/board-node-ready
 chmod 755 /usr/local/sbin/board-node-ready
 
-# --- 데이터 볼륨(TASK-65#3): 서비스 가드 → 볼륨 ID 로 장치 찾기 → 빈 장치만 포맷 → ${data_mount_path} 마운트
+# --- 데이터 볼륨(TASK-65#3): 서비스 가드 → 볼륨 ID 로 장치 찾기 → 빈 장치만 포맷 → ${data_mount_path} 마운트 → SELinux 레이블
+retry 3 dnf -y install policycoreutils-python-utils # semanage
 echo '${data_volume_b64}' | base64 -d >/usr/local/sbin/board-data-volume.sh
 chmod 755 /usr/local/sbin/board-data-volume.sh
 /usr/local/sbin/board-data-volume.sh ${volume_id} ${data_mount_path} ${data_services}
 
-# k3s 데이터·PV(local-path — DB·Kafka·MinIO) 디렉터리는 데이터 볼륨 위. config.yaml 은 k3s 설치 스크립트(TASK-36) 몫이라 드롭인으로 둔다
-install -d -m 700 ${data_mount_path}/k3s
-install -d -m 755 ${data_mount_path}/local-path /etc/rancher/k3s/config.yaml.d
+# k3s 데이터·PV(local-path — DB·Kafka·MinIO) 디렉터리는 데이터 볼륨 위(디렉터리·레이블은 위 스크립트). config.yaml 은 k3s 설치
+# 스크립트(TASK-36) 몫이라 드롭인으로 둔다. node-name 고정: 노드를 새로 만들어도(호스트 이름이 바뀌어도) /data/k3s 의 노드 등록과
+# local-path PV 의 nodeAffinity(노드 이름)가 그대로 맞는다
+install -d -m 755 /etc/rancher/k3s/config.yaml.d
 cat >/etc/rancher/k3s/config.yaml.d/10-data.yaml <<'YAML'
+node-name: ${node_name}
 data-dir: ${data_mount_path}/k3s
 default-local-storage-path: ${data_mount_path}/local-path
 YAML

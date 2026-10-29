@@ -151,6 +151,7 @@ resource "aws_instance" "this" {
     volume_id       = aws_ebs_volume.data.id
     data_mount_path = var.data_mount_path
     data_services   = join(" ", var.data_services)
+    node_name       = var.node_name
     data_volume_b64 = filebase64("${path.module}/files/data-volume.sh")
     node_ready_b64  = filebase64("${path.module}/files/node-ready.sh")
     repo_url        = var.repo_url
@@ -181,6 +182,13 @@ resource "aws_ebs_volume" "data" {
   final_snapshot    = true # 볼륨을 지우면 마지막 스냅샷을 남긴다
 
   tags = merge(var.tags, local.snapshot_tag, { Name = "${var.name}-data" })
+
+  lifecycle {
+    # 데이터는 이 볼륨 하나뿐이다. 지우거나 갈아엎으려면 docs/terraform-state.md '데이터 볼륨 복원' 절차로 명시적으로 한다
+    prevent_destroy = true
+    # data_snapshot_id 는 처음 만들 때만 쓴다. 나중에 바꿔도 지금 볼륨을 스냅샷으로 덮어쓰지 않는다(복원은 -replace 로)
+    ignore_changes = [snapshot_id]
+  }
 }
 
 resource "aws_volume_attachment" "data" {

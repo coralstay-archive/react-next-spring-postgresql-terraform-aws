@@ -4,7 +4,7 @@ title: '[AWS] 플랫폼 Terraform 얼개 (infra/platform)'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 06:08'
+updated_date: '2026-10-29 06:21'
 labels:
   - aws
   - platform
@@ -75,4 +75,6 @@ AC#5: modules/lb_node(HAProxy t4g.small 온디맨드, 80·443 TCP 패스스루 �
 AC#6: B3 — platform_test.sh 가 infra/platform 과 source 로 부르는 모듈(재귀)의 resource 종류를 허용 목록(EC2·VPC·IAM·EBS·DLM·Budgets·Cognito)과 금지 목록(NAT·ALB/NLB/ELB·CloudFront·RDS·MSK·ECR·CloudWatch 알람 등)으로 검사(+ red: 모듈 안 NAT·스택 알람을 잡는지). tftest b3_no_lb_by_default/b3_lb_node_on + 출력 managed_services. docs/terraform-state.md(force-unlock, S3 버전 복구, bootstrap 로컬 state 백업·import 복구)
 
 AC#7: README '## AWS 실배포 설계 (TASK-65, decision-11)' 절 — 구성도 diagrams/platform-aws.dot → docs/diagrams/platform-aws.svg(build-diagrams.py, Darwin graphviz 16.1.0), 스택 구성, 노드 부팅 순서·board-node-ready, user_data 교체 정책, 비용 표(decision-11), apply 하지 않는 이유, TASK-52 로 넘기는 항목. 구성 표 infra/ 행에 infra/platform
+
+리뷰 반영(AC#3): k3s node-name 고정(node_name 기본 board-node — 교체 후에도 local-path PV nodeAffinity 유지), data-volume.sh 에 SELinux 레이블(/data/k3s = /var/lib/rancher/k3s equivalence, /data/local-path container_file_t, restorecon -R, 재실행 시 규칙 중복 없음; semanage 위해 policycoreutils-python-utils 설치), fstab 추가 후 daemon-reload, xfs_growfs, 데이터 볼륨 기본 30GB, lifecycle prevent_destroy + ignore_changes [snapshot_id](terraform test 정리 단계는 막지 않음 확인), docs/terraform-state.md '데이터 볼륨 복원' 절차
 <!-- SECTION:NOTES:END -->
