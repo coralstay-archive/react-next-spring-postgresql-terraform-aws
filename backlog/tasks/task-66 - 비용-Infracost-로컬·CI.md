@@ -4,7 +4,7 @@ title: '[비용] Infracost 로컬·CI'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 07:44'
+updated_date: '2026-10-29 07:54'
 labels:
   - cost
   - platform
@@ -35,11 +35,11 @@ Terraform 변경의 월 비용을 로컬(make cost, VM 안)과 CI(PR 코멘트)�
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 infracost CLI 버전 고정 설치: VM 은 install.sh dev 프로필, CI 는 체크섬 검증 다운로드
+- [x] #1 infracost CLI 버전 고정 설치: VM 은 install.sh dev 프로필, CI 는 체크섬 검증 다운로드
 - [ ] #2 infracost.yml(infra/platform, 비교용 infra/main) + infracost-usage.yml(가동 시간·스냅샷 크기 등). 스팟 가격이 반영되는지 실측하고, 안 되면 usage 파일·문서로 보정
-- [ ] #3 make cost·make cost-diff(main 대비)가 맥에서 실행하면 VM 안에서 돈다(vm_proxy_if_mac 재사용). API 키가 없으면 경고 후 건너뜀, 키 등록 방법(VM 에서 infracost configure set api_key)을 README 에
-- [ ] #4 scripts/cost-guard.sh: breakdown JSON 의 totalMonthlyCost 가 상한(기본 30 USD, 변수로 조정)을 넘으면 실패. 샘플 JSON 으로 셸 테스트를 고정해 make test 에서 오프라인으로 돈다
-- [ ] #5 CI: infra 변경 PR 에 비용 표·차이를 코멘트하고 cost-guard 실행(GitHub secret INFRACOST_API_KEY, 없으면 건너뜀), actionlint 통과
+- [x] #3 make cost·make cost-diff(main 대비)가 맥에서 실행하면 VM 안에서 돈다(vm_proxy_if_mac 재사용). API 키가 없으면 경고 후 건너뜀, 키 등록 방법(VM 에서 infracost configure set api_key)을 README 에
+- [x] #4 scripts/cost-guard.sh: breakdown JSON 의 totalMonthlyCost 가 상한(기본 30 USD, 변수로 조정)을 넘으면 실패. 샘플 JSON 으로 셸 테스트를 고정해 make test 에서 오프라인으로 돈다
+- [x] #5 CI: infra 변경 PR 에 비용 표·차이를 코멘트하고 cost-guard 실행(GitHub secret INFRACOST_API_KEY, 없으면 건너뜀), actionlint 통과
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -72,4 +72,6 @@ AC#5·B2: .github/workflows/cost.yml — pull_request(paths: infra/**·infracost
 리뷰 반영 #1·#4·#6(AC#3): (1) cost-diff 는 기준 트리에 없는 프로젝트 path 를 yq 로 기준 설정에서 빼고(그 프로젝트는 기준 비용 0), 남는 게 없으면 빈 base.json(totalMonthlyCost 0)과 비교. 기준 ref 에 infra 가 없어도 동작, usage 파일은 남은 프로젝트 것만 ref 또는 지금 것에서. 가짜 infracost 는 프로젝트 path·usage 파일이 없으면 실패하도록 바꾸고, 임시 git 저장소(c0 infra 없음·c1 infra/main 만·c2 지금) 픽스처로 테스트 — 얕은 CI 체크아웃에서도 돈다. 실제 VM 에서 가짜 infracost 로 'cost.sh diff main' → 기준 breakdown 이 main 프로젝트만으로 돌고 rc=0 확인. 미검증(키 필요): 진짜 infracost diff 가 빈 base.json·프로젝트 일부만 있는 base 를 받아들이는지. (4) Makefile 은 $(or $(COST_LIMIT),$(COST_LIMIT_USD)) 만 넘김 → 상한 COST_LIMIT > COST_LIMIT_USD > 30(맥에서도 make 가 인자로 넘김). (6) 맥 셸의 INFRACOST_API_KEY 는 VM 으로 넘기지 않는다는 경고(키 값 출력 없음)와 README.
 
 리뷰 반영 #5(AC#5): cost.yml 의 INFRACOST_API_KEY 를 job env 에서 빼고 쓰는 단계(키 확인·cost diff·PR 코멘트)에만 env 로. GitHub 토큰: infracost v0.10.47 comment github 은 --github-token 필수 플래그뿐(환경변수 없음, cmd/infracost/comment_github.go 확인) → env 에서 풀어 플래그로 넘기는 방식 유지, 워크플로 주석에 이유. actionlint 통과. 테스트: 키를 받는 단계 목록이 정확히 세 단계인지 확인.
+
+[부모 검증] ffa28a6 위에서 make test rc=0(cost 68 포함 전부 통과). 독립 리뷰 지적(cost-diff 기준 경로 없음, 데이터 전송 이중 계산, COST_LIMIT_USD, CI 키 범위, 버전 일치) 4커밋 반영. AC #1·#3·#4·#5 체크. AC #2(스팟 보정 실측)는 유저 API 키 등록 대기 — 키 등록 후 make cost 로 실측·기록하고 Done.
 <!-- SECTION:NOTES:END -->
