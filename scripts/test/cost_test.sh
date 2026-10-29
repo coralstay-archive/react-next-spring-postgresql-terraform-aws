@@ -105,5 +105,56 @@ if need_linter shellcheck; then
   check "TASK-66#1 shellcheck $C" shellcheck -x "$C"
 fi
 
+# ================================================================ TASK-66#2 infracost.yml(프로젝트) + infracost-usage.yml(사용량·스팟 보정)
+# Infracost v0.10.x 는 aws_instance 의 spot_price 가 있을 때만 스팟 가격을 쓴다(instance_market_options 는 보지 않는다 — 소스
+# internal/providers/terraform/aws/instance.go). 노드는 instance_market_options 로 스팟이라 온디맨드로 계산된다 → usage 의
+# monthly_hrs 를 "온디맨드 환산 시간"(730 × 스팟 상한/온디맨드)으로 보정한다. DLM 스냅샷은 Infracost 가 계산하지 않는다(README).
+CFG=infracost.yml
+USAGE=infracost-usage.yml
+yqv() { yq -r "$1" "$2"; }
+check "TASK-66#2 $CFG·$USAGE 존재" sh -c "test -f $CFG && test -f $USAGE"
+if need_linter yq; then
+  t_cfg_projects() {
+    [ "$(yqv '.version' $CFG)" = 0.1 ] || { echo "version 0.1 아님"; return 1; }
+    [ "$(yqv '.projects[] | select(.name == "platform") | .path' $CFG)" = infra/platform ] || { echo "platform 프로젝트 없음"; return 1; }
+    [ "$(yqv '.projects[] | select(.name == "main") | .path' $CFG)" = infra/main ] || { echo "비교용 main 프로젝트 없음"; return 1; }
+    local p v u
+    for p in platform main; do
+      v="$(yqv ".projects[] | select(.name == \"$p\") | .terraform_var_files[0]" $CFG)"
+      [ "$v" = envs/prod.tfvars ] || { echo "$p var file: $v"; return 1; }
+      [ -f "$(yqv ".projects[] | select(.name == \"$p\") | .path" $CFG)/$v" ] || { echo "$p: $v 없음"; return 1; }
+      u="$(yqv ".projects[] | select(.name == \"$p\") | .usage_file" $CFG)"
+      [ "$u" = "$USAGE" ] || { echo "$p usage_file: $u"; return 1; }
+    done
+  }
+  check "TASK-66#2 $CFG: platform(infra/platform)·비교용 main(infra/main), envs/prod.tfvars, 같은 usage 파일" t_cfg_projects
+  t_usage_spot() {
+    local h a="module.k3s_node.aws_instance.this"
+    [ "$(yqv '.version' $USAGE)" = 0.1 ] || { echo "version 0.1 아님"; return 1; }
+    h="$(yqv ".resource_usage.\"$a\".monthly_hrs" $USAGE)"
+    awk -v h="$h" 'BEGIN { exit !(h + 0 > 0 && h + 0 < 730) }' || { echo "$a monthly_hrs=$h (스팟 보정: 0 < h < 730)"; return 1; }
+    [ "$(yqv ".resource_usage.\"$a\".operating_system" $USAGE)" = linux ] || return 1
+    # 주소가 실제 리소스: module "k3s_node" → modules/k3s_node 의 aws_instance "this"
+    grep -q '^module "k3s_node"' infra/platform/main.tf && grep -q '^resource "aws_instance" "this"' infra/platform/modules/k3s_node/main.tf
+  }
+  check "TASK-66#2 $USAGE: k3s 노드 monthly_hrs 스팟 보정(< 730), operating_system linux, 실제 리소스 주소" t_usage_spot
+  t_usage_spot_formula() {
+    # 주석의 산식(730 × 스팟/온디맨드)과 값이 맞는다 — 단가를 바꾸면 값도 바꾼다
+    local h s o
+    h="$(yqv '.resource_usage."module.k3s_node.aws_instance.this".monthly_hrs' $USAGE)"
+    s="$(sed -nE 's/^# *spot_usd_per_hour: *([0-9.]+).*/\1/p' $USAGE)"; o="$(sed -nE 's/^# *on_demand_usd_per_hour: *([0-9.]+).*/\1/p' $USAGE)"
+    [ -n "$s" ] && [ -n "$o" ] || { echo "주석에 spot_usd_per_hour·on_demand_usd_per_hour 없음"; return 1; }
+    awk -v h="$h" -v s="$s" -v o="$o" 'BEGIN { e = 730 * s / o; d = h - e; if (d < 0) d = -d; exit !(d <= 1) }' \
+      || { echo "monthly_hrs=$h ≠ 730×$s/$o"; return 1; }
+  }
+  check "TASK-66#2 $USAGE: monthly_hrs = 730 × 스팟/온디맨드 단가(주석 값, ±1h)" t_usage_spot_formula
+  check "TASK-66#2 $USAGE: 데이터 전송량(aws_data_transfer, us-east-1)" sh -c "
+    [ \"\$(yq -r '.resource_usage | to_entries[] | select(.key | test(\"^aws_data_transfer\\\\.\")) | .value.region' $USAGE)\" = us-east-1 ]"
+fi
+readme_cost() { awk '/^### 비용 추정 \(Infracost/{f=1; print; next} f && /^##/{exit} f' README.md; }
+for w in "infracost.yml" "infracost-usage.yml" "spot_price" "monthly_hrs" "DLM" "TASK-52"; do
+  check "TASK-66#2 README '비용 추정 (Infracost)' 절에 '$w'" sh -c "$(declare -f readme_cost); readme_cost | grep -qF -- '$w'"
+done
+
 echo "cost tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

@@ -695,6 +695,20 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 - 가장 큰 항목은 EC2와 IPv4다. 쓰지 않을 때 비용을 줄이려면 인스턴스를 멈춘다(EBS와 EIP 요금은 계속 나간다). 완전히 없애려면 아래 정리 순서를 따른다.
 - 단가는 바뀐다. 적용 전에 [AWS Pricing Calculator](https://calculator.aws/)로 다시 계산하고, **AWS Budgets** 월 예산 알림을 건다.
 
+### 비용 추정 (Infracost, TASK-66)
+
+위 표는 레거시 `infra/main` 기준이다. 실배포 플랫폼(`infra/platform`, decision-11 추정 약 $22~27/월)은 Infracost 로 본다.
+가격은 Infracost 호스팅 가격 API 로 조회한다 — 보내는 것은 리소스 메타데이터(종류·크기·리전)뿐이고 상태·자격 증명은 보내지 않는다.
+
+- 설정: `infracost.yml`(프로젝트 `platform` = `infra/platform`, 비교용 `main` = `infra/main`, 둘 다 `envs/prod.tfvars`) +
+  `infracost-usage.yml`(가동 시간·데이터 전송량).
+- **스팟 보정**: Infracost v0.10.x 는 `aws_instance` 에 `spot_price` 가 있을 때만 스팟 단가를 쓴다. 노드는 `instance_market_options`
+  로 스팟이라 그대로면 온디맨드(t4g.large 약 $49/월)로 계산된다. 그래서 usage 파일의 노드 `monthly_hrs` 를 "온디맨드 환산 시간"
+  (730 × 스팟 상한 $0.026 / 온디맨드 $0.0672 ≈ 282)으로 둔다 — 표의 시간은 실제 가동 시간이 아니다. 단가가 바뀌면 usage 파일의
+  주석 값과 `monthly_hrs` 를 같이 바꾼다(`make test` 가 산식을 확인한다). 키를 등록한 뒤 실측 결과는 TASK-66 노트에 남긴다.
+- **계산하지 않는 것**: 데이터 볼륨 DLM 스냅샷(`aws_dlm_lifecycle_policy` 미지원 — 증분 수 GB × $0.05, $0.5 미만), Cognito MAU·SMS
+  건당 요금(사용량), Budgets(2개까지 무료). 상한($30)은 이 몫을 남겨 둔 값이다. 실제 금액은 TASK-52 apply 뒤 Cost Explorer 로 맞춰 본다.
+
 ## 정리 (terraform destroy)
 
 순서와 명령은 [docs/first-deploy.md 12단계](docs/first-deploy.md#12-정리-destroy-순서)에 있다. 요약:

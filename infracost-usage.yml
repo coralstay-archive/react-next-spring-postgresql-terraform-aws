@@ -1,0 +1,26 @@
+# Infracost 사용량 (TASK-66#2). infracost.yml 의 두 프로젝트가 같이 쓴다. 형식: https://infracost.io/docs/features/usage_based_resources/
+#
+# 스팟 보정: Infracost v0.10.x 는 aws_instance 의 spot_price 가 있을 때만 스팟 단가를 쓴다. 노드(module.k3s_node)는
+# instance_market_options(market_type = "spot")라 온디맨드로 계산된다 → monthly_hrs 를 "온디맨드 환산 시간"으로 둔다:
+#   monthly_hrs = 730 × 스팟 / 온디맨드 (t4g.large, us-east-1, decision-11 의 스팟 범위 $0.021~0.026 중 상한 — 보수적으로)
+# spot_usd_per_hour: 0.026
+# on_demand_usd_per_hour: 0.0672
+# 단가가 바뀌면 위 두 값과 monthly_hrs 를 같이 바꾼다(scripts/test/cost_test.sh 가 산식을 확인한다). 출력 표의 시간(Hours)은 실제
+# 가동 시간이 아니라 이 환산값이다. 키를 등록한 뒤 실측 결과는 TASK-66 노트에 남긴다.
+#
+# 스냅샷: 데이터 볼륨 DLM 스냅샷(aws_dlm_lifecycle_policy)은 Infracost 가 계산하지 않는다 — 증분 수 GB × $0.05 ≈ $0.5 미만(README).
+version: 0.1
+resource_usage:
+  module.k3s_node.aws_instance.this:
+    operating_system: linux
+    monthly_hrs: 282 # 730 × 0.026 / 0.0672 ≈ 282.4 (스팟 보정, 위 설명)
+
+  # 레거시 비교용(infra/main) 노드는 온디맨드 t4g.small 상시 가동
+  module.backend_host.aws_instance.this:
+    operating_system: linux
+    monthly_hrs: 730
+
+  # 인터넷으로 나가는 트래픽(작은 실습 규모). 월 100GB 까지는 AWS 무료 구간이다
+  aws_data_transfer.us_east_1:
+    region: us-east-1
+    monthly_outbound_internet_gb: 10
