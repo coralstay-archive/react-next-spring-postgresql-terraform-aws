@@ -354,6 +354,13 @@ check "TASK-65#7 README 에 '## AWS 실배포 설계' 절" sh -c 'grep -q "^## A
 for w in "<!--dot:platform-aws-->" "decision-11" "t4g.large" "스팟" "EIP" "합계" "apply 하지 않는" "TASK-52" "infra/platform" "enable_lb_node" "user_data_replace_on_change" "board-node-ready" "docs/terraform-state.md" "sslip.io" "WAF"; do
   check "TASK-65#7 'AWS 실배포 설계' 절에 '$w'" sh -c "$(declare -f readme_sec); readme_sec | grep -qF -- '$w'"
 done
+# 리뷰 반영: IMDS·스팟 요청·LB 우회·IPv6 를 TASK-52 항목으로, 데이터 볼륨 보호·노드 이름·SELinux 를 설명에
+for w in "169.254.169.254" "NetworkPolicy" "cancel-spot-instance-requests" "send-proxy" "node_name" "prevent_destroy" "SELinux" "xfs_growfs" "IPv6 가 없다"; do
+  check "TASK-65#7 'AWS 실배포 설계' 절에 '$w'" sh -c "$(declare -f readme_sec); readme_sec | grep -qF -- '$w'"
+done
+check "TASK-65#7 IPv6 로 닿는다고 쓰지 않는다(network 에 IPv6 가 없다)" sh -c "$(declare -f readme_sec); ! readme_sec | grep -qF '80·443(IPv4·IPv6)만'"
+check "TASK-65#7 구성도도 IPv6 를 주장하지 않는다" sh -c '! grep -qF "IPv4·IPv6" diagrams/platform-aws.dot'
+check "TASK-65#7 IAM 설명은 SSM Core 가 아니다" sh -c "$(declare -f readme_sec); ! readme_sec | grep -qF 'SSM Core'"
 check "TASK-65#7 구성 표에 infra/platform" sh -c 'grep -F "| \`infra/\`" README.md | grep -q "infra/platform"'
 
 echo "platform tests: ${passes} passed, ${failures} failed"

@@ -18,7 +18,7 @@ digraph platform_aws {
     label="AWS us-east-1 · infra/platform (관리형 미사용)"; style="rounded,filled"; color="#f00008"; fillcolor="#f00005"; fontcolor="#f00008"
 
     subgraph cluster_vpc {
-      label="VPC · public subnet 1개 · NAT 없음 · SG 80·443 (IPv4·IPv6)"; style="rounded,dashed"; color="#f00003"; fillcolor="#f00005"; fontcolor="#f00002"
+      label="VPC · public subnet 1개 · NAT 없음 · SG 80·443 (IPv4)"; style="rounded,dashed"; color="#f00003"; fillcolor="#f00005"; fontcolor="#f00002"
       eip [label="EIP 1개", color="#f00008", fillcolor="#f00009"]
       lb [label="lb_node (선택, 기본 꺼짐)\nHAProxy t4g.small\n80·443 TCP 패스스루", style="rounded,dashed", color="#f00003"]
 
@@ -29,7 +29,7 @@ digraph platform_aws {
         data [label="PostgreSQL · Kafka\nMinIO", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]
         mon [label="Prometheus\nAlertmanager", color="#f00006", fillcolor="#f00007"]
       }
-      vol [label="데이터 볼륨 gp3 암호화\n/data (k3s·local-path)\n마운트 없으면 k3s 안 뜸", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]
+      vol [label="데이터 볼륨 gp3 30GB 암호화\n/data (k3s·local-path)\n마운트 없으면 k3s 안 뜸", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]
     }
 
     snap [label="EBS 스냅샷\nDLM 일일 7개 (토글)", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]

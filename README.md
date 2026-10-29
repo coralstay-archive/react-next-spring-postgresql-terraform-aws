@@ -419,8 +419,9 @@ infra/platform/           새 루트 스택 (backend: bootstrap 버킷, key=plat
   envs/prod.backend.hcl   backend 설정        envs/prod.tfvars   prod 변수(repo_commit·cognito_domain_prefix 는 CHANGE-ME)
   (network)               ../main/modules/network 재사용 — VPC + public subnet 1개, NAT 없음
   modules/k3s_node        Rocky 9.8 arm64(792107900819) t4g.large 스팟(persistent, 회수 시 stop), IMDSv2, 루트·데이터 EBS 암호화, EIP 1개,
-                          SG 80·443(IPv4·IPv6)만 — 22 없음, IAM = SSM Core + /board/* 파라미터 읽기,
-                          데이터 볼륨 gp3(/dev/sdf → /data, data_snapshot_id 로 스냅샷 복원), user_data
+                          SG 80·443 만 — 22 없음(IPv6 규칙도 두지만 network 에 IPv6 가 없다 — 지금은 IPv4 로만 닿는다),
+                          IAM = SSM 에이전트 최소 권한(Session Manager·Run Command) + /board/* 파라미터 읽기·복호화만,
+                          데이터 볼륨 gp3 30GB(/dev/sdf → /data, prevent_destroy, data_snapshot_id 는 처음 만들 때만), user_data
   modules/lb_node         HAProxy t4g.small(80·443 TCP → 노드). enable_lb_node(기본 false)
   snapshots.tf            데이터 볼륨 DLM 일일 스냅샷 7개. enable_snapshots(기본 true)
   budgets.tf              AWS Budgets 월 한도(budget_monthly_usd, 기본 $30) 실제 80%·예측 100% 이메일 알림. budget_email 이 비면 없음
@@ -432,7 +433,9 @@ infra/platform/           새 루트 스택 (backend: bootstrap 버킷, key=plat
 1. `board-data-volume.sh`: `k3s.service`에 `RequiresMountsFor=/data` + 시작 전 `mountpoint` 드롭인을 **먼저** 쓴다 — 데이터 볼륨이
    마운트되지 않으면 k3s(그 안의 DB)가 루트 디스크에 빈 데이터로 뜨지 않는다. 장치는 볼륨 ID 의 by-id 링크로만 찾고, `blkid -p` 종료 코드 2(빈 장치)일
    때만 포맷한다(그 밖의 코드면 손대지 않고 실패). fstab 은 UUID + `nofail` — 볼륨이 없을 때 부팅이 비상 모드에 빠져 SSM 으로도 못 들어가는 일을 막고,
-   서비스 차단은 드롭인이 맡는다. k3s `data-dir`·local-path PV 는 `/data` 아래.
+   서비스 차단은 드롭인이 맡는다. 볼륨을 키웠으면 `xfs_growfs`로 늘린다. k3s `data-dir`(containerd 이미지 포함)·local-path PV 는 `/data` 아래이고,
+   새 XFS 는 SELinux `default_t`라 `/data/k3s`는 `/var/lib/rancher/k3s`와 같은 규칙(equivalence), `/data/local-path`는 `container_file_t`로 맞춘다.
+   k3s 노드 이름은 `node_name`(기본 `board-node`)으로 고정한다 — 노드를 새로 만들어도 local-path PV 의 nodeAffinity 가 그대로 맞는다(바꾸면 PV 가 고아가 된다).
 2. 저장소 **고정 커밋**(`repo_commit`, 40자리)의 `deploy/rocky/install.sh --profile server`(개발 VM 과 같은 스크립트). dnf·fetch·install.sh 는 3회 재시도.
 3. k3s 설치 자리 `k3s_install_cmd`(기본 비움 — TASK-36 스크립트를 넘긴다). 끝나면 `/var/lib/board-node/bootstrap.done`.
 4. **배포 전에 반드시** SSM 세션에서 `sudo /usr/local/sbin/board-node-ready`(출력 `node_ready_check`)를 돌린다. `cloud-init status --wait`가
@@ -440,20 +443,22 @@ infra/platform/           새 루트 스택 (backend: bootstrap 버킷, key=plat
 
 `user_data_replace_on_change = true`: user_data 를 바꾸면(커밋·k3s 명령) 노드를 새로 만든다. stop/start 로는 스크립트가 다시 돌지 않아 노드가 설정과
 어긋나기 때문이다. 노드는 가축이다 — 데이터 볼륨·EIP 는 남고 새 노드에 다시 붙는다. AMI 갱신은 `ignore_changes = [ami]`라 `-replace`로 명시한다.
-state 잠금 고착·백업은 [docs/terraform-state.md](docs/terraform-state.md).
+데이터 볼륨은 `prevent_destroy`라 plan 이 지우려 하면 실패한다. 스냅샷 복원·state 잠금 고착·백업은 [docs/terraform-state.md](docs/terraform-state.md).
+IMDS hop limit 은 2 다 — External Secrets(파드)가 노드 자격 증명으로 `/board/*`를 읽기 때문이다. 그래서 파드도 IMDS 에 닿으므로 노드 role 을
+최소 권한으로 두고, 앱 네임스페이스는 NetworkPolicy 로 막는다(아래 TASK-52).
 
 비용(us-east-1, 월, 대략 — decision-11, 2026-10 조사):
 
 | 항목 | 산식 | 월 |
 |---|---|--:|
 | k3s 노드 t4g.large 스팟 | 약 $0.021–0.026/h × 730 (온디맨드 $0.0672/h ≈ $49) | ≈ $15–19 |
-| EBS gp3 루트 30GB + 데이터 20GB | 50GB × $0.08 | ≈ $4 |
+| EBS gp3 루트 30GB + 데이터 30GB | 60GB × $0.08 | ≈ $4.8 |
 | EBS 스냅샷(DLM 7개, 증분) | 변경분 수 GB × $0.05 | ≈ $0.3–1 |
 | 공인 IPv4(EIP 1개) | $0.005/h × 730 | ≈ $3.7 |
 | SSM(Session Manager·Parameter Store 표준)·Budgets | 무료 | $0 |
 | Cognito | 소규모 MAU 무료 구간 **(요금제 확인 필요)** | ≈ $0 |
-| **합계(상시 가동)** | | **≈ $22–27** |
-| 밤 12시간 정지 | 노드 시간 절반, EBS·IPv4 는 그대로 | ≈ $15 |
+| **합계(상시 가동)** | decision-11 추정 $22–27 에 데이터 볼륨 30GB(+$0.8) | **≈ $23–28** |
+| 밤 12시간 정지 | 노드 시간 절반, EBS·IPv4 는 그대로 | ≈ $16 |
 | (선택) lb_node t4g.small 온디맨드 + EIP | $0.0168/h × 730 + $3.7 | +≈ $16 |
 | (선택) SMS | 사용량 — [sms-setup](docs/sms-setup.md#5-비용-메모) | 사용량 |
 
@@ -467,7 +472,14 @@ TASK-52 로 넘기는 항목:
 - 첫 `terraform plan/apply`(`envs/prod.tfvars`의 `repo_commit`·`cognito_domain_prefix`·`budget_email` 채우기), `board-node-ready` 확인
 - 도메인(그때까지 `<EIP>.sslip.io`)과 WAF 위치(CloudFront 가 없어 AWS WAF 를 붙일 곳이 없다)
 - 스냅샷 복원 리허설(`data_snapshot_id`), 스팟 회수 대응(TASK-60)
-- 노드 role 에 앱 권한 추가(SMS `sms-voice:SendTextMessage` 등 — 지금은 SSM Core + `/board/*` 읽기만)
+- 노드 role 에 앱 권한 추가(SMS `sms-voice:SendTextMessage` 등 — 지금은 SSM 에이전트 + `/board/*` 읽기·복호화만). KMS 조건의
+  암호화 컨텍스트 키(`kms:EncryptionContext:PARAMETER_ARN`)로 SecureString 을 실제로 읽을 수 있는지 확인
+- 앱 네임스페이스는 NetworkPolicy 로 `169.254.169.254`(IMDS) 차단 — hop limit 2 라 파드가 노드 자격 증명에 닿는다(External Secrets 만 허용)
+- destroy·교체 시 스팟 요청이 취소되는지 확인(남으면 `aws ec2 cancel-spot-instance-requests`). persistent 요청은 인스턴스를 지워도 다시 띄울 수 있는데,
+  provider 가 `aws_instance`(instance_market_options) 삭제 때 요청을 취소하는지는 오프라인으로 확인하지 못했다
+- lb_node 를 켜면: 노드 SG 는 그대로 80·443 이 열려 있어 LB 를 우회할 수 있고, HAProxy 가 `send-proxy`(PROXY protocol)를 쓰지 않아 앱이 클라이언트 IP 를
+  잃는다 — 켜기 전에 노드 SG 를 LB SG 로 좁히고 Traefik 의 PROXY protocol 을 맞춘다
+- IPv6: network 에 IPv6 가 없다(VPC·subnet IPv6 CIDR, `::/0` 경로). IPv6 로 받으려면 network 모듈에 더한다
 - 레거시 `infra/main` 철거(AC #5) — 그때 `network`·`cognito` 모듈을 `infra/platform/modules`로 옮긴다
 
 ## 배포 (TASK-17)

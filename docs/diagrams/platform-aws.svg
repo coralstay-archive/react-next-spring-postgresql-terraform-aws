@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg data-generated-by="scripts/build-diagrams.py" role="img" aria-label="AWS 실배포 설계(decision-11) — 브라우저 → EIP → k3s 노드(t4g.large 스팟, Rocky 9.8, Traefik 80·443)의 앱·PostgreSQL·Kafka·MinIO·모니터링, 데이터 gp3 볼륨(/data, DLM 스냅샷), SSM·Cognito·SMS·Budgets, 선택 HAProxy lb_node" width="1377" height="524"
- viewBox="0.00 0.00 1377.00 524.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg data-generated-by="scripts/build-diagrams.py" role="img" aria-label="AWS 실배포 설계(decision-11) — 브라우저 → EIP → k3s 노드(t4g.large 스팟, Rocky 9.8, Traefik 80·443)의 앱·PostgreSQL·Kafka·MinIO·모니터링, 데이터 gp3 볼륨(/data, DLM 스냅샷), SSM·Cognito·SMS·Budgets, 선택 HAProxy lb_node" width="1406" height="524"
+ viewBox="0.00 0.00 1406.00 524.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 <style>svg { --d-ink: #1f2328; --d-muted: #59636e; --d-line: #8c959f; --d-surface: #ffffff; --d-surface-2: #f6f8fa; --d-accent: #0969da; --d-accent-bg: #ddf4ff; --d-aws: #bc4c00; --d-aws-bg: #fff1e5; --d-ext: #8250df; --d-ext-bg: #fbefff; --d-data: #1a7f37; --d-data-bg: #dafbe1; --d-warn: #cf222e; --d-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { --d-ink: #e6edf3; --d-muted: #9198a1; --d-line: #656c76; --d-surface: #151b23; --d-surface-2: #1c2128; --d-accent: #4493f8; --d-accent-bg: #0c2d6b; --d-aws: #f0883e; --d-aws-bg: #3d1e0b; --d-ext: #ab7df8; --d-ext-bg: #2b1b4a; --d-data: #3fb950; --d-data-bg: #0f2d19; --d-warn: #f85149; --d-bg: #0d1117; } }
 text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", Helvetica, Arial, sans-serif; }</style>
 <g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(21.6 502.6)">
 <title>platform_aws</title>
-<polygon stroke="none" points="-21.6,21.6 -21.6,-502.6 1354.97,-502.6 1354.97,21.6 -21.6,21.6" style="fill:var(--d-bg)"/>
+<polygon stroke="none" points="-21.6,21.6 -21.6,-502.6 1384.22,-502.6 1384.22,21.6 -21.6,21.6" style="fill:var(--d-bg)"/>
 <g id="clust1" class="cluster">
 <title>cluster_ext</title>
 <path d="M259.03,-8C259.03,-8 937.72,-8 937.72,-8 943.72,-8 949.72,-14 949.72,-20 949.72,-20 949.72,-73 949.72,-73 949.72,-79 943.72,-85 937.72,-85 937.72,-85 259.03,-85 259.03,-85 253.03,-85 247.03,-79 247.03,-73 247.03,-73 247.03,-20 247.03,-20 247.03,-14 253.03,-8 259.03,-8" style="fill:var(--d-ext-bg);stroke:var(--d-ext)"/>
@@ -14,13 +14,13 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Got
 </g>
 <g id="clust2" class="cluster">
 <title>cluster_aws</title>
-<path d="M236.03,-93C236.03,-93 1313.37,-93 1313.37,-93 1319.37,-93 1325.37,-99 1325.37,-105 1325.37,-105 1325.37,-461 1325.37,-461 1325.37,-467 1319.37,-473 1313.37,-473 1313.37,-473 236.03,-473 236.03,-473 230.03,-473 224.03,-467 224.03,-461 224.03,-461 224.03,-105 224.03,-105 224.03,-99 230.03,-93 236.03,-93" style="fill:var(--d-surface-2);stroke:var(--d-aws)"/>
-<text xml:space="preserve" text-anchor="middle" x="774.7" y="-458.55" font-size="11.00" style="fill:var(--d-aws)">AWS us&#45;east&#45;1 · infra/platform (관리형 미사용)</text>
+<path d="M236.03,-93C236.03,-93 1342.62,-93 1342.62,-93 1348.62,-93 1354.62,-99 1354.62,-105 1354.62,-105 1354.62,-461 1354.62,-461 1354.62,-467 1348.62,-473 1342.62,-473 1342.62,-473 236.03,-473 236.03,-473 230.03,-473 224.03,-467 224.03,-461 224.03,-461 224.03,-105 224.03,-105 224.03,-99 230.03,-93 236.03,-93" style="fill:var(--d-surface-2);stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="789.33" y="-458.55" font-size="11.00" style="fill:var(--d-aws)">AWS us&#45;east&#45;1 · infra/platform (관리형 미사용)</text>
 </g>
 <g id="clust3" class="cluster">
 <title>cluster_vpc</title>
-<path fill="none" stroke-dasharray="5,2" d="M244.03,-155C244.03,-155 1153.71,-155 1153.71,-155 1159.71,-155 1165.71,-161 1165.71,-167 1165.71,-167 1165.71,-326 1165.71,-326 1165.71,-332 1159.71,-338 1153.71,-338 1153.71,-338 244.03,-338 244.03,-338 238.03,-338 232.03,-332 232.03,-326 232.03,-326 232.03,-167 232.03,-167 232.03,-161 238.03,-155 244.03,-155" style="stroke:var(--d-line)"/>
-<text xml:space="preserve" text-anchor="middle" x="698.87" y="-323.55" font-size="11.00" style="fill:var(--d-muted)">VPC · public subnet 1개 · NAT 없음 · SG 80·443 (IPv4·IPv6)</text>
+<path fill="none" stroke-dasharray="5,2" d="M244.03,-155C244.03,-155 1182.96,-155 1182.96,-155 1188.96,-155 1194.96,-161 1194.96,-167 1194.96,-167 1194.96,-326 1194.96,-326 1194.96,-332 1188.96,-338 1182.96,-338 1182.96,-338 244.03,-338 244.03,-338 238.03,-338 232.03,-332 232.03,-326 232.03,-326 232.03,-167 232.03,-167 232.03,-161 238.03,-155 244.03,-155" style="stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="713.5" y="-323.55" font-size="11.00" style="fill:var(--d-muted)">VPC · public subnet 1개 · NAT 없음 · SG 80·443 (IPv4)</text>
 </g>
 <g id="clust4" class="cluster">
 <title>cluster_node</title>
@@ -84,8 +84,8 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Got
 <g id="node4" class="node">
 <title>le</title>
 <path stroke-width="1.2" d="M715.14,-55C715.14,-55 644.73,-55 644.73,-55 638.73,-55 632.73,-49 632.73,-43 632.73,-43 632.73,-31 632.73,-31 632.73,-25 638.73,-19 644.73,-19 644.73,-19 715.14,-19 715.14,-19 721.14,-19 727.14,-25 727.14,-31 727.14,-31 727.14,-43 727.14,-43 727.14,-49 721.14,-55 715.14,-55" style="fill:var(--d-surface);stroke:var(--d-ext)"/>
-<text xml:space="preserve" text-anchor="middle" x="679.94" y="-38.55" font-size="11.00" style="fill:var(--d-ink)">Let&#39;s Encrypt</text>
-<text xml:space="preserve" text-anchor="middle" x="679.94" y="-26.55" font-size="11.00" style="fill:var(--d-ink)">(&lt;EIP&gt;.sslip.io)</text>
+<text xml:space="preserve" text-anchor="middle" x="679.93" y="-38.55" font-size="11.00" style="fill:var(--d-ink)">Let&#39;s Encrypt</text>
+<text xml:space="preserve" text-anchor="middle" x="679.93" y="-26.55" font-size="11.00" style="fill:var(--d-ink)">(&lt;EIP&gt;.sslip.io)</text>
 </g>
 <g id="node5" class="node">
 <title>github</title>
@@ -120,13 +120,13 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Got
 <title>traefik&#45;&gt;le</title>
 <path fill="none" stroke-dasharray="1,5" d="M550.49,-171.59C552.03,-170.41 553.53,-169.21 554.98,-168 595.03,-134.55 635.46,-89.14 658.81,-61.52" style="stroke:var(--d-line)"/>
 <polygon points="660.49,-63.33 663.11,-56.39 656.73,-60.17 660.49,-63.33" style="fill:var(--d-line);stroke:var(--d-line)"/>
-<text xml:space="preserve" text-anchor="middle" x="590.11" y="-149.67" font-size="9.00" style="fill:var(--d-muted)">ACME</text>
+<text xml:space="preserve" text-anchor="middle" x="590.1" y="-149.67" font-size="9.00" style="fill:var(--d-muted)">ACME</text>
 </g>
 <g id="node9" class="node">
 <title>apps</title>
 <path stroke-width="1.2" d="M722.64,-214.16C722.64,-214.16 637.23,-214.16 637.23,-214.16 631.23,-214.16 625.23,-208.16 625.23,-202.16 625.23,-202.16 625.23,-189.84 625.23,-189.84 625.23,-183.84 631.23,-177.84 637.23,-177.84 637.23,-177.84 722.64,-177.84 722.64,-177.84 728.64,-177.84 734.64,-183.84 734.64,-189.84 734.64,-189.84 734.64,-202.16 734.64,-202.16 734.64,-208.16 728.64,-214.16 722.64,-214.16" style="fill:var(--d-accent-bg);stroke:var(--d-accent)"/>
-<text xml:space="preserve" text-anchor="middle" x="679.94" y="-198.68" font-size="11.00" style="fill:var(--d-ink)">앱</text>
-<text xml:space="preserve" text-anchor="middle" x="679.94" y="-184.43" font-size="11.00" style="fill:var(--d-ink)">frontend · backend</text>
+<text xml:space="preserve" text-anchor="middle" x="679.93" y="-198.68" font-size="11.00" style="fill:var(--d-ink)">앱</text>
+<text xml:space="preserve" text-anchor="middle" x="679.93" y="-184.43" font-size="11.00" style="fill:var(--d-ink)">frontend · backend</text>
 </g>
 <g id="edge5" class="edge">
 <title>traefik&#45;&gt;apps</title>
@@ -137,7 +137,7 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Got
 <title>apps&#45;&gt;ghcr</title>
 <path fill="none" stroke-dasharray="1,5" d="M715.3,-172.71C746.02,-151.87 792.26,-120.46 832.39,-93 850.78,-80.41 871.47,-66.17 887.37,-55.2" style="stroke:var(--d-line)"/>
 <polygon points="714.28,-170.45 709.86,-176.4 717.03,-174.5 714.28,-170.45" style="fill:var(--d-line);stroke:var(--d-line)"/>
-<text xml:space="preserve" text-anchor="middle" x="794.52" y="-144.97" font-size="9.00" style="fill:var(--d-muted)">pull</text>
+<text xml:space="preserve" text-anchor="middle" x="794.51" y="-144.97" font-size="9.00" style="fill:var(--d-muted)">pull</text>
 </g>
 <g id="node10" class="node">
 <title>data</title>
@@ -153,7 +153,7 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Got
 </g>
 <g id="node11" class="node">
 <title>mon</title>
-<path stroke-width="1.2" d="M945.43,-278C945.43,-278 884.02,-278 884.02,-278 878.02,-278 872.02,-272 872.02,-266 872.02,-266 872.02,-254 872.02,-254 872.02,-248 878.02,-242 884.02,-242 884.02,-242 945.43,-242 945.43,-242 951.43,-242 957.43,-248 957.43,-254 957.43,-254 957.43,-266 957.43,-266 957.43,-272 951.43,-278 945.43,-278" style="fill:var(--d-accent-bg);stroke:var(--d-accent)"/>
+<path stroke-width="1.2" d="M945.42,-278C945.42,-278 884.01,-278 884.01,-278 878.01,-278 872.01,-272 872.01,-266 872.01,-266 872.01,-254 872.01,-254 872.01,-248 878.01,-242 884.01,-242 884.01,-242 945.42,-242 945.42,-242 951.42,-242 957.42,-248 957.42,-254 957.42,-254 957.42,-266 957.42,-266 957.42,-272 951.42,-278 945.42,-278" style="fill:var(--d-accent-bg);stroke:var(--d-accent)"/>
 <text xml:space="preserve" text-anchor="middle" x="914.72" y="-261.55" font-size="11.00" style="fill:var(--d-ink)">Prometheus</text>
 <text xml:space="preserve" text-anchor="middle" x="914.72" y="-249.55" font-size="11.00" style="fill:var(--d-ink)">Alertmanager</text>
 </g>
@@ -161,7 +161,7 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Got
 <title>apps&#45;&gt;mon</title>
 <path fill="none" stroke-dasharray="1,5" d="M743.2,-213.12C783.88,-224.3 835.91,-238.61 871.74,-248.46" style="stroke:var(--d-line)"/>
 <polygon points="744.08,-210.82 736.68,-211.33 742.78,-215.54 744.08,-210.82" style="fill:var(--d-line);stroke:var(--d-line)"/>
-<text xml:space="preserve" text-anchor="middle" x="794.52" y="-240.17" font-size="9.00" style="fill:var(--d-muted)">수집</text>
+<text xml:space="preserve" text-anchor="middle" x="794.51" y="-240.17" font-size="9.00" style="fill:var(--d-muted)">수집</text>
 </g>
 <g id="node15" class="node">
 <title>cognito</title>
@@ -173,7 +173,7 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Got
 <title>apps&#45;&gt;cognito</title>
 <path fill="none" d="M691.26,-214.7C704.1,-236.5 727.89,-272.41 756.64,-295 793.29,-323.79 843.81,-343.16 877.56,-353.87" style="stroke:var(--d-line)"/>
 <polygon points="876.48,-356.1 883.89,-355.84 877.93,-351.42 876.48,-356.1" style="fill:var(--d-line);stroke:var(--d-line)"/>
-<text xml:space="preserve" text-anchor="middle" x="794.52" y="-337.43" font-size="9.00" style="fill:var(--d-muted)">OIDC</text>
+<text xml:space="preserve" text-anchor="middle" x="794.51" y="-337.43" font-size="9.00" style="fill:var(--d-muted)">OIDC</text>
 </g>
 <g id="node16" class="node">
 <title>sms</title>
@@ -185,32 +185,32 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Got
 <title>apps&#45;&gt;sms</title>
 <path fill="none" d="M684.3,-214.59C691.48,-249.11 711.49,-323.46 756.64,-366 781.17,-389.1 815.59,-403.37 845.97,-412.08" style="stroke:var(--d-line)"/>
 <polygon points="845.15,-414.39 852.55,-413.88 846.44,-409.67 845.15,-414.39" style="fill:var(--d-line);stroke:var(--d-line)"/>
-<text xml:space="preserve" text-anchor="middle" x="794.52" y="-408.69" font-size="9.00" style="fill:var(--d-muted)">SendTextMessage</text>
+<text xml:space="preserve" text-anchor="middle" x="794.51" y="-408.69" font-size="9.00" style="fill:var(--d-muted)">SendTextMessage</text>
 </g>
 <g id="node12" class="node">
 <title>vol</title>
-<path stroke-width="1.2" d="M1157.71,-226.45C1157.71,-229.94 1129.32,-232.77 1094.38,-232.77 1059.44,-232.77 1031.05,-229.94 1031.05,-226.45 1031.05,-226.45 1031.05,-169.55 1031.05,-169.55 1031.05,-166.06 1059.44,-163.23 1094.38,-163.23 1129.32,-163.23 1157.71,-166.06 1157.71,-169.55 1157.71,-169.55 1157.71,-226.45 1157.71,-226.45" style="fill:var(--d-data-bg);stroke:var(--d-data)"/>
-<path fill="none" stroke-width="1.2" d="M1157.71,-226.45C1157.71,-222.96 1129.32,-220.13 1094.38,-220.13 1059.44,-220.13 1031.05,-222.96 1031.05,-226.45" style="stroke:var(--d-data)"/>
-<text xml:space="preserve" text-anchor="middle" x="1094.38" y="-207.8" font-size="11.00" style="fill:var(--d-ink)">데이터 볼륨 gp3 암호화</text>
-<text xml:space="preserve" text-anchor="middle" x="1094.38" y="-193.55" font-size="11.00" style="fill:var(--d-ink)">/data (k3s·local&#45;path)</text>
-<text xml:space="preserve" text-anchor="middle" x="1094.38" y="-181.55" font-size="11.00" style="fill:var(--d-ink)">마운트 없으면 k3s 안 뜸</text>
+<path stroke-width="1.2" d="M1186.96,-226.45C1186.96,-229.94 1152.02,-232.77 1109,-232.77 1065.99,-232.77 1031.05,-229.94 1031.05,-226.45 1031.05,-226.45 1031.05,-169.55 1031.05,-169.55 1031.05,-166.06 1065.99,-163.23 1109,-163.23 1152.02,-163.23 1186.96,-166.06 1186.96,-169.55 1186.96,-169.55 1186.96,-226.45 1186.96,-226.45" style="fill:var(--d-data-bg);stroke:var(--d-data)"/>
+<path fill="none" stroke-width="1.2" d="M1186.96,-226.45C1186.96,-222.96 1152.02,-220.13 1109,-220.13 1065.99,-220.13 1031.05,-222.96 1031.05,-226.45" style="stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="middle" x="1109" y="-207.8" font-size="11.00" style="fill:var(--d-ink)">데이터 볼륨 gp3 30GB 암호화</text>
+<text xml:space="preserve" text-anchor="middle" x="1109" y="-193.55" font-size="11.00" style="fill:var(--d-ink)">/data (k3s·local&#45;path)</text>
+<text xml:space="preserve" text-anchor="middle" x="1109" y="-181.55" font-size="11.00" style="fill:var(--d-ink)">마운트 없으면 k3s 안 뜸</text>
 </g>
 <g id="edge8" class="edge">
 <title>data&#45;&gt;vol</title>
-<path fill="none" stroke-dasharray="1,5" d="M972.91,-195.29C991.27,-195.7 1011.71,-196.16 1030.45,-196.58" style="stroke:var(--d-line)"/>
-<text xml:space="preserve" text-anchor="middle" x="1003.05" y="-197.2" font-size="9.00" style="fill:var(--d-muted)">PV</text>
+<path fill="none" stroke-dasharray="1,5" d="M973.15,-195.19C991.19,-195.57 1011.41,-195.99 1030.6,-196.39" style="stroke:var(--d-line)"/>
+<text xml:space="preserve" text-anchor="middle" x="1003.05" y="-197.08" font-size="9.00" style="fill:var(--d-muted)">PV</text>
 </g>
 <g id="node13" class="node">
 <title>snap</title>
-<path stroke-width="1.2" d="M1317.37,-219.7C1317.37,-222.36 1291.67,-224.52 1260.04,-224.52 1228.41,-224.52 1202.71,-222.36 1202.71,-219.7 1202.71,-219.7 1202.71,-176.3 1202.71,-176.3 1202.71,-173.64 1228.41,-171.48 1260.04,-171.48 1291.67,-171.48 1317.37,-173.64 1317.37,-176.3 1317.37,-176.3 1317.37,-219.7 1317.37,-219.7" style="fill:var(--d-data-bg);stroke:var(--d-data)"/>
-<path fill="none" stroke-width="1.2" d="M1317.37,-219.7C1317.37,-217.04 1291.67,-214.88 1260.04,-214.88 1228.41,-214.88 1202.71,-217.04 1202.71,-219.7" style="stroke:var(--d-data)"/>
-<text xml:space="preserve" text-anchor="middle" x="1260.04" y="-201.8" font-size="11.00" style="fill:var(--d-ink)">EBS 스냅샷</text>
-<text xml:space="preserve" text-anchor="middle" x="1260.04" y="-187.55" font-size="11.00" style="fill:var(--d-ink)">DLM 일일 7개 (토글)</text>
+<path stroke-width="1.2" d="M1346.62,-219.7C1346.62,-222.36 1320.92,-224.52 1289.29,-224.52 1257.66,-224.52 1231.96,-222.36 1231.96,-219.7 1231.96,-219.7 1231.96,-176.3 1231.96,-176.3 1231.96,-173.64 1257.66,-171.48 1289.29,-171.48 1320.92,-171.48 1346.62,-173.64 1346.62,-176.3 1346.62,-176.3 1346.62,-219.7 1346.62,-219.7" style="fill:var(--d-data-bg);stroke:var(--d-data)"/>
+<path fill="none" stroke-width="1.2" d="M1346.62,-219.7C1346.62,-217.04 1320.92,-214.88 1289.29,-214.88 1257.66,-214.88 1231.96,-217.04 1231.96,-219.7" style="stroke:var(--d-data)"/>
+<text xml:space="preserve" text-anchor="middle" x="1289.29" y="-201.8" font-size="11.00" style="fill:var(--d-ink)">EBS 스냅샷</text>
+<text xml:space="preserve" text-anchor="middle" x="1289.29" y="-187.55" font-size="11.00" style="fill:var(--d-ink)">DLM 일일 7개 (토글)</text>
 </g>
 <g id="edge9" class="edge">
 <title>vol&#45;&gt;snap</title>
-<path fill="none" stroke-dasharray="1,5" d="M1158.19,-198C1169.87,-198 1182.09,-198 1193.84,-198" style="stroke:var(--d-line)"/>
-<polygon points="1193.78,-200.45 1200.78,-198 1193.78,-195.55 1193.78,-200.45" style="fill:var(--d-line);stroke:var(--d-line)"/>
+<path fill="none" stroke-dasharray="1,5" d="M1187.43,-198C1199.37,-198 1211.61,-198 1223.25,-198" style="stroke:var(--d-line)"/>
+<polygon points="1223.09,-200.45 1230.09,-198 1223.09,-195.55 1223.09,-200.45" style="fill:var(--d-line);stroke:var(--d-line)"/>
 </g>
 <g id="edge11" class="edge">
 <title>ssm&#45;&gt;traefik</title>
@@ -220,9 +220,9 @@ text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Got
 </g>
 <g id="node17" class="node">
 <title>budgets</title>
-<path stroke-width="1.2" d="M1294.12,-364.17C1294.12,-364.17 1225.96,-364.17 1225.96,-364.17 1219.96,-364.17 1213.96,-358.17 1213.96,-352.17 1213.96,-352.17 1213.96,-339.83 1213.96,-339.83 1213.96,-333.83 1219.96,-327.83 1225.96,-327.83 1225.96,-327.83 1294.12,-327.83 1294.12,-327.83 1300.12,-327.83 1306.12,-333.83 1306.12,-339.83 1306.12,-339.83 1306.12,-352.17 1306.12,-352.17 1306.12,-358.17 1300.12,-364.17 1294.12,-364.17" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
-<text xml:space="preserve" text-anchor="middle" x="1260.04" y="-348.68" font-size="11.00" style="fill:var(--d-ink)">AWS Budgets</text>
-<text xml:space="preserve" text-anchor="middle" x="1260.04" y="-336.68" font-size="11.00" style="fill:var(--d-ink)">월 알림 (이메일)</text>
+<path stroke-width="1.2" d="M1323.37,-364.17C1323.37,-364.17 1255.21,-364.17 1255.21,-364.17 1249.21,-364.17 1243.21,-358.17 1243.21,-352.17 1243.21,-352.17 1243.21,-339.83 1243.21,-339.83 1243.21,-333.83 1249.21,-327.83 1255.21,-327.83 1255.21,-327.83 1323.37,-327.83 1323.37,-327.83 1329.37,-327.83 1335.37,-333.83 1335.37,-339.83 1335.37,-339.83 1335.37,-352.17 1335.37,-352.17 1335.37,-358.17 1329.37,-364.17 1323.37,-364.17" style="fill:var(--d-aws-bg);stroke:var(--d-aws)"/>
+<text xml:space="preserve" text-anchor="middle" x="1289.29" y="-348.68" font-size="11.00" style="fill:var(--d-ink)">AWS Budgets</text>
+<text xml:space="preserve" text-anchor="middle" x="1289.29" y="-336.68" font-size="11.00" style="fill:var(--d-ink)">월 알림 (이메일)</text>
 </g>
 </g>
 </svg>
