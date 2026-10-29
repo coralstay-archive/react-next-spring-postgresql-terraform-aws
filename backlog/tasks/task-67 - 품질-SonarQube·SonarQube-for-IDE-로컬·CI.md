@@ -1,10 +1,10 @@
 ---
 id: TASK-67
 title: '[품질] SonarQube·SonarQube for IDE 로컬·CI'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 03:25'
+updated_date: '2026-10-29 08:19'
 labels:
   - quality
   - platform
@@ -42,3 +42,22 @@ SonarQube Community Build 를 VM Podman 에서 단독 모드로 띄우고(공식
 - [ ] #5 SonarQube for IDE 연결 모드: .sonarlint/connectedMode.json 커밋, README 에 VS Code·IntelliJ 연결 방법
 - [ ] #6 CI sonar.yml: GHA 서비스 컨테이너로 SonarQube 를 띄워 분석·품질 게이트, 관리자 비밀번호는 실행마다 API 로 교체, actionlint 통과
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+## 구현 계획 (승인된 계획 2026-10-29)
+1. AC#1 deploy/sonar/compose.yaml: SonarQube Community Build(다이제스트 고정) + postgres:18-alpine(다이제스트 고정, 볼륨 분리, 포트 비공개). make sonar-up·sonar-down·sonar-status — 맥에서는 vm_proxy_if_mac 로 VM 안 podman compose. 접속 http://<VM IP>:9000(sonar-status 가 주소 출력). 데이터는 VM 로컬 볼륨.
+2. AC#2 단독 모드: scripts/_sonar.sh 사전 검사 — k3s(또는 k3d) 실행 중, /tmp/board-repo-test.lock 잡힘, VM 메모리 < budgets.txt 의 sonar 예산이면 이유·해결법 출력 후 실패. make test 쪽도 SonarQube 가 떠 있으면 거부(역방향). 힙: SONAR_WEB_JAVAOPTS·SONAR_CE_JAVAOPTS·SONAR_SEARCH_JAVAOPTS 축소. 각 경우 셸 테스트.
+3. AC#3 install.sh dev: /etc/sysctl.d/99-sonarqube.conf(vm.max_map_count=524288, fs.file-max=131072), limits nofile 131072 — 재실행해도 같은 결과. 실 VM 에 적용·확인.
+4. AC#4 make sonar-scan: 백엔드 Gradle org.sonarqube 플러그인 + jacoco(XML), 프론트 vitest --coverage(lcov) + sonar-scanner-cli 컨테이너(다이제스트 고정), sonar.qualitygate.wait=true. 토큰은 VM 의 ~/.config/board-sonar/token(유저가 UI 에서 발급해 둠, 저장소·.env 아님) — 없으면 안내 후 실패. 첫 분석 기준선(이슈 수·커버리지)을 노트에 기록.
+5. AC#5 .sonarlint/connectedMode.json(sonarQubeUri·projectKey) 커밋, README 에 VS Code·IntelliJ 연결 모드 안내.
+6. AC#6 .github/workflows/sonar.yml: services 로 SonarQube·Postgres, 기동 대기, 관리자 비밀번호 API 로 교체(실행마다 무작위), 토큰 발급 → 분석 → 게이트. permissions 최소, actionlint 통과.
+- 구현은 서브에이전트, 부모가 make test 재검증 → 독립 리뷰 → Done.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1 진행: deploy/sonar/compose.yaml(SonarQube 26.10.0.133078-community·postgres:18-alpine 다이제스트 고정, 프로젝트 board-sonar, 9000 만 공개, 이름 있는 볼륨), scripts/sonar.sh·_sonar.sh(up/down[--purge]/status, 맥은 vm_proxy_if_mac), make sonar-up·sonar-down·sonar-status. VM 에 compose 공급자가 없어(podman compose → 공급자 없음) install.sh dev 에 docker-compose v5.6.1 플러그인(sha256 고정, /usr/local/lib/docker/cli-plugins) 추가·VM 에 재적용. 실측: 첫 sonar-up 은 vm.max_map_count 65530 으로 Elasticsearch 부트스트랩 검사 실패 → 컨테이너가 멈추면 기다리지 않고 원인 안내하도록 고침(AC#3 에서 sysctl). sonar_test.sh 16개.
+<!-- SECTION:NOTES:END -->

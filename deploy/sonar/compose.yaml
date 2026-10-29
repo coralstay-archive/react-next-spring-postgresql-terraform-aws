@@ -1,0 +1,57 @@
+# SonarQube Community Build 로컬 (TASK-67). Rocky 개발 VM 안 Podman 으로만 띄운다: make sonar-up·sonar-down·sonar-status (scripts/sonar.sh).
+# 단독 모드(B1): k3s·make test 와 같이 띄우지 않는다 — scripts/_sonar.sh 사전 검사가 막는다. 메모리 예산은 deploy/k8s/budgets.txt(sonar).
+# 이미지는 태그@sha256(멀티 아키텍처 인덱스 — VM arm64·CI amd64 같은 값)로 고정한다. 올릴 때는 .github/workflows/sonar.yml 도 같이 바꾼다
+# (scripts/test/sonar_test.sh 가 비교한다).
+# DB 는 포트를 열지 않는다(compose 내부 네트워크만) — 비밀번호 sonar 는 그 안에서만 쓰는 값이다. 관리자 비밀번호·분석 토큰은
+# sonar-up 이 처음에 API 로 바꾸고/만들어 VM 의 ~/.config/board-sonar 에만 둔다(B2).
+name: board-sonar
+
+services:
+  db:
+    image: docker.io/library/postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - sonar_db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: "no"
+
+  sonarqube:
+    image: docker.io/library/sonarqube:26.10.0.133078-community@sha256:aa0d41212704d1ed35f7ae3b49886b39f639590baf8020cdb191c2a2eb8f9eae
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+      # TASK-67#2 힙 축소(기본 web·ce·search 각 512m). 5GB VM 에서 SonarQube 만 띄운다 — 실측 RSS 는 budgets.txt(sonar-rss)
+      SONAR_WEB_JAVAOPTS: "-Xmx384m -Xms128m -XX:+UseSerialGC"
+      SONAR_CE_JAVAOPTS: "-Xmx384m -Xms128m -XX:+UseSerialGC"
+      SONAR_SEARCH_JAVAOPTS: "-Xmx384m -Xms384m"
+      # 텔레메트리 끔
+      SONAR_TELEMETRY_ENABLE: "false"
+    # Elasticsearch(내장)가 요구한다. VM 커널 값은 install.sh dev 가 맞춘다(vm.max_map_count·fs.file-max, TASK-67#3)
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 131072
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    restart: "no"
+
+volumes:
+  sonar_db:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:

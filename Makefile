@@ -7,7 +7,7 @@
 LOCAL_ENV = local_env="$$(./scripts/local-env.sh .env)" && eval "$$local_env" &&
 
 .PHONY: help test test-integration vm-create vm-start vm-stop vm-status vm-ssh k3d-up k3d-profile k3d-smoke k3d-stop k3d-down dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
-	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams cost cost-diff
+	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams cost cost-diff sonar-up sonar-down sonar-status
 
 help: ## 타깃 목록
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -106,6 +106,19 @@ cost: ## Terraform 월 비용 추정(infra/platform·비교용 infra/main) + 상
 
 cost-diff: ## 기준 브랜치(COST_BASE, 기본 main) 대비 월 비용 차이
 	./scripts/cost.sh diff $(COST_BASE)
+
+# --- SonarQube (TASK-67, README 코드 품질). Rocky 개발 VM 안 Podman 에 단독으로 띄운다(k3s·make test 와 동시에 띄우지 않는다).
+# 맥이면 VM 안에서 돈다. 접속 http://<VM IP>:9000 (make sonar-status 가 주소를 보여 준다)
+PURGE ?=
+
+sonar-up: ## SonarQube 기동(VM Podman, 단독 모드) → http://<VM IP>:9000
+	./scripts/sonar.sh up
+
+sonar-down: ## SonarQube 내리기(메모리 회수, 분석 이력은 남는다). PURGE=1 이면 볼륨·VM 설정까지 지운다
+	./scripts/sonar.sh down $(if $(filter 1,$(PURGE)),--purge)
+
+sonar-status: ## SonarQube 실행 여부·접속 주소·메모리
+	./scripts/sonar.sh status
 
 e2e: ## Playwright E2E: 로컬 스택(compose·백엔드·next dev)을 띄워 chromium 시나리오 실행 후 정리 (느림, make test 에 없음, 떠 있는 k3d 는 먼저 멈춘다). E2E_ARGS 로 인자 전달
 	./scripts/e2e.sh $(E2E_ARGS)

@@ -30,6 +30,9 @@ TERRAFORM_VERSION="1.16.0"
 TERRAFORM_SHA256="60f86cea49a653e22a93c000f16cbfa391ce41c6f6a11d36557c35da411f684c"
 INFRACOST_VERSION="0.10.47"
 INFRACOST_SHA256="1db33dddcac989f39687fa9bf00ed9d8cce4268450578848e5bf6287ad8a7b44"
+# TASK-67#1 podman compose 공급자(docker-compose CLI 플러그인 — Podman 사용자 소켓을 쓴다). make sonar-up(deploy/sonar/compose.yaml)
+COMPOSE_VERSION="5.6.1"
+COMPOSE_SHA256="42cfa75f51ad0ccf290bad37899e0038a8c10a0069e85233ecc1d53e3ff1347d"
 TEMURIN_PACKAGE="temurin-25-jdk-25.0.5.0.0.8"
 
 PROFILE=""; TARGET_USER=""; SHARE_TAG="share"; SHARE_PATH="/repo"
@@ -288,6 +291,14 @@ if ! installed "infracost-$INFRACOST_VERSION"; then
   tar -xzf "$tmp/infracost.tar.gz" -C "$tmp" infracost-linux-arm64
   install -m 0755 "$tmp/infracost-linux-arm64" /usr/local/bin/infracost
   mark "infracost-$INFRACOST_VERSION"
+fi
+
+# TASK-67#1 podman compose 는 이 경로의 docker-compose 플러그인을 찾는다(DOCKER_HOST 를 Podman 소켓으로 맞춰 부른다)
+if ! installed "compose-$COMPOSE_VERSION"; then
+  log "docker-compose v$COMPOSE_VERSION (podman compose 공급자)"
+  fetch "https://github.com/docker/compose/releases/download/v$COMPOSE_VERSION/docker-compose-linux-aarch64" "$COMPOSE_SHA256" "$tmp/docker-compose"
+  install -D -m 0755 "$tmp/docker-compose" /usr/local/lib/docker/cli-plugins/docker-compose
+  mark "compose-$COMPOSE_VERSION"
 fi
 
 # ---------------------------------------------------------------- 저장소 공유(VirtioFS) + VM 로컬 빌드 디렉터리(dev) — 위 dev_share_setup
