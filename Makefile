@@ -97,11 +97,12 @@ diagrams: ## diagrams/*.dot → docs/diagrams/*.svg 렌더 + 문서의 <!--dot:�
 	python3 scripts/build-diagrams.py
 
 # --- 비용 추정 (TASK-66, README 비용 추정). Infracost(infracost.yml). 맥이면 VM 안에서 돈다. API 키가 없으면 경고 후 건너뛴다
-COST_LIMIT ?= 30
+# 상한: COST_LIMIT > COST_LIMIT_USD(환경변수) > 30(cost-guard 기본). 맥에서는 환경변수가 VM 으로 넘어가지 않아 make 가 인자로 넘긴다
+COST_LIMIT ?=
 COST_BASE ?= main
 
-cost: ## Terraform 월 비용 추정(infra/platform·비교용 infra/main) + 상한 검사(COST_LIMIT, 기본 30 USD)
-	./scripts/cost.sh breakdown $(COST_LIMIT)
+cost: ## Terraform 월 비용 추정(infra/platform·비교용 infra/main) + 상한 검사(COST_LIMIT > COST_LIMIT_USD > 30 USD)
+	./scripts/cost.sh breakdown $(or $(COST_LIMIT),$(COST_LIMIT_USD))
 
 cost-diff: ## 기준 브랜치(COST_BASE, 기본 main) 대비 월 비용 차이
 	./scripts/cost.sh diff $(COST_BASE)

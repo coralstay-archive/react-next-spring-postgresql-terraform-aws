@@ -215,7 +215,7 @@ check "TASK-66#4 scripts/test.sh 가 cost_test.sh 를 부른다(make test, 오�
 # ================================================================ TASK-66#3 TASK-66#B2 make cost·cost-diff (scripts/cost.sh) — 맥이면 VM 안, 키 없으면 경고 후 건너뜀
 CS=scripts/cost.sh
 # 가짜 infracost: 호출(인자·작업 디렉터리)을 기록. configure get api_key 는 FAKE_IC_KEY, breakdown·diff 는 --out-file 에
-# FAKE_BREAKDOWN·FAKE_DIFF 를 복사한다. 기준(base) breakdown 은 작업 디렉터리에 infra/platform·infracost.yml 이 있는지도 남긴다
+# FAKE_BREAKDOWN·FAKE_DIFF 를 복사한다. breakdown 은 설정의 프로젝트 path·usage 파일이 없으면 실패한다(진짜처럼)
 IC="$FAKE/ic"
 mkdir -p "$IC/bin"
 cat >"$IC/bin/infracost" <<'SH'
@@ -226,7 +226,15 @@ for ((i = 0; i < ${#a[@]}; i++)); do [ "${a[$i]}" = --out-file ] && out="${a[$((
 case "$1" in
   configure) [ "$2 $3" = "get api_key" ] && printf '%s' "${FAKE_IC_KEY:-}"; exit 0 ;;
   breakdown)
-    { [ -f infra/platform/main.tf ] && [ -f infracost.yml ] && [ -f infracost-usage.yml ]; } && echo "base-ok $PWD" >>"$FAKE_STATE/calls.log"
+    # 진짜 infracost 처럼: 설정의 프로젝트 path·usage 파일이 없으면 실패한다. 있으면 프로젝트 이름을 남긴다
+    cfg=""; for ((i = 0; i < ${#a[@]}; i++)); do [ "${a[$i]}" = --config-file ] && cfg="${a[$((i + 1))]}"; done
+    if [ -n "$cfg" ]; then
+      while IFS=$'\t' read -r n p u; do
+        [ -d "$p" ] || { echo "Error: project $n: path $p does not exist" >&2; exit 1; }
+        [ -z "$u" ] || [ -f "$u" ] || { echo "Error: usage file $u does not exist" >&2; exit 1; }
+      done < <(yq -r '.projects[] | [.name, .path, (.usage_file // "")] | @tsv' "$cfg")
+      echo "projects $(yq -r '[.projects[].name] | join(",")' "$cfg") | cwd=$PWD" >>"$FAKE_STATE/calls.log"
+    fi
     cp "$FAKE_BREAKDOWN" "$out" ;;
   diff) cp "$FAKE_DIFF" "$out" ;;
   output) echo "FAKE-TABLE $*" ;;
@@ -289,19 +297,41 @@ t_cost_out_dir() {
   rc_is 0 && [ -s "$TMP/out/breakdown.json" ]
 }
 check "TASK-66#3 COST_OUT_DIR 가 있으면 JSON 을 거기 남긴다(CI 가 쓴다)" t_cost_out_dir
+# 임시 git 저장소(얕은 CI 체크아웃에서도 돈다): c0 = infra 없음, c1 = infra/main 만(오늘의 main 처럼 infracost.yml·infra/platform 없음),
+# c2 = 지금 설정 + infra/platform. cost.sh·_vm.sh·cost-guard.sh 는 복사본
+GR="$TMP/gitrepo"
+mkdir -p "$GR/scripts"
+cp scripts/cost.sh scripts/_vm.sh scripts/cost-guard.sh "$GR/scripts/"
+gr_git() { git -C "$GR" -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false "$@"; }
+gr_git init -q -b work
+echo r >"$GR/README"; gr_git add -A; gr_git commit -q -m c0; GR_C0="$(gr_git rev-parse HEAD)"
+mkdir -p "$GR/infra/main/envs"; echo '# main' >"$GR/infra/main/main.tf"; echo 'x = 1' >"$GR/infra/main/envs/prod.tfvars"
+gr_git add -A; gr_git commit -q -m c1; GR_C1="$(gr_git rev-parse HEAD)"
+mkdir -p "$GR/infra/platform/envs"; echo '# platform' >"$GR/infra/platform/main.tf"; echo 'y = 1' >"$GR/infra/platform/envs/prod.tfvars"
+cp infracost.yml infracost-usage.yml infracost-usage-main.yml "$GR/"
+gr_git add -A; gr_git commit -q -m c2
 t_cost_diff() {
-  local base; base="$(git log --diff-filter=A --format=%H -1 -- infracost.yml)"
-  [ -n "$base" ] || { echo "infracost.yml 을 더한 커밋을 못 찾았다"; return 1; }
   rm -rf "$TMP/out"
-  # infracost.yml 이 없던 커밋(그 부모)을 기준으로: 기준 트리에는 지금 설정 파일을 넣어 같은 프로젝트로 비교한다
-  cost_run env INFRACOST_API_KEY=k COST_OUT_DIR="$TMP/out" "$CS" diff "$base^"
+  # 기준 c1: 설정 파일이 없던 ref → 지금 설정을 쓰되, 기준 트리에 없는 프로젝트(platform)는 빼고 main 만 breakdown
+  cost_run env INFRACOST_API_KEY=k COST_OUT_DIR="$TMP/out" "$GR/scripts/cost.sh" diff "$GR_C1"
   rc_is 0 || return 1
-  grep -q '^base-ok ' "$FAKE_STATE/calls.log" || { echo "기준 트리(infra·설정) 없이 breakdown"; cat "$FAKE_STATE/calls.log"; return 1; }
-  grep -q "^infracost diff --config-file infracost.yml --compare-to $TMP/out/base.json --format json --out-file $TMP/out/diff.json | cwd=$ROOT\$" "$FAKE_STATE/calls.log" \
+  grep -q '^projects main | cwd=' "$FAKE_STATE/calls.log" || { echo "기준 breakdown 이 main 만이 아니다"; cat "$FAKE_STATE/calls.log"; return 1; }
+  has_text "infra/platform" && has_text "0" || return 1
+  grep -q "^infracost diff --config-file infracost.yml --compare-to $TMP/out/base.json --format json --out-file $TMP/out/diff.json | cwd=$GR\$" "$FAKE_STATE/calls.log" \
     || { cat "$FAKE_STATE/calls.log"; return 1; }
   has_text "FAKE-TABLE output --path $TMP/out/diff.json --format diff" && [ -s "$TMP/out/base.json" ] && [ -s "$TMP/out/diff.json" ]
 }
-check "TASK-66#3 make cost-diff: 기준 ref(git archive)의 breakdown 과 지금을 infracost diff 로 비교·출력" t_cost_diff
+check "TASK-66#3 make cost-diff: 기준 ref 에 없는 프로젝트(infra/platform — 오늘의 main)는 빼고 breakdown, 지금과 infracost diff" t_cost_diff
+t_cost_diff_no_base_projects() {
+  rm -rf "$TMP/out"
+  # 기준 c0: infra 가 아예 없다 → 기준 breakdown 없이 비용 0 인 base.json 으로 비교
+  cost_run env INFRACOST_API_KEY=k COST_OUT_DIR="$TMP/out" "$GR/scripts/cost.sh" diff "$GR_C0"
+  rc_is 0 && has_text "기준 비용 0" || return 1
+  ! grep -q "^infracost breakdown " "$FAKE_STATE/calls.log" || { echo "기준 breakdown 을 불렀다"; return 1; }
+  [ "$(jq -r '.totalMonthlyCost' "$TMP/out/base.json")" = 0 ] && [ "$(jq -r '.projects | length' "$TMP/out/base.json")" = 0 ] \
+    && grep -q '^infracost diff ' "$FAKE_STATE/calls.log"
+}
+check "TASK-66#3 make cost-diff: 기준 ref 에 프로젝트가 하나도 없으면 기준 비용 0(빈 base.json)으로 비교" t_cost_diff_no_base_projects
 t_cost_diff_bad_ref() {
   cost_run env INFRACOST_API_KEY=k "$CS" diff no-such-ref-66
   [ "$RC" != 0 ] && has_text "no-such-ref-66" && ! grep -q '^infracost breakdown' "$FAKE_STATE/calls.log"
@@ -319,13 +349,25 @@ t_cost_mac_proxy() {
 check "TASK-66#3 맥에서는 VM 안에서 돈다(vm_proxy_if_mac — 꺼져 있으면 make vm-start 안내 후 실패)" t_cost_mac_proxy
 t_cost_make() {
   # 출력을 먼저 받는다(pipefail 에서 grep -q 가 일찍 끝나면 make 가 SIGPIPE 로 실패한다)
-  local a b c d h
-  a="$(make -n cost)"; b="$(make -n cost COST_LIMIT=25)"; c="$(make -n cost-diff)"; d="$(make -n cost-diff COST_BASE=dev)"; h="$(make help)"
-  grep -q 'scripts/cost.sh breakdown 30' <<<"$a" && grep -q 'scripts/cost.sh breakdown 25' <<<"$b" \
+  local a b c d e f h
+  a="$(env -u COST_LIMIT_USD -u COST_LIMIT make -n cost)"; b="$(env -u COST_LIMIT_USD make -n cost COST_LIMIT=25)"
+  e="$(env COST_LIMIT_USD=22 make -n cost)"; f="$(env COST_LIMIT_USD=22 make -n cost COST_LIMIT=25)"
+  c="$(make -n cost-diff)"; d="$(make -n cost-diff COST_BASE=dev)"; h="$(make help)"
+  grep -qx '\./scripts/cost\.sh breakdown *' <<<"$a" || { echo "상한 없이 불러야 한다(cost-guard 기본 30): $a"; return 1; }
+  grep -q 'scripts/cost.sh breakdown 25' <<<"$b" && grep -q 'scripts/cost.sh breakdown 22' <<<"$e" && grep -q 'scripts/cost.sh breakdown 25' <<<"$f" \
     && grep -q 'scripts/cost.sh diff main' <<<"$c" && grep -q 'scripts/cost.sh diff dev' <<<"$d" \
     && grep -q '^  cost ' <<<"$h" && grep -q '^  cost-diff ' <<<"$h"
 }
-check "TASK-66#3 make cost(COST_LIMIT, 기본 30)·make cost-diff(COST_BASE, 기본 main) 타깃 + help" t_cost_make
+check "TASK-66#3 make cost: 상한 COST_LIMIT > COST_LIMIT_USD(맥에서도 make 가 인자로 넘긴다) > 기본 30, make cost-diff(COST_BASE, 기본 main) + help" t_cost_make
+t_cost_mac_key_note() {
+  # 맥 셸의 INFRACOST_API_KEY 는 VM 으로 넘기지 않는다(ssh 인자·환경에 키를 싣지 않는다) — 그렇다고 알리고, 키 값은 출력하지 않는다
+  fake_reset
+  run_capture env INFRACOST_API_KEY=fake-mac-key-value VM_HOST_OS=Darwin UTMCTL="$IC/utmctl" PATH="$IC/bin:$PATH" "$CS" breakdown
+  has_text "넘기지 않는다" && has_text "infracost configure set api_key" && lacks_text "fake-mac-key-value" || return 1
+  cost_run "$CS" breakdown
+  has_text "맥 셸의 INFRACOST_API_KEY"
+}
+check "TASK-66#B2 맥 셸의 INFRACOST_API_KEY 는 VM 으로 넘기지 않는다고 알린다(키 없음 경고에도)" t_cost_mac_key_note
 readme_cost_section() { awk '/^### 비용 추정 \(Infracost/{f=1; print; next} f && /^##/{exit} f' README.md; }
 for w in "make cost" "make cost-diff" "infracost configure set api_key" "INFRACOST_API_KEY" "ssh rocky-dev" "건너뛴다"; do
   check "TASK-66#3 README '비용 추정 (Infracost)' 절에 '$w'" sh -c "$(declare -f readme_cost_section); readme_cost_section | grep -qF -- '$w'"

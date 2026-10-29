@@ -4,7 +4,7 @@ title: '[비용] Infracost 로컬·CI'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 07:35'
+updated_date: '2026-10-29 07:40'
 labels:
   - cost
   - platform
@@ -68,4 +68,6 @@ AC#5·B2: .github/workflows/cost.yml — pull_request(paths: infra/**·infracost
 리뷰 반영 #7(AC#1): install-infracost.sh 는 --version 첫 줄이 정확히 'Infracost v<버전>' 일 때만 건너뜀(v0.10.470 부분 일치 방지). 테스트 추가.
 
 리뷰 반영 #2·#3(AC#2): usage 파일을 프로젝트마다 나눔 — infracost-usage.yml(platform: 노드 스팟 보정·aws_data_transfer 10GB), infracost-usage-main.yml(레거시 노드 730h 만). aws_data_transfer 는 usage 파일을 쓰는 프로젝트마다 더해져 공용 파일이면 이중 계산. '100GB 무료 구간' 주석은 틀려 고침(Infracost 는 계정 무료 전송량을 빼지 않음). **AC#2 실측은 여전히 미완 — 유저 API 키 등록 후 make cost 로 확인 필요.** Infracost v0.10.47 고정, 새 CLI v2(infracost/cli)가 있음 — CI 에 기대기 전(TASK-52) v0.10 지원 지속 여부 재확인(README 에도 적음).
+
+리뷰 반영 #1·#4·#6(AC#3): (1) cost-diff 는 기준 트리에 없는 프로젝트 path 를 yq 로 기준 설정에서 빼고(그 프로젝트는 기준 비용 0), 남는 게 없으면 빈 base.json(totalMonthlyCost 0)과 비교. 기준 ref 에 infra 가 없어도 동작, usage 파일은 남은 프로젝트 것만 ref 또는 지금 것에서. 가짜 infracost 는 프로젝트 path·usage 파일이 없으면 실패하도록 바꾸고, 임시 git 저장소(c0 infra 없음·c1 infra/main 만·c2 지금) 픽스처로 테스트 — 얕은 CI 체크아웃에서도 돈다. 실제 VM 에서 가짜 infracost 로 'cost.sh diff main' → 기준 breakdown 이 main 프로젝트만으로 돌고 rc=0 확인. 미검증(키 필요): 진짜 infracost diff 가 빈 base.json·프로젝트 일부만 있는 base 를 받아들이는지. (4) Makefile 은 $(or $(COST_LIMIT),$(COST_LIMIT_USD)) 만 넘김 → 상한 COST_LIMIT > COST_LIMIT_USD > 30(맥에서도 make 가 인자로 넘김). (6) 맥 셸의 INFRACOST_API_KEY 는 VM 으로 넘기지 않는다는 경고(키 값 출력 없음)와 README.
 <!-- SECTION:NOTES:END -->
