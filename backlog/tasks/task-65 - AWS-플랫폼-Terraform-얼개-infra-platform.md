@@ -1,10 +1,10 @@
 ---
 id: TASK-65
 title: '[AWS] 플랫폼 Terraform 얼개 (infra/platform)'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 06:34'
+updated_date: '2026-10-29 06:44'
 labels:
   - aws
   - platform
@@ -36,13 +36,13 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 infra/platform 루트 스택(versions·providers·variables·main·outputs): bootstrap S3 state 재사용(키 분리), network 모듈(infra/main/modules/network) 재사용, tests/platform.tftest.hcl 을 mock_provider 로 오프라인 실행(make test 에 자동 포함)
-- [ ] #2 modules/k3s_node: Rocky 9.8 arm64 AMI 조회, t4g.large 스팟(persistent, 회수 시 stop), IMDSv2 필수, 루트·데이터 EBS 암호화, EIP 1개, SG 는 80·443(IPv4·IPv6)만 — 22 없음, IAM 은 SSM Core + /board/* 파라미터 읽기
-- [ ] #3 데이터 볼륨: gp3 별도 볼륨 attach, 첫 포맷은 blkid 종료 코드 2(빈 장치)일 때만(OPS-11), 마운트되지 않으면 데이터 서비스 기동 차단(OPS-9), data_snapshot_id 로 스냅샷에서 만들 수 있음(복원 리허설은 TASK-52)
-- [ ] #4 user_data(cloud-init): deploy/rocky/install.sh --profile server 실행, cloud-init 상태 확인 필수·dnf 재시도(OPS-10), user_data 변경 시 정책(교체 또는 무시) 명시(OPS-2). k3s 설치 자리는 TASK-36 스크립트를 부르도록 비워 둠
-- [ ] #5 토글 모듈: lb_node(HAProxy, enable_lb_node=false 기본), 데이터 볼륨 스냅샷(enable_snapshots), AWS Budgets 알림(budget_monthly_usd·이메일). 기존 cognito 모듈 재사용
-- [ ] #6 관리형 리소스 부재를 tftest 로 고정: NAT·LB·CloudFront·RDS·MSK·ECR·CloudWatch 알람이 없고, lb_node 를 켜면 생긴다. force-unlock·bootstrap state 백업 절차 문서(OPS-5)
-- [ ] #7 README 'AWS 실배포 설계' 절: 구성도(diagrams/*.dot → SVG), 비용 표(decision-11), apply 하지 않는 이유와 TASK-52 로 넘기는 항목
+- [x] #1 infra/platform 루트 스택(versions·providers·variables·main·outputs): bootstrap S3 state 재사용(키 분리), network 모듈(infra/main/modules/network) 재사용, tests/platform.tftest.hcl 을 mock_provider 로 오프라인 실행(make test 에 자동 포함)
+- [x] #2 modules/k3s_node: Rocky 9.8 arm64 AMI 조회, t4g.large 스팟(persistent, 회수 시 stop), IMDSv2 필수, 루트·데이터 EBS 암호화, EIP 1개, SG 는 80·443(IPv4·IPv6)만 — 22 없음, IAM 은 SSM Core + /board/* 파라미터 읽기
+- [x] #3 데이터 볼륨: gp3 별도 볼륨 attach, 첫 포맷은 blkid 종료 코드 2(빈 장치)일 때만(OPS-11), 마운트되지 않으면 데이터 서비스 기동 차단(OPS-9), data_snapshot_id 로 스냅샷에서 만들 수 있음(복원 리허설은 TASK-52)
+- [x] #4 user_data(cloud-init): deploy/rocky/install.sh --profile server 실행, cloud-init 상태 확인 필수·dnf 재시도(OPS-10), user_data 변경 시 정책(교체 또는 무시) 명시(OPS-2). k3s 설치 자리는 TASK-36 스크립트를 부르도록 비워 둠
+- [x] #5 토글 모듈: lb_node(HAProxy, enable_lb_node=false 기본), 데이터 볼륨 스냅샷(enable_snapshots), AWS Budgets 알림(budget_monthly_usd·이메일). 기존 cognito 모듈 재사용
+- [x] #6 관리형 리소스 부재를 tftest 로 고정: NAT·LB·CloudFront·RDS·MSK·ECR·CloudWatch 알람이 없고, lb_node 를 켜면 생긴다. force-unlock·bootstrap state 백업 절차 문서(OPS-5)
+- [x] #7 README 'AWS 실배포 설계' 절: 구성도(diagrams/*.dot → SVG), 비용 표(decision-11), apply 하지 않는 이유와 TASK-52 로 넘기는 항목
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -83,4 +83,12 @@ AC#7: README '## AWS 실배포 설계 (TASK-65, decision-11)' 절 — 구성도 
 리뷰 반영(AC#6): B3 검사 b3_scan — resource 종류는 aws_ 밖도 모두 수집(허용 목록), 로컬(./ ../)이 아닌 module source 실패, provider 는 hashicorp/aws 만(required_providers·provider 블록). red: 레지스트리·git 모듈, helm_release, cloudflare provider. tftest b3_lb_node_on 의 managed_services 동어반복 assert 를 실제 리소스(lb_node backend_ip·AMI) assert 로
 
 리뷰 반영(AC#7): README — IPv6 로 닿는다는 주장 제거(network 에 IPv6 없음, 구성도도), IAM 설명 갱신, 데이터 30GB·비용 표(≈ $23–28), node_name·SELinux·xfs_growfs·prevent_destroy 설명, hop limit 2 이유. TASK-52 항목 추가: NetworkPolicy 로 169.254.169.254 차단, 스팟 요청 취소 확인(cancel-spot-instance-requests — provider 동작 오프라인 미확인), lb_node 우회·send-proxy 없음(클라이언트 IP), IPv6, KMS 컨텍스트 키 확인
+
+[부모 검증] 6db91c4 위에서 make test rc=0: repo 236·deploy 144·tools 42·k8s 66·vm 76·platform 107, terraform 전 스택·모듈(platform 7, k3s_node 16, lb_node 3), backend BUILD SUCCESSFUL, frontend 577. 독립 리뷰 지적(노드 이름 고정, SSM 최소 권한, SELinux 레이블, 데이터 볼륨 보호, B3 검사 보강 등) 5커밋 반영.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+실배포 Terraform 얼개를 infra/platform 에 만들었다(apply 없음, mock_provider tftest·셸 테스트로 오프라인 검증). t4g.large 스팟 1대(persistent·stop), Rocky 9.8 arm64, IMDSv2(hop 2 — External Secrets), EIP 1개, SG 80·443 만(22 없음, 접속은 SSM 최소 권한 인라인 정책), /board/* 파라미터·KMS 복호화만. 30GB gp3 데이터 볼륨: 빈 장치일 때만 포맷, 마운트 없으면 k3s 기동 차단, SELinux 레이블, xfs_growfs, prevent_destroy·snapshot_id 무시와 복원 절차. 노드 이름 고정(board-node)으로 교체 후에도 local-path PV 유지. user_data 는 고정 커밋의 install.sh --profile server 와 cloud-init 준비 확인, user_data 변경 시 노드 교체. 토글: HAProxy lb_node(기본 꺼짐), DLM 스냅샷, Budgets. 관리형 리소스·외부 모듈·aws 외 provider 를 막는 허용 목록 검사. docs/terraform-state.md(force-unlock·state 백업·볼륨 복원), README 'AWS 실배포 설계'·구성도·비용 표(약 $23~28). TASK-52 인계: AMI 이름·EC2 에서 install.sh 실측, 스팟 요청 취소 확인, IMDS NetworkPolicy, KMS 조건 키 확인, SMS 권한, network·cognito 모듈 이전, IPv6, LB 우회·send-proxy.
+<!-- SECTION:FINAL_SUMMARY:END -->
