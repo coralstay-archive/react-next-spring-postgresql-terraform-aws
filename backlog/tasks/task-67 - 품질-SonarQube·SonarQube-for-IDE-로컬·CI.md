@@ -4,7 +4,7 @@ title: '[품질] SonarQube·SonarQube for IDE 로컬·CI'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 11:08'
+updated_date: '2026-10-29 11:13'
 labels:
   - quality
   - platform
@@ -64,4 +64,6 @@ AC#1 진행: deploy/sonar/compose.yaml(SonarQube 26.10.0.133078-community·postg
 AC#3 진행: install.sh dev 에 sonar_kernel_setup — /etc/sysctl.d/99-sonarqube.conf(vm.max_map_count = 524288, fs.file-max = 131072 는 커널 값이 그보다 작을 때만 — Rocky 9 기본 9223372036854775807 을 낮추지 않는다, SonarQube 요구는 '131072 이상'; 한 번 썼으면 계속 쓴다) + sysctl -p 즉시 적용, /etc/security/limits.d/99-sonarqube.conf(rocky soft·hard nofile 131072). 컨테이너는 compose ulimits nofile 131072. 실 VM: install.sh 두 번 실행 → 두 파일 md5 동일, vm.max_map_count=524288·fs.file-max 그대로, ssh 세션 ulimit -n/-Hn 131072. 적용 전 sonar-up 은 ES 부트스트랩 검사(65530)로 실패, 적용 뒤 성공. sonar_test.sh AC#3 3개(가짜 sysctl·임시 디렉터리).
 
 AC#5 진행: .sonarlint/connectedMode.json(board-backend)·.sonarlint/frontend.json(board-frontend) 커밋 — sonarQubeUri 는 http://localhost:9000(맥에서 ssh -N -L 9000:localhost:9000 rocky-dev 터널; VM IP 는 DHCP 로 바뀔 수 있어 공유 설정에 넣지 않는다). README '코드 품질 (SonarQube, TASK-67)' 절: make 타깃, 단독 모드·메모리 숫자(budgets 와 테스트로 맞춤), 커널 값·기존 VM 재적용 명령, 비밀번호·토큰 위치(출력 없음), 게이트·PREVIOUS_VERSION, 스캐너 컨테이너 이유, VS Code·IntelliJ 연결 절차, CI. 실제 IDE 연결은 맥에서 확인하지 않았다(GUI 앱 미사용).
+
+AC#6 진행: .github/workflows/sonar.yml — pull_request·workflow_dispatch, permissions contents: read 만, services sonar-db(postgres:18-alpine)·sonarqube(26.10 Community, compose 와 같은 다이제스트 — 테스트가 비교), SONAR_ES_BOOTSTRAP_CHECKS_DISABLE(서비스가 단계보다 먼저 떠 러너 sysctl 을 못 바꾼다), checkout fetch-depth 0 → setup-java@v6·setup-node@v7 → scripts/sonar.sh init(SONAR_CONFIG_DIR=$RUNNER_TEMP/sonar, 실행마다 무작위 관리자 비밀번호·토큰, ::add-mask::) → scripts/sonar.sh scan(게이트). secret 없음. actionlint 통과(VM, shellcheck 연동). 한계: 서버가 매번 새로 떠 매번 첫 분석 → 새 코드 게이트는 사실상 통과(README 명시). 실제 GitHub 러너 실행은 하지 않았다(push 없음).
 <!-- SECTION:NOTES:END -->
