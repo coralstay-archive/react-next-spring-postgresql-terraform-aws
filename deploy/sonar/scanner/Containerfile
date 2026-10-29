@@ -1,0 +1,14 @@
+# sonar-scanner-cli 컨테이너 (TASK-67#4, make sonar-scan·CI sonar.yml). 공식 이미지(sonarsource/sonar-scanner-cli)는 amd64 뿐이라
+# 개발 VM(arm64)에서 돌지 않는다 — 다중 아키텍처 JRE 베이스(다이제스트 고정)에 Maven Central 의 스캐너 jar(sha256 고정)만 얹는다.
+# 스캐너 버전을 올릴 때는 SCANNER_VERSION·checksum 과 scripts/_sonar.sh SONAR_SCANNER_VERSION(이미지 태그)을 같이 바꾼다.
+# JS/TS 분석기는 Node 가 필요하다(arm64 리눅스에는 내장 런타임이 없다 — 2026-10-29 실측 'node -v' 실패). 개발 VM(install.sh
+# NODE_VERSION)과 같은 Node 를 다이제스트 고정 이미지에서 복사한다.
+FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS node
+
+FROM docker.io/library/eclipse-temurin:21-jre-noble@sha256:cd35bb33859641c5374415826a5951845104093eaa401cbe9d3d9023444f1c13
+ARG SCANNER_VERSION=8.1.0.6389
+ADD --checksum=sha256:e0e36cab2d2238bdf4468d16e5d361ad52564c44683c7351591b17518a0bb77c https://repo1.maven.org/maven2/org/sonarsource/scanner/cli/sonar-scanner-cli/8.1.0.6389/sonar-scanner-cli-8.1.0.6389.jar /opt/sonar-scanner/lib/sonar-scanner-cli.jar
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+RUN chmod 0644 /opt/sonar-scanner/lib/sonar-scanner-cli.jar && node -v
+WORKDIR /usr/src
+ENTRYPOINT ["java", "-Djava.awt.headless=true", "-Dscanner.home=/opt/sonar-scanner", "-cp", "/opt/sonar-scanner/lib/sonar-scanner-cli.jar", "org.sonarsource.scanner.cli.Main"]

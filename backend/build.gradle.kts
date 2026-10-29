@@ -2,6 +2,9 @@ plugins {
 	java
 	id("org.springframework.boot") version "4.1.1"
 	id("io.spring.dependency-management") version "1.1.7"
+	// 코드 품질 (TASK-67#4): make sonar-scan 이 ./gradlew -Pcoverage test jacocoTestReport sonar 로 부른다
+	jacoco
+	id("org.sonarqube") version "7.5.0.8588"
 }
 
 group = "com.example"
@@ -64,4 +67,30 @@ dependencies {
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+}
+
+// TASK-67#4 커버리지(JaCoCo XML)는 분석 때만(-Pcoverage) — 평소 make test 에는 에이전트를 붙이지 않는다
+jacoco {
+	toolVersion = "0.8.16"
+}
+
+tasks.test {
+	extensions.configure<JacocoTaskExtension> {
+		isEnabled = providers.gradleProperty("coverage").isPresent
+	}
+}
+
+tasks.jacocoTestReport {
+	reports {
+		xml.required = true
+		html.required = false
+	}
+}
+
+// 서버 주소·토큰은 환경변수(SONAR_HOST_URL·SONAR_TOKEN)로만 받는다 — 여기·gradle.properties 에 두지 않는다(B2)
+sonar {
+	properties {
+		property("sonar.projectKey", "board-backend")
+		property("sonar.projectName", "board backend")
+	}
 }

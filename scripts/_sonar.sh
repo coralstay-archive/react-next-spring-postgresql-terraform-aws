@@ -6,6 +6,9 @@
 #   sonar_preflight [--no-mem]  단독 모드(B1, TASK-67#2): k3s·k3d 실행 중, make test 잠금(VM_LOCK_FILE)·Testcontainers, VM 사용 가능 메모리
 #                             (MemAvailable) < budgets.txt sonar 면 이유·해결을 모두 출력하고 실패. SONAR_LOCK_HELD=1(맥 프록시가 그 잠금
 #                             안에서 부른다)이면 잠금 검사는 건너뛴다
+#   sonar_ensure_credentials  (B2, TASK-67#4) 관리자 비밀번호를 API 로 무작위 값으로 바꾸고 분석 토큰(GLOBAL_ANALYSIS_TOKEN)을 만들어
+#                             SONAR_CONFIG_DIR(기본 VM 의 ~/.config/board-sonar, 0700/0600)에만 둔다. 다시 돌리면 저장값을 확인만 한다.
+#                             비밀값은 출력하지 않고 curl 인자에도 싣지 않는다(-K 설정을 프로세스 치환으로). 새 코드 기준은 PREVIOUS_VERSION
 #   sonar_refuse_if_running <누가>  역방향: SonarQube 가 떠 있으면 make sonar-down 을 안내하고 실패(make test 등 진입점이 부른다)
 # 테스트용 환경변수: SONAR_CONTAINER_CLI(podman|docker), SONAR_WAIT_TIMEOUT·SONAR_WAIT_INTERVAL(초), SONAR_PUBLIC_HOST(접속 주소의 호스트),
 #   SONAR_MEMINFO(/proc/meminfo 대신)
@@ -16,6 +19,12 @@ SONAR_COMPOSE_FILE="$SONAR_ROOT/deploy/sonar/compose.yaml"
 SONAR_HOST_URL="${SONAR_HOST_URL:-http://localhost:9000}"
 SONAR_WAIT_TIMEOUT="${SONAR_WAIT_TIMEOUT:-600}"
 SONAR_WAIT_INTERVAL="${SONAR_WAIT_INTERVAL:-5}"
+SONAR_CONFIG_DIR="${SONAR_CONFIG_DIR:-$HOME/.config/board-sonar}"
+# 스캐너 컨테이너(deploy/sonar/scanner/Containerfile 의 ARG SCANNER_VERSION 과 같게 — sonar_test.sh 가 비교한다)
+SONAR_SCANNER_VERSION="${SONAR_SCANNER_VERSION:-8.1.0.6389}"
+# 태그에 Containerfile 해시를 붙인다 — 파일을 고치면 다음 sonar-scan 이 새로 빌드한다
+# shellcheck disable=SC2034 # scripts/sonar.sh 가 쓴다
+SONAR_SCANNER_IMAGE="board-sonar-scanner:$SONAR_SCANNER_VERSION-$(sha256sum "$SONAR_ROOT/deploy/sonar/scanner/Containerfile" 2>/dev/null | cut -c1-8)"
 
 sonar_log() { echo "==> [sonar] $*" >&2; }
 sonar_warn() { echo "WARNING: [sonar] $*" >&2; }
@@ -126,4 +135,61 @@ sonar_refuse_if_running() {
   sonar_running || return 0
   sonar_die "SonarQube($SONAR_PROJECT)가 떠 있다(약 $(vm_budget sonar-rss) MiB) — $who 와 같이 띄우지 않는다(5GB VM, TASK-67 B1).
   해결: make sonar-down 뒤 다시 (분석 이력은 남는다)"
+}
+
+# ---------------------------------------------------------------- 관리자 비밀번호·분석 토큰(B2)
+# sonar_api <메서드> <경로> <user:password> [폼 k=v...] — 인증·폼은 curl 설정(-K, 프로세스 치환)으로만 넘긴다(ps 에 보이지 않게)
+sonar_api() {
+  local m="$1" p="$2" auth="$3" f; shift 3
+  curl -fsS --max-time 30 -X "$m" -K <(printf 'user = "%s"\n' "$auth"; for f in "$@"; do printf 'data-urlencode = "%s"\n' "$f"; done) \
+    "$SONAR_HOST_URL$p"
+}
+sonar_valid() { sonar_api GET /api/authentication/validate "$1" 2>/dev/null | jq -e '.valid == true' >/dev/null 2>&1; }
+# SonarQube 규칙: 12자 이상, 대·소문자·숫자·특수문자
+sonar_random_password() { local r; r="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"; printf '%s-Aa1' "${r:0:32}"; }
+sonar_mask() { [ "${GITHUB_ACTIONS:-}" = true ] && echo "::add-mask::$1"; return 0; }
+sonar_write_secret() { (umask 077; printf '%s' "$2" >"$1.tmp") && mv "$1.tmp" "$1" && chmod 600 "$1"; }
+sonar_change_admin() {
+  sonar_api POST /api/users/change_password "admin:$1" "login=admin" "previousPassword=$1" "password=$2" >/dev/null
+}
+
+sonar_ensure_credentials() {
+  local d="$SONAR_CONFIG_DIR" pwf tokf pw tok name
+  pwf="$d/admin-password"; tokf="$d/token"
+  (umask 077; mkdir -p "$d"); chmod 700 "$d"
+  if [ -s "$pwf" ]; then
+    pw="$(cat "$pwf")"
+    if ! sonar_valid "admin:$pw"; then
+      sonar_valid "admin:admin" || sonar_die "저장된 관리자 비밀번호($pwf)가 맞지 않는다(UI 에서 바꿨다?).
+  해결: 지금 비밀번호를 그 파일에 적거나(printf '%s' '<비밀번호>' > $pwf), 처음부터 다시: make sonar-down PURGE=1 → make sonar-up"
+      sonar_change_admin admin "$pw" || sonar_die "관리자 비밀번호를 바꾸지 못했다(/api/users/change_password)"
+      sonar_log "서버 데이터가 새로 만들어져(admin/admin) 관리자 비밀번호를 저장된 값으로 다시 바꿨다"
+    fi
+  else
+    sonar_valid "admin:admin" || sonar_die "관리자 비밀번호가 기본값(admin)이 아닌데 저장된 값($pwf)이 없다.
+  해결: 지금 비밀번호를 그 파일에 적거나(printf '%s' '<비밀번호>' > $pwf; chmod 600 $pwf), 처음부터 다시: make sonar-down PURGE=1 → make sonar-up"
+    pw="$(sonar_random_password)"
+    # 먼저 저장한다 — 바꾸기가 중간에 실패해도 다음 실행이 admin/admin 을 보고 이 값으로 다시 바꾼다
+    sonar_write_secret "$pwf" "$pw"
+    sonar_change_admin admin "$pw" || sonar_die "관리자 비밀번호를 바꾸지 못했다(/api/users/change_password) — 다시 make sonar-up"
+    sonar_log "관리자 비밀번호를 무작위 값으로 바꿨다($pwf, 0600 — 출력하지 않는다)"
+  fi
+  sonar_mask "$pw"
+  tok="$(cat "$tokf" 2>/dev/null || true)"
+  if [ -z "$tok" ] || ! sonar_valid "$tok:"; then
+    name="board-analysis-$(date +%Y%m%d%H%M%S)"
+    tok="$(sonar_api POST /api/user_tokens/generate "admin:$pw" "name=$name" "type=GLOBAL_ANALYSIS_TOKEN" | jq -r '.token // empty')" || true
+    [ -n "$tok" ] || sonar_die "분석 토큰을 만들지 못했다(/api/user_tokens/generate)"
+    sonar_write_secret "$tokf" "$tok"
+    sonar_log "분석 토큰($name, GLOBAL_ANALYSIS_TOKEN)을 만들었다($tokf, 0600 — 출력하지 않는다)"
+  fi
+  sonar_mask "$tok"
+  # 새 코드 기준: 이전 버전(버전이 그대로면 첫 분석 이후 바뀐 코드) — 첫 분석은 기존 부채로 게이트가 막히지 않는다
+  sonar_api POST /api/new_code_periods/set "admin:$pw" "type=PREVIOUS_VERSION" >/dev/null || sonar_warn "새 코드 기준(PREVIOUS_VERSION)을 설정하지 못했다"
+}
+
+# 분석 토큰: SONAR_TOKEN 환경변수(CI) > SONAR_CONFIG_DIR/token(VM)
+sonar_token() {
+  if [ -n "${SONAR_TOKEN:-}" ]; then printf '%s' "$SONAR_TOKEN"; return 0; fi
+  cat "$SONAR_CONFIG_DIR/token" 2>/dev/null || true
 }

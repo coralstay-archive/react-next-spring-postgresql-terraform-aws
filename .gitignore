@@ -25,6 +25,8 @@ frontend/node_modules/
 frontend/.next/
 frontend/out/
 frontend/coverage/
+# SonarQube 스캐너 작업 디렉터리 (TASK-67, make sonar-scan)
+.scannerwork/
 # Playwright E2E 결과·스크린샷·로그 (TASK-18#5, scripts/e2e.sh)
 frontend/e2e/artifacts/
 frontend/playwright-report/

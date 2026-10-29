@@ -66,8 +66,8 @@ case "$1" in
       *"k3d.cluster"*) for id in ${FAKE_K3D:-}; do echo "$id"; done ;;
     esac ;;
   stats) printf '%s\n' "${FAKE_STATS:-board-sonar-sonarqube-1 1.9GB / 4.6GB}" ;;
-  image) [ "${2:-}" = exists ] && exit "${FAKE_IMAGE_EXISTS_RC:-1}" ;;
-  run) exit "${FAKE_PODMAN_RUN_RC:-0}" ;;
+  image) [ "${2:-}" = inspect ] && exit "${FAKE_IMAGE_EXISTS_RC:-1}" ;;
+  run) printf 'podman-run-env SONAR_TOKEN=%s\n' "${SONAR_TOKEN:+set}" >>"$FAKE_STATE/calls.log"; exit "${FAKE_PODMAN_RUN_RC:-0}" ;;
 esac
 exit 0
 SH
@@ -427,6 +427,237 @@ check "TASK-67#3 install.sh dev: 커널 fs.file-max 가 이미 131072 보다 크
 check "TASK-67#3 install.sh: sonar_kernel_setup 은 dev 프로필(server 종료 뒤)에서만 부른다" sh -c "
   s=\$(grep -n 'PROFILE\" = server' $I | head -n1 | cut -d: -f1); k=\$(grep -n '^sonar_kernel_setup\$' $I | head -n1 | cut -d: -f1)
   [ -n \"\$s\" ] && [ -n \"\$k\" ] && [ \"\$k\" -gt \"\$s\" ]"
+
+# ================================================================ TASK-67#4 관리자 비밀번호·분석 토큰(B2) + make sonar-scan(게이트)
+CFG_DIR="$FAKE_HOME/.config/board-sonar"
+mode_of() { stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"; }
+t_b2_first_up() {
+  fake_reset
+  run_capture sonar_run "$S" up
+  rc_is 0 || return 1
+  local pw tok
+  pw="$(cat "$CFG_DIR/admin-password" 2>/dev/null)"; tok="$(cat "$CFG_DIR/token" 2>/dev/null)"
+  [ -n "$pw" ] && [ "$pw" != admin ] && [ "$(cat "$FAKE_STATE/adminpw")" = "$pw" ] || { echo "관리자 비밀번호가 무작위 값으로 바뀌지 않았다"; return 1; }
+  [ "${#pw}" -ge 12 ] && [[ "$pw" =~ [A-Z] ]] && [[ "$pw" =~ [a-z] ]] && [[ "$pw" =~ [0-9] ]] && [[ "$pw" =~ [^A-Za-z0-9] ]] \
+    || { echo "SonarQube 비밀번호 규칙(12자 이상·대소문자·숫자·특수문자) 위반"; return 1; }
+  [ -n "$tok" ] && [ "$tok" = "$(cat "$FAKE_STATE/token")" ] || { echo "토큰이 저장되지 않았다"; return 1; }
+  [ "$(mode_of "$CFG_DIR")" = 700 ] && [ "$(mode_of "$CFG_DIR/admin-password")" = 600 ] && [ "$(mode_of "$CFG_DIR/token")" = 600 ] \
+    || { echo "권한: dir $(mode_of "$CFG_DIR") pw $(mode_of "$CFG_DIR/admin-password") tok $(mode_of "$CFG_DIR/token")"; return 1; }
+  # 출력·curl 인자에 비밀값이 없다(설정은 -K 로 넘긴다)
+  lacks_text "$pw" && lacks_text "$tok" && ! grep -qF "$pw" "$FAKE_STATE/argv.log" && ! grep -qF "$tok" "$FAKE_STATE/argv.log" \
+    || { echo "비밀값이 출력·인자에 보인다"; return 1; }
+  called "curl /api/users/change_password" && called "curl /api/user_tokens/generate" && called "curl /api/new_code_periods/set" \
+    && grep -q 'data-urlencode = "type=GLOBAL_ANALYSIS_TOKEN"' "$FAKE_STATE/curl-config.log" \
+    && grep -q 'data-urlencode = "type=PREVIOUS_VERSION"' "$FAKE_STATE/curl-config.log" \
+    && has_text "cat ~/.config/board-sonar/admin-password"
+}
+check "TASK-67#4 TASK-67#B2 첫 sonar-up: 관리자 비밀번호를 API 로 무작위 값으로 바꾸고 분석 토큰(GLOBAL_ANALYSIS_TOKEN)을 만들어 VM ~/.config/board-sonar(0700/0600)에만 둔다 — 출력·인자에 없다" t_b2_first_up
+t_b2_second_up() {
+  fake_reset
+  sonar_run "$S" up >/dev/null 2>&1
+  : >"$FAKE_STATE/calls.log"
+  run_capture sonar_run "$S" up
+  rc_is 0 && not_called "curl /api/users/change_password" && not_called "curl /api/user_tokens/generate"
+}
+check "TASK-67#4 다시 sonar-up: 저장된 비밀번호·토큰이 맞으면 그대로 쓴다(멱등)" t_b2_second_up
+t_b2_token_regen() {
+  fake_reset
+  sonar_run "$S" up >/dev/null 2>&1
+  echo "squ_REVOKED" >"$CFG_DIR/token"; : >"$FAKE_STATE/calls.log"
+  run_capture sonar_run "$S" up
+  rc_is 0 && called "curl /api/user_tokens/generate" && [ "$(cat "$CFG_DIR/token")" = "$(cat "$FAKE_STATE/token")" ]
+}
+check "TASK-67#4 저장된 토큰이 무효면 새로 만든다" t_b2_token_regen
+t_b2_server_reset() {
+  # 볼륨이 새로 만들어져 서버가 admin/admin 으로 돌아갔으면 저장된 비밀번호로 다시 바꾼다
+  fake_reset
+  sonar_run "$S" up >/dev/null 2>&1
+  local pw; pw="$(cat "$CFG_DIR/admin-password")"
+  rm -f "$FAKE_STATE/adminpw" "$FAKE_STATE/token"
+  run_capture sonar_run "$S" up
+  rc_is 0 && [ "$(cat "$FAKE_STATE/adminpw")" = "$pw" ] && [ "$(cat "$CFG_DIR/token")" = "$(cat "$FAKE_STATE/token")" ]
+}
+check "TASK-67#4 서버 데이터가 초기화됐으면(admin/admin) 저장된 비밀번호로 다시 바꾸고 토큰을 새로 만든다" t_b2_server_reset
+t_b2_unknown_pw() {
+  fake_reset; echo "someone-else-Changed1!" >"$FAKE_STATE/adminpw"
+  run_capture sonar_run "$S" up
+  rc_is 1 && has_text "PURGE=1" && [ ! -s "$CFG_DIR/token" ]
+}
+check "TASK-67#4 관리자 비밀번호를 모르면(기본값도 저장값도 아님) 해결법(make sonar-down PURGE=1)을 안내하고 실패" t_b2_unknown_pw
+t_b2_not_in_repo() {
+  ! git grep -nE 'squ_[A-Za-z0-9]{20,}|sqa_[A-Za-z0-9]{20,}' -- . ':!scripts/test/sonar_test.sh' || { echo "저장소에 토큰 형태 문자열"; return 1; }
+  ! grep -n 'SONAR_TOKEN' example.env || { echo "example.env 에 SONAR_TOKEN"; return 1; }
+  grep -q 'SONAR_CONFIG_DIR:-$HOME/.config/board-sonar' "$L" || { echo "설정 디렉터리 기본값이 VM HOME 아래가 아니다"; return 1; }
+  grep -qxF '.scannerwork/' .gitignore || { echo ".gitignore 에 .scannerwork"; return 1; }
+  # 맥 → VM 동기화는 맥 셸의 SONAR_TOKEN 을 넘기지 않는다(프록시 명령에 환경변수가 없다)
+  ! grep -n 'SONAR_TOKEN' "$S" | grep -q 'vm_proxy_if_mac'
+}
+check "TASK-67#B2 토큰은 저장소·.env 에 두지 않는다(설정 디렉터리는 VM HOME, .scannerwork 무시)" t_b2_not_in_repo
+t_b2_ci_mask() {
+  fake_reset
+  run_capture sonar_run GITHUB_ACTIONS=true SONAR_CONFIG_DIR="$TMP/ci-sonar" "$S" init
+  rc_is 0 && has_text "::add-mask::" && [ -s "$TMP/ci-sonar/token" ] && not_called "podman compose"
+}
+check "TASK-67#4 sonar.sh init(CI): 기동 대기 + 비밀번호 교체·토큰(SONAR_CONFIG_DIR), GitHub Actions 에서는 값을 마스킹" t_b2_ci_mask
+
+# --- make sonar-scan: 임시 루트에 스크립트를 복사하고 gradlew·npm·frontend-deps 는 가짜로
+TR="$TMP/tr"
+mkdir -p "$TR/scripts" "$TR/backend" "$TR/frontend" "$TR/deploy/k8s" "$TR/bin"
+cp "$S" "$L" scripts/_vm.sh "$TR/scripts/"; cp -R deploy/sonar "$TR/deploy/"; cp deploy/k8s/budgets.txt "$TR/deploy/k8s/"
+cat >"$TR/backend/gradlew" <<'SH'
+#!/usr/bin/env bash
+printf 'gradlew %s token=%s host=%s\n' "$*" "${SONAR_TOKEN:+set}" "${SONAR_HOST_URL:-}" >>"$FAKE_STATE/calls.log"
+case " $* " in *" --stop "*) exit 0 ;; esac
+exit "${FAKE_GRADLE_RC:-0}"
+SH
+printf '#!/usr/bin/env bash\necho "frontend-deps" >>"$FAKE_STATE/calls.log"\n' >"$TR/scripts/frontend-deps.sh"
+printf '#!/usr/bin/env bash\necho "npm $* token=${SONAR_TOKEN:+set}" >>"$FAKE_STATE/calls.log"\nexit "${FAKE_NPM_RC:-0}"\n' >"$TR/bin/npm"
+chmod +x "$TR/scripts/"*.sh "$TR/backend/gradlew" "$TR/bin/"*
+scan_run() { sonar_run PATH="$TR/bin:$FAKE/bin:$PATH" "$@" "$TR/scripts/sonar.sh" scan; }
+scan_ready() { fake_reset; sonar_run PATH="$TR/bin:$FAKE/bin:$PATH" "$TR/scripts/sonar.sh" up >/dev/null 2>&1; : >"$FAKE_STATE/calls.log"; }
+t_scan_ok() {
+  scan_ready
+  run_capture scan_run
+  rc_is 0 || return 1
+  called "gradlew --no-daemon -Pcoverage test jacocoTestReport sonar -Dsonar.qualitygate.wait=true --console=plain token=set host=http://localhost:9000" \
+    && called "npm run test:coverage token=" && called "podman build -t board-sonar-scanner:" && called "podman-run-env SONAR_TOKEN=set" \
+    && grep -q "^podman run --rm --network host --security-opt label=disable -e SONAR_TOKEN -e SONAR_HOST_URL -v $TR:/usr/src" "$FAKE_STATE/calls.log" \
+    && grep -q -- "-Dsonar.projectBaseDir=/usr/src/frontend -Dsonar.qualitygate.wait=true" "$FAKE_STATE/calls.log" \
+    && lacks_text "$(cat "$CFG_DIR/token")" && ! grep -qF "$(cat "$CFG_DIR/token")" "$FAKE_STATE/calls.log"
+}
+check "TASK-67#4 make sonar-scan: 백엔드 gradle(-Pcoverage test jacocoTestReport sonar, 게이트 대기) → 프론트 vitest 커버리지 → 스캐너 컨테이너(게이트 대기), 토큰은 환경변수로만" t_scan_ok
+t_scan_gate_fail() {
+  scan_ready
+  run_capture scan_run FAKE_GRADLE_RC=1
+  [ "$RC" != 0 ] && called "podman-run-env" && has_text "board-backend"
+}
+check "TASK-67#4 게이트 실패(백엔드)면 프론트까지 분석한 뒤 non-zero 로 끝난다" t_scan_gate_fail
+t_scan_gate_fail_frontend() {
+  scan_ready
+  run_capture scan_run FAKE_PODMAN_RUN_RC=3
+  [ "$RC" != 0 ] && has_text "board-frontend"
+}
+check "TASK-67#4 게이트 실패(프론트 스캐너)면 non-zero" t_scan_gate_fail_frontend
+t_scan_no_token() {
+  fake_reset; echo running >"$FAKE_STATE/sonar"
+  run_capture scan_run
+  rc_is 1 && has_text "make sonar-up" && not_called "gradlew --no-daemon"
+}
+check "TASK-67#4 토큰 파일이 없으면 make sonar-up 을 안내하고 실패" t_scan_no_token
+t_scan_server_down() {
+  scan_ready
+  run_capture scan_run FAKE_SONAR_DOWN=1
+  rc_is 1 && has_text "make sonar-up" && not_called "gradlew --no-daemon"
+}
+check "TASK-67#4 SonarQube 가 떠 있지 않으면 실패" t_scan_server_down
+t_scan_env_token() {
+  # CI: SONAR_TOKEN 환경변수가 있으면 설정 파일 없이 쓴다
+  fake_reset; echo running >"$FAKE_STATE/sonar"
+  run_capture scan_run SONAR_TOKEN=squ_FROMENV FAKE_IMAGE_EXISTS_RC=0
+  rc_is 0 && called "token=set" && not_called "podman build"
+}
+check "TASK-67#4 SONAR_TOKEN 환경변수(CI)가 있으면 그것을 쓰고, 스캐너 이미지가 있으면 다시 빌드하지 않는다" t_scan_env_token
+t_scan_k3s() {
+  scan_ready
+  run_capture scan_run FAKE_K3S=1
+  rc_is 1 && has_text "k3s" && not_called "gradlew --no-daemon"
+}
+check "TASK-67#4 TASK-67#B1 sonar-scan 도 k3s 가 떠 있으면 거부한다" t_scan_k3s
+check "TASK-67#4 make sonar-scan → scripts/sonar.sh scan" sh -c "grep -Eq '^sonar-scan:.*## ' Makefile && make -n sonar-scan | grep -q 'scripts/sonar.sh scan'"
+G=backend/build.gradle.kts
+check "TASK-67#4 백엔드: org.sonarqube·jacoco 버전 고정, JaCoCo XML, 에이전트는 -Pcoverage 일 때만(평소 make test 에 부담 없음), projectKey board-backend" sh -c "
+  grep -Eq 'id\(\"org.sonarqube\"\) version \"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\"' $G && grep -Eq 'toolVersion = \"[0-9]+\.[0-9]+\.[0-9]+\"' $G \
+    && grep -q 'xml.required = true' $G && grep -q 'gradleProperty(\"coverage\")' $G && grep -q 'isEnabled' $G \
+    && grep -q '\"sonar.projectKey\", \"board-backend\"' $G"
+FP=frontend/sonar-project.properties
+check "TASK-67#4 프론트: sonar-project.properties(board-frontend, lcov), vitest 커버리지(v8, lcov)·test:coverage 스크립트" sh -c "
+  grep -qx 'sonar.projectKey=board-frontend' $FP && grep -qx 'sonar.javascript.lcov.reportPaths=coverage/lcov.info' $FP \
+    && grep -q 'test.inclusions' $FP && grep -q 'provider: \"v8\"' frontend/vitest.config.mts && grep -q '\"lcov\"' frontend/vitest.config.mts \
+    && grep -q '\"test:coverage\": \"vitest run --coverage\"' frontend/package.json"
+t_cov_pkg_pinned() {
+  local v c
+  v="$(jq -r '.devDependencies.vitest' frontend/package.json)"; c="$(jq -r '.devDependencies["@vitest/coverage-v8"]' frontend/package.json)"
+  [[ "$c" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "@vitest/coverage-v8 는 정확한 버전으로: $c"; return 1; }
+  [ "$(jq -r '.packages["node_modules/vitest"].version' frontend/package-lock.json)" = "$c" ] || { echo "vitest(lock) 와 coverage-v8 버전이 다르다($v / $c)"; return 1; }
+  [ "$(jq -r '.packages["node_modules/@vitest/coverage-v8"].version' frontend/package-lock.json)" = "$c" ] || { echo "lock 에 coverage-v8 없음"; return 1; }
+}
+check "TASK-67#4 @vitest/coverage-v8 은 설치된 vitest 와 같은 정확한 버전(lock 포함)" t_cov_pkg_pinned
+SC=deploy/sonar/scanner/Containerfile
+check "TASK-67#4 스캐너 컨테이너: 베이스 이미지 다이제스트 고정 + sonar-scanner-cli jar sha256 고정(ADD --checksum) — 공식 이미지는 amd64 뿐이라 VM(arm64)용으로 빌드, JS 분석용 Node(install.sh 와 같은 버전) 복사" sh -c "
+  grep -Eq '^FROM docker\.io/library/node:[0-9.]+-bookworm-slim@sha256:[0-9a-f]{64} AS node$' $SC \
+    && grep -q '^COPY --from=node /usr/local/bin/node /usr/local/bin/node$' $SC \
+    && [ \"\$(sed -nE 's/^FROM docker.io\/library\/node:([0-9.]+)-.*/\1/p' $SC)\" = \"\$(sed -nE 's/^NODE_VERSION=\"?([0-9.]+)\"?.*/\1/p' $I)\" ] \
+    && grep -Eq '^FROM docker\.io/library/eclipse-temurin:[0-9]+-jre[a-z-]*@sha256:[0-9a-f]{64}$' $SC \
+    && grep -Eq '^ADD --checksum=sha256:[0-9a-f]{64} https://repo1\.maven\.org/maven2/org/sonarsource/scanner/cli/sonar-scanner-cli/' $SC \
+    && v=\$(sed -nE 's/^ARG SCANNER_VERSION=([0-9.]+)$/\1/p' $SC) && [ -n \"\$v\" ] && grep -qF \"SONAR_SCANNER_VERSION:-\$v}\" $L"
+
+# ================================================================ TASK-67#5 SonarQube for IDE 연결 모드(.sonarlint) + README
+t_connected_mode() {
+  local f k u
+  for f in .sonarlint/connectedMode.json .sonarlint/frontend.json; do
+    git ls-files --error-unmatch "$f" >/dev/null 2>&1 || [ -f "$f" ] || { echo "$f 없음"; return 1; }
+    jq -e . "$f" >/dev/null || { echo "$f JSON 아님"; return 1; }
+    u="$(jq -r '.sonarQubeUri' "$f")"
+    [ "$u" = "http://localhost:9000" ] || { echo "$f sonarQubeUri: $u (ssh 터널 주소 http://localhost:9000 — VM IP 는 DHCP 로 바뀐다)"; return 1; }
+  done
+  k="$(jq -r '.projectKey' .sonarlint/connectedMode.json)"; [ "$k" = board-backend ] || { echo "connectedMode.json projectKey: $k"; return 1; }
+  grep -q "\"sonar.projectKey\", \"$k\"" backend/build.gradle.kts || { echo "백엔드 projectKey 가 다르다"; return 1; }
+  k="$(jq -r '.projectKey' .sonarlint/frontend.json)"; [ "$k" = board-frontend ] || { echo "frontend.json projectKey: $k"; return 1; }
+  grep -qx "sonar.projectKey=$k" frontend/sonar-project.properties || { echo "프론트 projectKey 가 다르다"; return 1; }
+  ! git check-ignore -q .sonarlint/connectedMode.json || { echo ".sonarlint 가 gitignore 된다"; return 1; }
+}
+check "TASK-67#5 .sonarlint/connectedMode.json(board-backend)·frontend.json(board-frontend): projectKey 는 분석 설정과 같고 주소는 http://localhost:9000(ssh 터널)" t_connected_mode
+readme_sonar_section() { awk '/^## 코드 품질 \(SonarQube/{f=1; print; next} f && /^## /{exit} f' README.md; }
+for w in "make sonar-up" "make sonar-scan" "make sonar-down" "make sonar-status" "PURGE=1" "ssh -N -L 9000:localhost:9000 rocky-dev" \
+  "VS Code" "IntelliJ" "connectedMode.json" "cat ~/.config/board-sonar/admin-password" "PREVIOUS_VERSION" "단독" "vm.max_map_count" \
+  "budgets.txt" ".github/workflows/sonar.yml"; do
+  check "TASK-67#5 README '코드 품질 (SonarQube)' 절에 '$w'" sh -c "$(declare -f readme_sonar_section); readme_sonar_section | grep -qF -- '$w'"
+done
+t_readme_budget_numbers() {
+  local sec; sec="$(readme_sonar_section)"
+  grep -qF "$(budget sonar) MiB" <<<"$sec" && grep -qF "$(budget sonar-rss) MiB" <<<"$sec" || { echo "README 숫자와 budgets.txt(sonar·sonar-rss)가 다르다"; return 1; }
+}
+check "TASK-67#5 README 의 메모리 숫자는 budgets.txt(sonar·sonar-rss)와 같다" t_readme_budget_numbers
+
+# ================================================================ TASK-67#6 CI sonar.yml: 서비스 컨테이너 SonarQube·Postgres → 분석·게이트
+W=.github/workflows/sonar.yml
+check "TASK-67#6 $W 존재" test -f "$W"
+if need_linter actionlint; then
+  check "TASK-67#6 actionlint $W" actionlint -shellcheck "$(command -v shellcheck || true)" "$W"
+fi
+if command -v yq >/dev/null 2>&1; then
+  t_wf_services() {
+    local j='.jobs.sonar'
+    [ "$(yq -r "$j.services.sonarqube.image" $W)" = "$(yq -r '.services.sonarqube.image' $C)" ] || { echo "sonarqube 이미지가 compose 와 다르다"; return 1; }
+    [ "$(yq -r "$j.services.sonar-db.image" $W)" = "$(yq -r '.services.db.image' $C)" ] || { echo "db 이미지가 compose 와 다르다"; return 1; }
+    [ "$(yq -r "$j.services.sonarqube.env.SONAR_JDBC_URL" $W)" = "jdbc:postgresql://sonar-db:5432/sonar" ] || { echo "JDBC URL"; return 1; }
+    [ "$(yq -r "$j.services.sonarqube.ports[0]" $W)" = "9000:9000" ] || { echo "포트 9000"; return 1; }
+    # 러너의 vm.max_map_count 는 서비스가 뜨기 전에 바꿀 수 없다 — 내장 ES 부트스트랩 검사를 끈다(일회성 CI 서버)
+    [ "$(yq -r "$j.services.sonarqube.env.SONAR_ES_BOOTSTRAP_CHECKS_DISABLE" $W)" = true ] || { echo "ES 부트스트랩 검사"; return 1; }
+  }
+  check "TASK-67#6 서비스 컨테이너: SonarQube·Postgres(로컬 compose 와 같은 다이제스트), 9000, ES 부트스트랩 검사 끔" t_wf_services
+  t_wf_perms() {
+    [ "$(yq -r '.permissions | to_entries | map(.key + "=" + .value) | join(",")' $W)" = "contents=read" ] \
+      && [ "$(yq -r '[.jobs[] | select(has("permissions"))] | length' $W)" = 0 ]
+  }
+  check "TASK-67#6 권한 최소: contents: read 만" t_wf_perms
+  t_wf_steps() {
+    local runs; runs="$(yq -r '.jobs.sonar.steps[] | (.uses // "") + " " + (.run // "")' $W)"
+    grep -q 'actions/checkout@v7' <<<"$runs" && [ "$(yq -r '.jobs.sonar.steps[] | select(.uses == "actions/checkout@v7") | .with["fetch-depth"]' $W)" = 0 ] \
+      || { echo "checkout(fetch-depth 0 — 새 코드 판별에 git 이력)"; return 1; }
+    grep -q 'actions/setup-java@v6' <<<"$runs" && grep -q 'actions/setup-node@v7' <<<"$runs" || { echo "ci.yml 과 같은 setup 액션"; return 1; }
+    grep -q 'scripts/sonar.sh init' <<<"$runs" && grep -q 'scripts/sonar.sh scan' <<<"$runs" || { echo "init → scan"; return 1; }
+    [ "$(grep -n 'sonar.sh init' <<<"$runs" | cut -d: -f1)" -lt "$(grep -n 'sonar.sh scan' <<<"$runs" | cut -d: -f1)" ] || { echo "순서"; return 1; }
+    grep -q 'SONAR_CONFIG_DIR=$RUNNER_TEMP/sonar' <<<"$runs" || { echo "설정(비밀번호·토큰)은 러너 임시 디렉터리"; return 1; }
+  }
+  check "TASK-67#6 단계: checkout(전체 이력) → Java·Node → sonar.sh init(실행마다 무작위 관리자 비밀번호·토큰) → sonar.sh scan(게이트)" t_wf_steps
+  t_wf_no_secrets() {
+    ! grep -n 'secrets\.' $W || { echo "secret 을 쓰지 않는다(실행마다 API 로 만든다 — 포크 PR 도 돈다)"; return 1; }
+    local r; r="$(yq -r '.jobs[].steps[].run // ""' $W)"; ! grep -nF '${{' <<<"$r"
+  }
+  check "TASK-67#6 secret 없이 돈다(비밀번호·토큰은 실행마다 API 로), run 에 \${{ }} 를 넣지 않는다" t_wf_no_secrets
+  check "TASK-67#6 트리거: pull_request·workflow_dispatch" sh -c "[ \"\$(yq -r '.on | keys | sort | join(\",\")' $W)\" = pull_request,workflow_dispatch ]"
+fi
 
 echo "sonar tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

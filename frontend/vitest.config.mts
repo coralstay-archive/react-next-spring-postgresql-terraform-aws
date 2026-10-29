@@ -19,5 +19,13 @@ export default defineConfig({
     maxWorkers: "50%",
     // next.config.ts 의 trailingSlash:true 를 next/link 에 알린다(빌드에서는 Next 가 이 값을 주입한다).
     env: { __NEXT_TRAILING_SLASH: "true" },
+    // TASK-67#4 커버리지는 npm run test:coverage(make sonar-scan)일 때만 — SonarQube 가 coverage/lcov.info 를 읽는다
+    coverage: {
+      provider: "v8",
+      reporter: ["lcov", "text-summary"],
+      reportsDirectory: "coverage",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.test.{ts,tsx}"],
+    },
   },
 });

@@ -7,7 +7,7 @@
 LOCAL_ENV = local_env="$$(./scripts/local-env.sh .env)" && eval "$$local_env" &&
 
 .PHONY: help test test-integration vm-create vm-start vm-stop vm-status vm-ssh k3d-up k3d-profile k3d-smoke k3d-stop k3d-down dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
-	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams cost cost-diff sonar-up sonar-down sonar-status
+	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams cost cost-diff sonar-up sonar-down sonar-status sonar-scan
 
 help: ## 타깃 목록
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -121,6 +121,9 @@ sonar-down: ## SonarQube 내리기(메모리 회수, 분석 이력은 남는다)
 
 sonar-status: ## SonarQube 실행 여부·접속 주소·메모리
 	./scripts/sonar.sh status
+
+sonar-scan: ## 분석: 백엔드(gradle JaCoCo)·프론트(vitest lcov + 스캐너 컨테이너) → 품질 게이트 실패면 non-zero (sonar-up 먼저)
+	./scripts/sonar.sh scan
 
 e2e: ## Playwright E2E: 로컬 스택(compose·백엔드·next dev)을 띄워 chromium 시나리오 실행 후 정리 (느림, make test 에 없음, 떠 있는 k3d 는 먼저 멈춘다). E2E_ARGS 로 인자 전달
 	./scripts/e2e.sh $(E2E_ARGS)
