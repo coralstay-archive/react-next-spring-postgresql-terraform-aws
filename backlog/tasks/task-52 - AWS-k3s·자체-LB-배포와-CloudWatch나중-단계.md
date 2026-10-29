@@ -4,7 +4,7 @@ title: '[AWS] k3s·자체 LB 배포와 CloudWatch(나중 단계)'
 status: To Do
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 12:33'
+updated_date: '2026-10-29 00:54'
 labels:
   - aws
   - platform
@@ -45,4 +45,5 @@ documentation:
 - [ ] #8 업그레이드 절차: k3s·Postgres·Kafka 버전 업그레이드 런북과 리허설
 - [ ] #9 EC2 OS는 Rocky Linux 9(arm64), 로컬 rocky-dev와 같은 k3s 설치 스크립트 사용, SELinux enforcing 유지
 - [ ] #10 EC2 이미지는 로컬 rocky-dev와 같은 Rocky Linux 9.8 arm64(유저 확정, 10 아님)
+- [ ] #11 첫 실배포 확인: apply 후 https://<도메인 또는 cf>/api/actuator/health 200 (TASK-18 AC #1에서 이관, 유저 결정 2026-10-29). smoke_test.sh(SMOKE_BASE_URL)·make smoke 재사용
 <!-- AC:END -->

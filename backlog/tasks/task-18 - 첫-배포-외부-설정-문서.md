@@ -1,10 +1,10 @@
 ---
 id: TASK-18
 title: 첫 배포 + 외부 설정 + 문서
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-11 13:03'
-updated_date: '2026-10-12 03:02'
+updated_date: '2026-10-29 00:54'
 labels:
   - infra
   - docs
@@ -31,11 +31,10 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 apply 후 https://<cf>/api/actuator/health 200
-- [x] #2 OAuth 콜백 URL(Google, GitHub, Naver, Kakao, Cognito) 등록 체크리스트
-- [x] #3 SMS 샌드박스 해제/발신 등록 절차
-- [x] #4 README(로컬 실행, 배포, 시크릿 목록, 비용, destroy), diagrams/*.dot → SVG
-- [x] #5 Playwright 스모크 시나리오 통과
+- [x] #1 OAuth 콜백 URL(Google, GitHub, Naver, Kakao, Cognito) 등록 체크리스트
+- [x] #2 SMS 샌드박스 해제/발신 등록 절차
+- [x] #3 README(로컬 실행, 배포, 시크릿 목록, 비용, destroy), diagrams/*.dot → SVG
+- [x] #4 Playwright 스모크 시나리오 통과
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -59,4 +58,12 @@ documentation:
 
 <!-- SECTION:NOTES:BEGIN -->
 로컬 작업 완료(2026-10-12): smoke_test.sh(TASK-18#1 준비, SMOKE_BASE_URL 없으면 SKIP)·make smoke, docs/first-deploy.md 런북, docs/oauth-setup.md, docs/sms-setup.md((확인 필요) 표시), README 재구성(비밀 키 표 44개, 비용 약 $20-21/월, destroy), docs/api.md·docs/frontend.md 분리, diagrams/*.dot → docs/diagrams/*.svg(build-diagrams.py, 다크 모드 내장 style, --check), Playwright E2E 8개(make e2e, 격리된 compose 프로젝트, 약 55초). 부모 검증: cleanTest 후 make test(backend 567, repo 202, deploy 133, frontend 160), make e2e 8/8 통과, 정리 후 잔여 프로세스·컨테이너 없음. 간헐 실패하던 프론트 테스트(TASK-13#5)는 asyncUtilTimeout 5초로 수정(10/10 통과). 남은 것: AC#1 실제 배포(AWS 자격증명, 비용 승인, GitHub 레포 필요). 발견된 UI 이슈(후속 태스크 후보): 정지된 사용자가 쓰던 댓글이 메시지 없이 사라지고 stale 삭제 버튼이 남음, 글 작성 직후 조회수 0 표시.
+
+[2026-10-29] 유저 결정: 실제 AWS 배포는 로컬에서 할 수 있는 것을 모두 끝낸 뒤로 미룬다. AC #1(apply 후 health 200)은 TASK-52로 이관하고 이 태스크는 로컬 준비(OAuth·SMS 문서, README·다이어그램, Playwright 스모크, smoke_test.sh) 완료로 닫는다.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+로컬 준비 완료로 종료. OAuth 콜백 체크리스트(docs/oauth-setup.md), SMS 절차(docs/sms-setup.md), 첫 배포 런북(docs/first-deploy.md), README 재구성·diagrams SVG, Playwright E2E 8개(make e2e 8/8), smoke_test.sh·make smoke. 실제 AWS 배포(health 200)는 유저 결정(2026-10-29)으로 TASK-52 AC로 이관.
+<!-- SECTION:FINAL_SUMMARY:END -->

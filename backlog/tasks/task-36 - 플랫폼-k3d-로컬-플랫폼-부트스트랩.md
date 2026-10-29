@@ -4,7 +4,7 @@ title: '[플랫폼] k3d 로컬 플랫폼 부트스트랩'
 status: To Do
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-25 00:47'
+updated_date: '2026-10-29 00:54'
 labels:
   - platform
 dependencies:
@@ -43,6 +43,7 @@ k3d(k3s) 단일 노드 로컬 클러스터와 로컬 레지스트리를 만들�
 - [ ] #7 메모리 절차 강제(2): make k3d-up·k3d-profile은 Docker VM 메모리 5GB 미만, Testcontainers 컨테이너 실행 중, 프로필 합계 예산 초과면 이유와 해결법을 출력하고 실패(예산 초과는 FORCE=1로만 통과). 각 경우를 셸 테스트로 고정
 - [ ] #8 스모크 스크립트들도 같은 사전 검사 함수를 공유한다(검사를 우회하는 진입점이 없음)
 - [ ] #9 make dev-db·dev-storage·e2e(지금은 맥 Docker 전제)를 VM의 Podman으로 옮긴다 — 맥에서 실행하면 VM 안에서 podman compose 등으로 동작(유저 결정 2026-10-25)
+- [ ] #10 맥 브라우저 접근: 포트 포워딩 없이 VM IP로 Traefik에 접속하고, 맥 /etc/hosts에 이름 1개(예: board.local)를 둔다. VM IP가 바뀌면 make vm-start가 갱신 방법을 안내하고, / 는 프론트·/api 는 백엔드로 같은 오리진(유저 결정 2026-10-29, doc-4)
 <!-- AC:END -->
 
 ## Implementation Notes
