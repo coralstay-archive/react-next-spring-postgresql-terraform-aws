@@ -248,5 +248,17 @@ for w in "force-unlock <LOCK_ID>" "use_lockfile" ".tflock" "platform/terraform.t
 done
 check "TASK-65#6 platform backend.tf 가 terraform-state.md 를 가리킨다" grep -q 'docs/terraform-state.md' "$P/backend.tf"
 
+# TASK-65#7 README 'AWS 실배포 설계' 절: 구성도(diagrams/platform-aws.dot → docs/diagrams/platform-aws.svg), 비용 표(decision-11),
+# apply 하지 않는 이유, TASK-52 로 넘기는 항목. SVG 최신 여부는 repo_test 의 build-diagrams.py --check 가 본다
+check "TASK-65#7 diagrams/platform-aws.dot 과 docs/diagrams/platform-aws.svg" sh -c 'test -f diagrams/platform-aws.dot && test -f docs/diagrams/platform-aws.svg'
+check "TASK-65#7 platform-aws.dot 은 alt 줄과 센티넬 색만" sh -c '
+  grep -q "^// alt: " diagrams/platform-aws.dot && ! grep -hoE "(color|fillcolor|fontcolor)=\"#[0-9a-fA-F]{6}\"" diagrams/platform-aws.dot | grep -viE "\"#f000[0-9a-f]{2}\""'
+readme_sec() { awk '/^## AWS 실배포 설계/{f=1; print; next} f && /^## /{exit} f' README.md; }
+check "TASK-65#7 README 에 '## AWS 실배포 설계' 절" sh -c 'grep -q "^## AWS 실배포 설계" README.md'
+for w in "<!--dot:platform-aws-->" "decision-11" "t4g.large" "스팟" "EIP" "합계" "apply 하지 않는" "TASK-52" "infra/platform" "enable_lb_node" "user_data_replace_on_change" "board-node-ready" "docs/terraform-state.md" "sslip.io" "WAF"; do
+  check "TASK-65#7 'AWS 실배포 설계' 절에 '$w'" sh -c "$(declare -f readme_sec); readme_sec | grep -qF -- '$w'"
+done
+check "TASK-65#7 구성 표에 infra/platform" sh -c 'grep -F "| \`infra/\`" README.md | grep -q "infra/platform"'
+
 echo "platform tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

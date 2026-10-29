@@ -43,7 +43,7 @@ make frontend-dev                     # 터미널 2: http://localhost:3000
 | `backend/` | Spring Boot 4.1 · Java 25 · Gradle Kotlin DSL. 모든 API는 `/api` 아래 (`server.servlet.context-path=/api`) |
 | `frontend/` | Next.js 16 · App Router · `output: 'export'` · TypeScript · Tailwind CSS v4 · shadcn/ui. E2E는 `frontend/e2e/`(Playwright) |
 | `docker-compose.yml` | 로컬 PostgreSQL 18 + 첨부 저장소 MinIO(S3 호환, TASK-11) |
-| `infra/` | Terraform: `infra/bootstrap`(state 버킷), `infra/main`(운영 루트 스택 + `modules/*`). [인프라](#인프라-terraform-task-16) 참고 |
+| `infra/` | Terraform: `infra/bootstrap`(state 버킷), `infra/main`(레거시 운영 루트 스택 + `modules/*`), `infra/platform`(실배포 설계 — apply 전). [인프라](#인프라-terraform-task-16)·[AWS 실배포 설계](#aws-실배포-설계-task-65-decision-11) 참고 |
 | `deploy/` | EC2에서 쓰는 compose·배포 스크립트, 시크릿 입력 예시. [배포](#배포-task-17) 참고 |
 | `.github/workflows/` | `ci.yml`(테스트·빌드), `deploy.yml`(main 배포) |
 | `scripts/` | 로컬 `make`와 CI가 같이 호출하는 스크립트 (`scripts/test.sh`, 배포, `e2e.sh`, `build-diagrams.py`) |
@@ -399,6 +399,76 @@ EC2 의 PostgreSQL 데이터는 `/srv/pgdata`(데이터 EBS)이고 deploy compos
 오류 DETAIL(키 값 등 개인정보)과 실패한 문장을 서버 로그에 남기지 않는다(TASK-21).
 
 비용은 [비용](#비용-us-east-1-월-대략), 삭제 순서는 [정리](#정리-terraform-destroy)를 본다.
+
+## AWS 실배포 설계 (TASK-65, decision-11)
+
+> 레거시 `infra/main`(EC2 + Compose + CloudFront)을 대체할 새 루트 스택 `infra/platform`의 얼개다. **아직 apply 하지 않는다** — 검증은
+> `make test`(fmt·validate·mock_provider 테스트)뿐이고, 실제 배포·레거시 철거는 TASK-52 에서 한다.
+
+<!--dot:platform-aws-->
+<p align="center"><img src="docs/diagrams/platform-aws.svg" alt="AWS 실배포 설계(decision-11) — 브라우저 → EIP → k3s 노드(t4g.large 스팟, Rocky 9.8, Traefik 80·443)의 앱·PostgreSQL·Kafka·MinIO·모니터링, 데이터 gp3 볼륨(/data, DLM 스냅샷), SSM·Cognito·SMS·Budgets, 선택 HAProxy lb_node"></p>
+<!--/dot:platform-aws-->
+
+관리형 서비스를 쓰지 않는다(decision-11): DB·Kafka·MinIO(S3 대신)·Prometheus/Alertmanager(CloudWatch 대신)가 모두 노드의 k3s 안에서 돌고,
+이미지는 GHCR(ECR 대신), TLS 는 cert-manager + Let's Encrypt(CloudFront·ACM 대신)다. NAT·ALB/NLB·CloudFront·RDS·MSK·ECR·CloudWatch 알람은
+만들지 않는다(`make test`가 리소스 종류 허용 목록으로 막는다). 남기는 AWS 기능은 Cognito·End User Messaging SMS·SSM(Session Manager·Parameter Store)·
+Budgets·EBS 스냅샷뿐이다.
+
+```
+infra/platform/           새 루트 스택 (backend: bootstrap 버킷, key=platform/terraform.tfstate, use_lockfile)
+  envs/prod.backend.hcl   backend 설정        envs/prod.tfvars   prod 변수(repo_commit·cognito_domain_prefix 는 CHANGE-ME)
+  (network)               ../main/modules/network 재사용 — VPC + public subnet 1개, NAT 없음
+  modules/k3s_node        Rocky 9.8 arm64(792107900819) t4g.large 스팟(persistent, 회수 시 stop), IMDSv2, 루트·데이터 EBS 암호화, EIP 1개,
+                          SG 80·443(IPv4·IPv6)만 — 22 없음, IAM = SSM Core + /board/* 파라미터 읽기,
+                          데이터 볼륨 gp3(/dev/sdf → /data, data_snapshot_id 로 스냅샷 복원), user_data
+  modules/lb_node         HAProxy t4g.small(80·443 TCP → 노드). enable_lb_node(기본 false)
+  snapshots.tf            데이터 볼륨 DLM 일일 스냅샷 7개. enable_snapshots(기본 true)
+  budgets.tf              AWS Budgets 월 한도(budget_monthly_usd, 기본 $30) 실제 80%·예측 100% 이메일 알림. budget_email 이 비면 없음
+  (cognito)               ../main/modules/cognito 재사용. 공개 주소 = domain_name 또는 <EIP>.sslip.io
+```
+
+노드 부팅(user_data, cloud-init):
+
+1. `board-data-volume.sh`: `k3s.service`에 `RequiresMountsFor=/data` + 시작 전 `mountpoint` 드롭인을 **먼저** 쓴다 — 데이터 볼륨이
+   마운트되지 않으면 k3s(그 안의 DB)가 루트 디스크에 빈 데이터로 뜨지 않는다. 장치는 볼륨 ID 의 by-id 링크로만 찾고, `blkid -p` 종료 코드 2(빈 장치)일
+   때만 포맷한다(그 밖의 코드면 손대지 않고 실패). fstab 은 UUID + `nofail` — 볼륨이 없을 때 부팅이 비상 모드에 빠져 SSM 으로도 못 들어가는 일을 막고,
+   서비스 차단은 드롭인이 맡는다. k3s `data-dir`·local-path PV 는 `/data` 아래.
+2. 저장소 **고정 커밋**(`repo_commit`, 40자리)의 `deploy/rocky/install.sh --profile server`(개발 VM 과 같은 스크립트). dnf·fetch·install.sh 는 3회 재시도.
+3. k3s 설치 자리 `k3s_install_cmd`(기본 비움 — TASK-36 스크립트를 넘긴다). 끝나면 `/var/lib/board-node/bootstrap.done`.
+4. **배포 전에 반드시** SSM 세션에서 `sudo /usr/local/sbin/board-node-ready`(출력 `node_ready_check`)를 돌린다. `cloud-init status --wait`가
+   `done`이고 끝 표식이 있을 때만 성공한다(error·degraded 는 실패).
+
+`user_data_replace_on_change = true`: user_data 를 바꾸면(커밋·k3s 명령) 노드를 새로 만든다. stop/start 로는 스크립트가 다시 돌지 않아 노드가 설정과
+어긋나기 때문이다. 노드는 가축이다 — 데이터 볼륨·EIP 는 남고 새 노드에 다시 붙는다. AMI 갱신은 `ignore_changes = [ami]`라 `-replace`로 명시한다.
+state 잠금 고착·백업은 [docs/terraform-state.md](docs/terraform-state.md).
+
+비용(us-east-1, 월, 대략 — decision-11, 2026-10 조사):
+
+| 항목 | 산식 | 월 |
+|---|---|--:|
+| k3s 노드 t4g.large 스팟 | 약 $0.021–0.026/h × 730 (온디맨드 $0.0672/h ≈ $49) | ≈ $15–19 |
+| EBS gp3 루트 30GB + 데이터 20GB | 50GB × $0.08 | ≈ $4 |
+| EBS 스냅샷(DLM 7개, 증분) | 변경분 수 GB × $0.05 | ≈ $0.3–1 |
+| 공인 IPv4(EIP 1개) | $0.005/h × 730 | ≈ $3.7 |
+| SSM(Session Manager·Parameter Store 표준)·Budgets | 무료 | $0 |
+| Cognito | 소규모 MAU 무료 구간 **(요금제 확인 필요)** | ≈ $0 |
+| **합계(상시 가동)** | | **≈ $22–27** |
+| 밤 12시간 정지 | 노드 시간 절반, EBS·IPv4 는 그대로 | ≈ $15 |
+| (선택) lb_node t4g.small 온디맨드 + EIP | $0.0168/h × 730 + $3.7 | +≈ $16 |
+| (선택) SMS | 사용량 — [sms-setup](docs/sms-setup.md#5-비용-메모) | 사용량 |
+
+레거시(t4g.small + CloudFront, ≈ $20–21)와 비슷한 비용에 메모리가 4배(8GB)다. 스팟이 회수되면 노드가 멈추고(데이터·EIP 유지) 단일 노드라 고가용성은 없다.
+
+apply 하지 않는 이유: 로컬(Rocky 개발 VM·k3d)에서 할 수 있는 플랫폼 작업을 모두 끝낸 뒤 실배포한다(2026-10-29 결정). 지금 apply 하면 쓰지 않는 노드에
+비용이 나가고, k3s 설치 스크립트(TASK-36)·앱 매니페스트가 아직 없어 노드가 빈 상태로 떠 있게 된다. 그래서 구조와 안전 장치만 오프라인 테스트로 고정한다.
+
+TASK-52 로 넘기는 항목:
+
+- 첫 `terraform plan/apply`(`envs/prod.tfvars`의 `repo_commit`·`cognito_domain_prefix`·`budget_email` 채우기), `board-node-ready` 확인
+- 도메인(그때까지 `<EIP>.sslip.io`)과 WAF 위치(CloudFront 가 없어 AWS WAF 를 붙일 곳이 없다)
+- 스냅샷 복원 리허설(`data_snapshot_id`), 스팟 회수 대응(TASK-60)
+- 노드 role 에 앱 권한 추가(SMS `sms-voice:SendTextMessage` 등 — 지금은 SSM Core + `/board/*` 읽기만)
+- 레거시 `infra/main` 철거(AC #5) — 그때 `network`·`cognito` 모듈을 `infra/platform/modules`로 옮긴다
 
 ## 배포 (TASK-17)
 

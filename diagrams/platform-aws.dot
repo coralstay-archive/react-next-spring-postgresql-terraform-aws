@@ -1,0 +1,60 @@
+// alt: AWS 실배포 설계(decision-11) — 브라우저 → EIP → k3s 노드(t4g.large 스팟, Rocky 9.8, Traefik 80·443)의 앱·PostgreSQL·Kafka·MinIO·모니터링, 데이터 gp3 볼륨(/data, DLM 스냅샷), SSM·Cognito·SMS·Budgets, 선택 HAProxy lb_node
+digraph platform_aws {
+  graph [rankdir=LR, fontname="Helvetica", fontsize=11, fontcolor="#f00001", nodesep=0.35, ranksep=0.6, pad=0.3, newrank=true]
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fontcolor="#f00001", color="#f00003", fillcolor="#f00004", penwidth=1.2, margin="0.14,0.07"]
+  edge  [fontname="Helvetica", fontsize=9, fontcolor="#f00002", color="#f00003", arrowsize=0.7]
+
+  browser [label="브라우저", fillcolor="#f00007", color="#f00006"]
+  operator [label="운영자\naws ssm start-session\n(22 없음)", fillcolor="#f00004"]
+
+  subgraph cluster_ext {
+    label="외부"; style="rounded,filled"; color="#f0000a"; fillcolor="#f0000b"; fontcolor="#f0000a"
+    ghcr [label="GHCR\n이미지", color="#f0000a"]
+    le [label="Let's Encrypt\n(<EIP>.sslip.io)", color="#f0000a"]
+    github [label="GitHub 저장소\n고정 커밋 install.sh", color="#f0000a"]
+  }
+
+  subgraph cluster_aws {
+    label="AWS us-east-1 · infra/platform (관리형 미사용)"; style="rounded,filled"; color="#f00008"; fillcolor="#f00005"; fontcolor="#f00008"
+
+    subgraph cluster_vpc {
+      label="VPC · public subnet 1개 · NAT 없음 · SG 80·443 (IPv4·IPv6)"; style="rounded,dashed"; color="#f00003"; fillcolor="#f00005"; fontcolor="#f00002"
+      eip [label="EIP 1개", color="#f00008", fillcolor="#f00009"]
+      lb [label="lb_node (선택, 기본 꺼짐)\nHAProxy t4g.small\n80·443 TCP 패스스루", style="rounded,dashed", color="#f00003"]
+
+      subgraph cluster_node {
+        label="k3s_node · t4g.large 스팟 (persistent, 회수 시 stop) · Rocky 9.8 arm64 · IMDSv2"; style="rounded,filled"; color="#f00006"; fillcolor="#f00004"; fontcolor="#f00006"
+        traefik [label="Traefik\n:80 · :443\ncert-manager", color="#f00006", fillcolor="#f00007"]
+        apps [label="앱\nfrontend · backend", color="#f00006", fillcolor="#f00007"]
+        data [label="PostgreSQL · Kafka\nMinIO", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]
+        mon [label="Prometheus\nAlertmanager", color="#f00006", fillcolor="#f00007"]
+      }
+      vol [label="데이터 볼륨 gp3 암호화\n/data (k3s·local-path)\n마운트 없으면 k3s 안 뜸", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]
+    }
+
+    snap [label="EBS 스냅샷\nDLM 일일 7개 (토글)", shape=cylinder, color="#f0000c", fillcolor="#f0000d"]
+    ssm [label="SSM\nSession Manager\nParameter Store /board/*", color="#f00008", fillcolor="#f00009"]
+    cognito [label="Cognito\n(로그인)", color="#f00008", fillcolor="#f00009"]
+    sms [label="End User Messaging\nSMS (OTP)", color="#f00008", fillcolor="#f00009"]
+    budgets [label="AWS Budgets\n월 알림 (이메일)", color="#f00008", fillcolor="#f00009"]
+  }
+
+  browser -> eip [label="HTTPS", color="#f00006", penwidth=1.5]
+  eip -> traefik [color="#f00006", penwidth=1.5]
+  browser -> lb [label="enable_lb_node", style=dashed]
+  lb -> traefik [style=dashed]
+  traefik -> apps [color="#f00006", penwidth=1.5]
+  apps -> data
+  apps -> mon [dir=back, style=dotted, label="수집"]
+  data -> vol [arrowhead=none, style=dotted, label="PV"]
+  vol -> snap [style=dotted]
+  operator -> ssm [style=dashed]
+  ssm -> traefik [style=dashed, label="세션·파라미터"]
+  apps -> cognito [label="OIDC"]
+  apps -> sms [label="SendTextMessage"]
+  traefik -> le [label="ACME", style=dotted]
+  apps -> ghcr [label="pull", style=dotted, dir=back]
+  github -> traefik [label="user_data", style=dotted]
+
+  { rank=same; budgets; snap }
+}
