@@ -4,7 +4,7 @@ title: '[품질] SonarQube·SonarQube for IDE 로컬·CI'
 status: In Progress
 assignee: []
 created_date: 2026-10-29 01:21
-updated_date: '2026-10-29T11:51:00Z'
+updated_date: '2026-10-29T11:56:00Z'
 labels:
   - quality
   - platform
@@ -70,4 +70,6 @@ AC#6 진행: .github/workflows/sonar.yml — pull_request·workflow_dispatch, pe
 리뷰 반영 1(B1·B2 보강): k3d_preflight(k3d-up·profile·smoke)도 scripts/sonar.sh refuse-if-running 으로 SonarQube 가 떠 있으면 거부(맥에서는 ssh 로 VM 안 podman ps — k3s 재작업에도 그대로 쓰는 진입점). 잠금 확인 flock 이 0·75 가 아니면 거부, podman ps 실패는 '없음'이 아니라 거부(실패 쪽으로 닫힘). 9000 은 VM 127.0.0.1 에만 공개 — 맥은 ssh -N -L 9000:localhost:9000 rocky-dev 터널(connectedMode 주소와 같다), 자격 증명을 맞추지 못하면 compose stop 후 실패. curl -K 설정 값의 \ " 이스케이프. 실 VM: sonar-up 뒤 맥에서 http://192.168.64.13:9000 → 연결 안 됨(000), 터널로 UP 확인, 맥 make k3d-up 은 'SonarQube 가 떠 있다 … make sonar-down' 으로 거부. sonar_test·k8s_test 에 테스트 추가(가짜 ps 실패·flock 실패·맥 ssh 확인·k3d 3 진입점).
 
 리뷰 반영 2: JaCoCo 에이전트는 coverage 속성 값이 false 가 아닐 때만(-Pcoverage=false 는 끔). @vitest/coverage-v8 범위를 vitest 와 같은 ^5.0.3 으로(lock 설치 버전 5.0.3 그대로 — 최신 5.0.5 는 vitest 5.0.5 를 요구해 맞추지 않았다).
+
+리뷰 반영 3(CI 게이트 래칫): sonar.sh init(CI 전용)이 프로젝트를 만들고 게이트 board-ci-backend(커버리지 <88·중복 >3%·버그 >6·취약점 >7 이면 실패)·board-ci-frontend(<92·>3%·>0·>0)를 만들어 지정(scripts/_sonar.sh SONAR_CI_GATE_CONDITIONS, 있으면 다시 만들지 않는다). 로컬 sonar-up 은 Sonar way 그대로. 백엔드 버그·취약점 기준은 TASK-38 이 고치며 낮춘다(README). 실 VM 검증: 로컬 서버에 init → 두 프로젝트에 게이트 지정 확인(26.10 은 새 게이트에 Sonar way 새 코드 조건 4개를 기본으로 넣어 두고 우리 전체 코드 조건 4개가 더해진다) → make sonar-scan 6분 28초 둘 다 PASSED(backend coverage 91.1·dup 0.0·bugs 6·vuln 7 OK, frontend 94.9·0.0·0·0 OK) → 로컬은 deselect·destroy 로 Sonar way 로 되돌림 → sonar-down. 실제 GitHub 러너 실행은 하지 않았다.
 <!-- SECTION:NOTES:END -->

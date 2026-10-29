@@ -11,6 +11,7 @@
 #                             비밀값은 출력하지 않고 curl 인자에도 싣지 않는다(-K 설정을 프로세스 치환으로). 새 코드 기준은 PREVIOUS_VERSION
 #   sonar_refuse_if_running <누가>  역방향: SonarQube 가 떠 있으면(또는 확인하지 못하면) make sonar-down 을 안내하고 실패(make test·
 #                             k3d 진입점이 부른다). 맥에서 부르면 ssh 로 VM 안 Podman 을 본다
+#   sonar_ci_gates            (CI, TASK-67#6) 프로젝트별 래칫 품질 게이트(전체 코드 조건)를 만들어 지정 — 아래 SONAR_CI_GATE_CONDITIONS
 # 테스트용 환경변수: SONAR_CONTAINER_CLI(podman|docker), SONAR_WAIT_TIMEOUT·SONAR_WAIT_INTERVAL(초),
 #   SONAR_MEMINFO(/proc/meminfo 대신)
 
@@ -213,3 +214,36 @@ sonar_token() {
   cat "$SONAR_CONFIG_DIR/token" 2>/dev/null || true
 }
 
+# ---------------------------------------------------------------- CI 래칫 품질 게이트(TASK-67#6)
+# CI 서버는 실행마다 새로 떠서 매번 "첫 분석"이라 Sonar way(새 코드) 게이트는 걸리지 않는다. 그래서 CI 에서는 전체 코드 조건으로
+# 프로젝트별 게이트를 만든다 — 첫 분석 기준선(2026-10-29, TASK-67 노트)은 통과하고 나빠지면 실패한다.
+# 백엔드 버그 6·취약점 7 은 지금 값 그대로다 — TASK-38 이 고치면서 이 값을 낮춘다. 형식: <게이트> <지표> <연산 LT|GT> <오류 기준>
+SONAR_CI_GATE_CONDITIONS="
+board-ci-backend coverage LT 88
+board-ci-backend duplicated_lines_density GT 3
+board-ci-backend bugs GT 6
+board-ci-backend vulnerabilities GT 7
+board-ci-frontend coverage LT 92
+board-ci-frontend duplicated_lines_density GT 3
+board-ci-frontend bugs GT 0
+board-ci-frontend vulnerabilities GT 0
+"
+sonar_ci_gates() {
+  local pw g m op e p
+  pw="$(cat "$SONAR_CONFIG_DIR/admin-password")"
+  for p in board-backend board-frontend; do
+    # 프로젝트가 있어야 게이트를 지정할 수 있다(첫 분석 전) — 이미 있으면 실패해도 된다
+    sonar_api POST /api/projects/create "admin:$pw" "project=$p" "name=board ${p#board-}" >/dev/null 2>&1 || true
+    g="board-ci-${p#board-}"
+    if ! sonar_api GET "/api/qualitygates/show?name=$g" "admin:$pw" >/dev/null 2>&1; then
+      sonar_api POST /api/qualitygates/create "admin:$pw" "name=$g" >/dev/null || sonar_die "품질 게이트 $g 를 만들지 못했다"
+      while read -r gg m op e; do
+        [ "$gg" = "$g" ] || continue
+        sonar_api POST /api/qualitygates/create_condition "admin:$pw" "gateName=$g" "metric=$m" "op=$op" "error=$e" >/dev/null \
+          || sonar_die "품질 게이트 $g 조건($m $op $e)을 만들지 못했다"
+      done <<<"$SONAR_CI_GATE_CONDITIONS"
+    fi
+    sonar_api POST /api/qualitygates/select "admin:$pw" "gateName=$g" "projectKey=$p" >/dev/null || sonar_die "$p 에 게이트 $g 를 지정하지 못했다"
+    sonar_log "CI 품질 게이트: $p → $g ($(awk -v g="$g" '$1 == g { printf "%s%s %s %s", s, $2, $3, $4; s = ", " }' <<<"$SONAR_CI_GATE_CONDITIONS"))"
+  done
+}

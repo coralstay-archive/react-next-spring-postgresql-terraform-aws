@@ -721,5 +721,39 @@ t_refuse_mac() {
 check "TASK-67#2 TASK-67#B1 맥: refuse-if-running 은 ssh 로 VM 안 SonarQube 를 확인한다(떠 있거나 확인 실패면 거부)" t_refuse_mac
 check "TASK-67#2 TASK-67#B1 k3d 진입점(up·profile·smoke)의 k3d_preflight 도 SonarQube 가 떠 있으면 거부한다" \
   grep -q 'scripts/sonar.sh" refuse-if-running' scripts/_k3d.sh
+# --- CI 품질 게이트 래칫: 전체 코드 조건(지금 기준선은 통과, 나빠지면 실패)
+t_ci_gate() {
+  fake_reset
+  run_capture sonar_run SONAR_CONFIG_DIR="$TMP/ci-gate" "$S" init
+  rc_is 0 || return 1
+  local c="$FAKE_STATE/curl-config.log" line
+  called "curl /api/projects/create" && called "curl /api/qualitygates/create" && called "curl /api/qualitygates/select" || return 1
+  for line in 'name=board-ci-backend' 'name=board-ci-frontend' 'projectKey=board-backend' 'projectKey=board-frontend' 'gateName=board-ci-backend' 'gateName=board-ci-frontend'; do
+    grep -qF "data-urlencode = \"$line\"" "$c" || { echo "설정에 $line 없음"; return 1; }
+  done
+  # 조건: gateName·metric·op·error 가 한 요청에 — 백엔드 커버리지 < 88, 중복 > 3, 버그 > 6, 취약점 > 7 / 프론트 커버리지 < 92, 중복 > 3, 버그·취약점 > 0
+  awk '/^user = /{ if (r) print r; r="" } /^data-urlencode/{ sub(/^data-urlencode = "/, ""); sub(/"$/, ""); r = r " " $0 } END { if (r) print r }' "$c" >"$TMP/conds"
+  for line in "gateName=board-ci-backend metric=coverage op=LT error=88" "gateName=board-ci-backend metric=duplicated_lines_density op=GT error=3" \
+    "gateName=board-ci-backend metric=bugs op=GT error=6" "gateName=board-ci-backend metric=vulnerabilities op=GT error=7" \
+    "gateName=board-ci-frontend metric=coverage op=LT error=92" "gateName=board-ci-frontend metric=duplicated_lines_density op=GT error=3" \
+    "gateName=board-ci-frontend metric=bugs op=GT error=0" "gateName=board-ci-frontend metric=vulnerabilities op=GT error=0"; do
+    grep -qF " $line" "$TMP/conds" || { echo "조건 없음: $line"; cat "$TMP/conds"; return 1; }
+  done
+  # 다시 돌려도(게이트가 있으면) 만들지 않는다
+  : >"$FAKE_STATE/calls.log"
+  run_capture sonar_run SONAR_CONFIG_DIR="$TMP/ci-gate" "$S" init
+  rc_is 0 && not_called "curl /api/qualitygates/create"
+}
+check "TASK-67#6 CI(sonar.sh init): 프로젝트별 품질 게이트(board-ci-backend·frontend)를 전체 코드 조건으로 만들어 지정 — 기준선 통과, 나빠지면 실패" t_ci_gate
+t_local_no_ci_gate() {
+  fake_reset
+  run_capture sonar_run "$S" up
+  rc_is 0 && not_called "curl /api/qualitygates/create"
+}
+check "TASK-67#6 로컬 sonar-up 은 CI 래칫 게이트를 만들지 않는다(Sonar way·새 코드)" t_local_no_ci_gate
+for w in "board-ci-backend" "88%" "92%" "TASK-38"; do
+  check "TASK-67#6 README '코드 품질 (SonarQube)' 절에 '$w'(CI 래칫)" sh -c "$(declare -f readme_sonar_section); readme_sonar_section | grep -qF -- '$w'"
+done
+
 echo "sonar tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

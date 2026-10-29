@@ -290,7 +290,15 @@ make sonar-down     # 내리기(메모리 회수, 분석 이력은 남는다). m
     연결(`http://localhost:9000`, 토큰)을 만들고 프로젝트(모듈)를 `board-backend`(프론트 모듈은 `board-frontend`)로 묶는다.
 - CI(`.github/workflows/sonar.yml`): PR 마다 서비스 컨테이너로 같은 다이제스트의 SonarQube·Postgres 를 띄우고 `scripts/sonar.sh init`(실행마다
   무작위 관리자 비밀번호·토큰, 로그 마스킹) → `scripts/sonar.sh scan`(게이트). secret 이 필요 없다. 서버가 매번 새로 떠서 매번 "첫 분석"이라
-  새 코드 게이트는 사실상 통과한다 — 새 코드 게이트는 로컬 서버(분석 이력이 남는다)에서 본다.
+  Sonar way(새 코드) 게이트는 걸리지 않는다 — 그래서 `init` 이 프로젝트별 **래칫 게이트**(전체 코드 조건)를 만들어 지정한다. 첫 분석 기준선
+  (백엔드 커버리지 91.1%·버그 6·취약점 7, 프론트 94.9%·0·0)은 통과하고 나빠지면 실패한다(`scripts/_sonar.sh` `SONAR_CI_GATE_CONDITIONS`):
+
+  | 게이트 | 커버리지 | 중복 줄 | 버그 | 취약점 |
+  |---|---|---|---|---|
+  | `board-ci-backend` | 88% 미만이면 실패 | 3% 초과 | 6 초과 | 7 초과 |
+  | `board-ci-frontend` | 92% 미만이면 실패 | 3% 초과 | 0 초과 | 0 초과 |
+
+  백엔드 버그·취약점 기준은 지금 값 그대로다 — TASK-38 에서 고치면서 낮춘다. 로컬 서버는 Sonar way(새 코드, 분석 이력이 남는다)를 그대로 쓴다.
 
 ## 테스트
 

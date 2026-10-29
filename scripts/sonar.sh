@@ -50,9 +50,11 @@ cmd_up() {
   sonar_log "UI 로그인: admin / 비밀번호는 출력하지 않는다 — 보기: ssh $VM_SSH_HOST cat ~/.config/board-sonar/admin-password"
 }
 
+# CI(sonar.yml): 기동 대기 → 자격 증명 → 래칫 품질 게이트
 cmd_init() {
   sonar_wait_up
   sonar_ensure_credentials
+  sonar_ci_gates
 }
 
 cmd_scan() {
