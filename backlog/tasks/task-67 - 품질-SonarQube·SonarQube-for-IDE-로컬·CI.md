@@ -1,10 +1,10 @@
 ---
 id: TASK-67
 title: '[품질] SonarQube·SonarQube for IDE 로컬·CI'
-status: In Progress
+status: Done
 assignee: []
 created_date: 2026-10-29 01:21
-updated_date: '2026-10-29T11:56:00Z'
+updated_date: '2026-10-29T12:07:00Z'
 labels:
   - quality
   - platform
@@ -35,12 +35,12 @@ SonarQube Community Build 를 VM Podman 에서 단독 모드로 띄우고(공식
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 deploy/sonar/compose.yaml(SonarQube Community Build·postgres:18-alpine 다이제스트 고정)을 VM Podman 으로: make sonar-up·sonar-down·sonar-status, 접속 http://<VM IP>:9000
-- [ ] #2 단독 모드 강제: k3s 실행 중·make test 잠금(/tmp/board-repo-test.lock)·VM 메모리 부족이면 이유와 해결법을 출력하고 실패(scripts/_vm.sh 사전 검사 재사용, budgets.txt 에 sonar 예산, 힙은 SONAR_*_JAVAOPTS 로 축소). 각 경우를 셸 테스트로 고정
-- [ ] #3 install.sh dev 프로필: vm.max_map_count=524288, fs.file-max=131072, nofile 131072 (재실행해도 같은 결과)
-- [ ] #4 make sonar-scan: 백엔드 Gradle org.sonarqube + JaCoCo XML, 프론트 vitest lcov + sonar-scanner-cli 컨테이너(다이제스트 고정), sonar.qualitygate.wait=true 로 게이트 실패 시 non-zero. 토큰은 VM 설정 파일에서 읽음. 첫 분석 기준선을 노트에 기록
-- [ ] #5 SonarQube for IDE 연결 모드: .sonarlint/connectedMode.json 커밋, README 에 VS Code·IntelliJ 연결 방법
-- [ ] #6 CI sonar.yml: GHA 서비스 컨테이너로 SonarQube 를 띄워 분석·품질 게이트, 관리자 비밀번호는 실행마다 API 로 교체, actionlint 통과
+- [x] #1 deploy/sonar/compose.yaml(SonarQube Community Build·postgres:18-alpine 다이제스트 고정)을 VM Podman 으로: make sonar-up·sonar-down·sonar-status, 접속 http://<VM IP>:9000
+- [x] #2 단독 모드 강제: k3s 실행 중·make test 잠금(/tmp/board-repo-test.lock)·VM 메모리 부족이면 이유와 해결법을 출력하고 실패(scripts/_vm.sh 사전 검사 재사용, budgets.txt 에 sonar 예산, 힙은 SONAR_*_JAVAOPTS 로 축소). 각 경우를 셸 테스트로 고정
+- [x] #3 install.sh dev 프로필: vm.max_map_count=524288, fs.file-max=131072, nofile 131072 (재실행해도 같은 결과)
+- [x] #4 make sonar-scan: 백엔드 Gradle org.sonarqube + JaCoCo XML, 프론트 vitest lcov + sonar-scanner-cli 컨테이너(다이제스트 고정), sonar.qualitygate.wait=true 로 게이트 실패 시 non-zero. 토큰은 VM 설정 파일에서 읽음. 첫 분석 기준선을 노트에 기록
+- [x] #5 SonarQube for IDE 연결 모드: .sonarlint/connectedMode.json 커밋, README 에 VS Code·IntelliJ 연결 방법
+- [x] #6 CI sonar.yml: GHA 서비스 컨테이너로 SonarQube 를 띄워 분석·품질 게이트, 관리자 비밀번호는 실행마다 API 로 교체, actionlint 통과
 <!-- AC:END -->
 
 ## Implementation Plan
@@ -72,4 +72,12 @@ AC#6 진행: .github/workflows/sonar.yml — pull_request·workflow_dispatch, pe
 리뷰 반영 2: JaCoCo 에이전트는 coverage 속성 값이 false 가 아닐 때만(-Pcoverage=false 는 끔). @vitest/coverage-v8 범위를 vitest 와 같은 ^5.0.3 으로(lock 설치 버전 5.0.3 그대로 — 최신 5.0.5 는 vitest 5.0.5 를 요구해 맞추지 않았다).
 
 리뷰 반영 3(CI 게이트 래칫): sonar.sh init(CI 전용)이 프로젝트를 만들고 게이트 board-ci-backend(커버리지 <88·중복 >3%·버그 >6·취약점 >7 이면 실패)·board-ci-frontend(<92·>3%·>0·>0)를 만들어 지정(scripts/_sonar.sh SONAR_CI_GATE_CONDITIONS, 있으면 다시 만들지 않는다). 로컬 sonar-up 은 Sonar way 그대로. 백엔드 버그·취약점 기준은 TASK-38 이 고치며 낮춘다(README). 실 VM 검증: 로컬 서버에 init → 두 프로젝트에 게이트 지정 확인(26.10 은 새 게이트에 Sonar way 새 코드 조건 4개를 기본으로 넣어 두고 우리 전체 코드 조건 4개가 더해진다) → make sonar-scan 6분 28초 둘 다 PASSED(backend coverage 91.1·dup 0.0·bugs 6·vuln 7 OK, frontend 94.9·0.0·0·0 OK) → 로컬은 deselect·destroy 로 Sonar way 로 되돌림 → sonar-down. 실제 GitHub 러너 실행은 하지 않았다.
+
+[부모 검증] 32baa99 위에서 make test rc=0: repo 236·deploy 150·tools 42·k8s 67·vm 76·platform 107·cost 68·sonar 92, backend·frontend 통과. 독립 리뷰 지적(k3d 역방향 거부, CI 래칫 게이트, 실패 시 닫힘, 9000 은 VM 127.0.0.1 + ssh 터널, 이스케이프, coverage=false, coverage-v8 범위) 3커밋 반영.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+SonarQube Community Build 를 VM Podman 에서 단독 모드로 띄운다(make sonar-up·down·status·scan, compose·이미지 다이제스트 고정, 포트는 VM 127.0.0.1 — 맥은 ssh -L 터널). k3s·k3d·make test·Testcontainers·메모리 부족이면 이유와 해결법을 출력하고 거부하며, SonarQube 가 떠 있으면 테스트·k3d 진입점이 거부한다(양방향, 확인 실패 시 닫힘). 관리자 비밀번호·분석 토큰은 VM 안 ~/.config/board-sonar(0700/0600)에 자동 생성, argv·로그·저장소에 남지 않음. install.sh dev 에 vm.max_map_count 524288·nofile·docker-compose 공급자. 스캔: 백엔드 Gradle org.sonarqube + JaCoCo(기본 꺼짐), 프론트 vitest lcov + 자체 빌드 스캐너 이미지(arm64 — 공식 이미지는 amd64 전용), 품질 게이트 대기. 첫 기준선: 백엔드 8263줄·버그 6·취약점 7(보안 E)·스멜 2·커버리지 91.1%·중복 0%, 프론트 6282줄·0·0·6·94.9%·0%, 두 게이트 통과. 실측 메모리 SonarQube 약 1.8GB + DB 130MB. IDE 연결 모드 .sonarlint(localhost:9000 터널), CI sonar.yml(서비스 컨테이너, 실행마다 무작위 비밀번호, 전체 코드 래칫 게이트 — 백엔드 커버리지 88%·중복 3%·버그 6·취약점 7, 프론트 92%·3%·0·0). 미확인: 실제 IDE 연결, 실제 GitHub Actions 실행, 게이트 실패 경로 실측. 백엔드 이슈(CSRF·HttpOnly·OtpRateLimiter 동적 SQL·null 역참조·verification-metadata)는 TASK-38 로.
+<!-- SECTION:FINAL_SUMMARY:END -->

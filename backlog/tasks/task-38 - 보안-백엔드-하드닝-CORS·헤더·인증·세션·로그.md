@@ -3,8 +3,8 @@ id: TASK-38
 title: '[보안] 백엔드 하드닝: CORS·헤더·인증·세션·로그'
 status: To Do
 assignee: []
-created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 09:05'
+created_date: 2026-10-24 03:46
+updated_date: '2026-10-29T12:12:00Z'
 labels:
   - backend
   - security
@@ -42,4 +42,5 @@ doc-3 보안 현황 조사의 백엔드 갭을 메운다. 유저 요청: CORS와
 - [ ] #5 세션: 유휴 타임아웃, 내 세션 목록 조회·폐기 API
 - [ ] #6 보안 이벤트 로그(로그인 성공·실패, 권한 거부, CSRF 실패, 레이트리밋)를 구조화해 남기고 PII 마스킹·로그 인젝션 방지
 - [ ] #7 요청 제한: Jackson StreamReadConstraints(깊이·길이), Tomcat 연결·keep-alive 타임아웃 명시, 클라이언트 IP 헤더는 신뢰 프록시만 덮어씀
+- [ ] #8 SonarQube 기준선 이슈 처리(TASK-67, 백엔드 버그 6·취약점 7): CSRF 비활성 경고(Bearer 면제 설계면 근거를 남기고 수용), HttpOnly 없는 쿠키(XSRF-TOKEN 은 JS 가 읽어야 함 — 근거·수용, 그 밖은 수정), OtpRateLimiter 동적 SQL 을 바인딩으로, null 역참조 가능성 수정, Gradle verification-metadata.xml. 고친 만큼 CI 래칫 게이트(SONAR_CI_GATE_CONDITIONS)의 백엔드 버그·취약점 한도를 낮춘다
 <!-- AC:END -->
