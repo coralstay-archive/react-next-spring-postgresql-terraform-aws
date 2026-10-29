@@ -4,7 +4,7 @@ title: '[플랫폼] CI/CD 파이프라인'
 status: To Do
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 09:05'
+updated_date: '2026-10-29 01:21'
 labels:
   - ci
   - gitops
@@ -37,4 +37,7 @@ GitHub Actions: make test → buildx 멀티아키 → GHCR → GitOps 태그 갱
 - [ ] #3 GHCR 공개 또는 imagePullSecret 방식 문서화
 - [ ] #4 태그 갱신 → Argo 동기화를 로컬에서 재현
 - [ ] #5 actionlint 통과, 기존 ci.yml·deploy.yml 계속 동작
+- [ ] #6 AWS·배포 대상 변수가 없으면 배포 job을 건너뛰고, 필요한 변수를 시작 전에 한 번에 검증(OPS-29, draft-21)
+- [ ] #7 arm64 빌드: GitHub arm 러너 가용성 확인과 대안(QEMU 멀티아키), 레지스트리 로그인·미러로 pull 한도 대응, buildx 캐시(OPS-30·32·33, draft-21)
+- [ ] #8 Argo 동기화 후 make smoke(스모크)를 돌려 실패하면 알림(OPS-27, draft-18)
 <!-- AC:END -->

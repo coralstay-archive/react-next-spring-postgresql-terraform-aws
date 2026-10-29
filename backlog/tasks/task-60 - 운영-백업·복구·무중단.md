@@ -4,7 +4,7 @@ title: '[운영] 백업·복구·무중단'
 status: To Do
 assignee: []
 created_date: '2026-10-24 04:25'
-updated_date: '2026-10-24 09:05'
+updated_date: '2026-10-29 01:21'
 labels:
   - ops
   - platform
@@ -36,4 +36,7 @@ documentation:
 - [ ] #3 graceful shutdown(백엔드·프론트·Kafka 소비자), readiness로 연결 정리, PodDisruptionBudget
 - [ ] #4 스팟 회수 2분 경고 처리 절차(AWS 단계용 설계, 로컬은 노드 drain으로 재현)
 - [ ] #5 복구 목표(RPO·RTO) 문서화
+- [ ] #6 복원 런북과 정기 복원 시험: 백업에서 새 DB로 복원해 행 수·스키마 검증(OPS-36, draft-17)
+- [ ] #7 배포 전 백업(pg_dump 또는 PITR 기준점) 자동화(OPS-24, draft-17)
+- [ ] #8 api가 멈추면(hang) 헬스 기반 자동 복구: liveness·startup probe와 재시작 한도 검증(OPS-14, draft-19)
 <!-- AC:END -->

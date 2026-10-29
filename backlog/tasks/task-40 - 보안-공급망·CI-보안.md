@@ -4,7 +4,7 @@ title: '[보안] 공급망·CI 보안'
 status: To Do
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 09:05'
+updated_date: '2026-10-29 01:21'
 labels:
   - ci
   - security
@@ -36,4 +36,5 @@ CI에 의존성·시크릿·이미지 스캔이 없다(doc-3). DRAFT-24(npm audi
 - [ ] #3 GitHub Actions를 SHA로 고정하고 workflow permissions 최소화
 - [ ] #4 npm audit high 0(shadcn devDependencies 이동 포함, DRAFT-24)
 - [ ] #5 Docker 베이스 digest 고정, 읽기 전용 rootfs·cap_drop ALL·no-new-privileges, k8s securityContext(runAsNonRoot·readOnlyRootFilesystem·seccomp RuntimeDefault)
+- [ ] #6 actionlint 등 CI가 내려받는 도구는 버전 고정 + 체크섬 검증(OPS-31, draft-21에서 이관)
 <!-- AC:END -->

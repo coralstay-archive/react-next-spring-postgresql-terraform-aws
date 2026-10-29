@@ -4,7 +4,7 @@ title: '[운영] 배포 안전장치'
 status: To Do
 assignee: []
 created_date: '2026-10-24 04:25'
-updated_date: '2026-10-24 09:05'
+updated_date: '2026-10-29 01:21'
 labels:
   - ops
   - ci
@@ -37,4 +37,5 @@ documentation:
 - [ ] #2 cosign 이미지 서명(CI) + Kyverno로 서명된 이미지만 허용
 - [ ] #3 마이그레이션 사전 점검(expand/contract 규칙 위반 감지, 잠금 오래 잡는 DDL 경고)
 - [ ] #4 HPA(CPU·요청 수 기반)와 리소스 한도 재조정
+- [ ] #5 메모리 한도·요청 재조정 시 노드(t4g.large 8GB) 기준 OOM 여유 검증, swap 정책 문서화(OPS-13, draft-19)
 <!-- AC:END -->

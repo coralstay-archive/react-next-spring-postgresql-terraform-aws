@@ -4,7 +4,7 @@ title: '[운영] SLO·알림·런북'
 status: To Do
 assignee: []
 created_date: '2026-10-24 04:25'
-updated_date: '2026-10-24 09:05'
+updated_date: '2026-10-29 01:21'
 labels:
   - ops
   - observability
@@ -35,4 +35,6 @@ documentation:
 - [ ] #2 Alertmanager 경량 구성, 알림 기준과 소음 줄이기(묶기·억제)
 - [ ] #3 장애 유형별 런북(DB·Kafka·인증·배포 실패·디스크 등), 검진센터 인시던트에서 링크
 - [ ] #4 SLO 대시보드 또는 검진센터 화면 표시
+- [ ] #5 디스크 사용량 감시·알림과 배포 전 여유 공간 확인(OPS-12, draft-19)
+- [ ] #6 배포 실패 알림에서 '롤백됨'과 '서비스 다운'을 구분(OPS-34, draft-20)
 <!-- AC:END -->
