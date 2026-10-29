@@ -4,7 +4,7 @@ title: '[AWS] 플랫폼 Terraform 얼개 (infra/platform)'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 06:26'
+updated_date: '2026-10-29 06:30'
 labels:
   - aws
   - platform
@@ -79,4 +79,6 @@ AC#7: README '## AWS 실배포 설계 (TASK-65, decision-11)' 절 — 구성도 
 리뷰 반영(AC#3): k3s node-name 고정(node_name 기본 board-node — 교체 후에도 local-path PV nodeAffinity 유지), data-volume.sh 에 SELinux 레이블(/data/k3s = /var/lib/rancher/k3s equivalence, /data/local-path container_file_t, restorecon -R, 재실행 시 규칙 중복 없음; semanage 위해 policycoreutils-python-utils 설치), fstab 추가 후 daemon-reload, xfs_growfs, 데이터 볼륨 기본 30GB, lifecycle prevent_destroy + ignore_changes [snapshot_id](terraform test 정리 단계는 막지 않음 확인), docs/terraform-state.md '데이터 볼륨 복원' 절차
 
 리뷰 반영(AC#2): AmazonSSMManagedInstanceCore 제거(k3s_node·lb_node) → 인라인 ssm-agent 정책(ssm:UpdateInstanceInformation, ssmmessages 4개, ec2messages 6개). kms:Decrypt 는 kms:ViaService=ssm.<region> + StringLike kms:EncryptionContext:PARAMETER_ARN=<…>:parameter/board/* (리뷰는 PSParameterName 을 제안했으나 Parameter Store 문서의 암호화 컨텍스트 키는 PARAMETER_ARN 으로 앎 — 실계정 확인 필요, TASK-52). hop limit 2 유지 이유(External Secrets) 주석
+
+리뷰 반영(AC#6): B3 검사 b3_scan — resource 종류는 aws_ 밖도 모두 수집(허용 목록), 로컬(./ ../)이 아닌 module source 실패, provider 는 hashicorp/aws 만(required_providers·provider 블록). red: 레지스트리·git 모듈, helm_release, cloudflare provider. tftest b3_lb_node_on 의 managed_services 동어반복 assert 를 실제 리소스(lb_node backend_ip·AMI) assert 로
 <!-- SECTION:NOTES:END -->

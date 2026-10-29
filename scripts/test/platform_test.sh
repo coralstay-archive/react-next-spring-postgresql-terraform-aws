@@ -267,23 +267,33 @@ done
 # 모두 허용 목록 안이어야 한다(EC2·VPC·IAM·EBS·DLM 스냅샷·Budgets·Cognito). 금지 목록(NAT·ALB/NLB·CloudFront·RDS·MSK·ECR·CloudWatch 알람)은 따로 본다
 B3_ALLOWED='^aws_(vpc|subnet|internet_gateway|route|route_table|route_table_association|security_group|vpc_security_group_(ingress|egress)_rule|instance|eip|ebs_volume|volume_attachment|iam_role|iam_role_policy|iam_role_policy_attachment|iam_instance_profile|dlm_lifecycle_policy|budgets_budget|cognito_[a-z_]+)$'
 B3_FORBIDDEN='^aws_(nat_gateway|lb|alb|elb|lb_listener|lb_target_group|cloudfront_[a-z_]+|db_instance|rds_[a-z_]+|msk_[a-z_]+|ecr_[a-z_]+|cloudwatch_metric_alarm|cloudwatch_composite_alarm|elasticache_[a-z_]+|mq_broker|opensearch_domain)$'
-# b3_types <스택 디렉터리> — 스택과 그것이 source 로 부르는 로컬 모듈(재귀)의 resource 종류
-b3_types() {
+# b3_scan <스택 디렉터리> — 스택과 그것이 부르는 로컬 모듈(재귀)에서: "resource <종류>", "module <source>", "provider <source|이름>".
+# 로컬이 아닌 모듈(레지스트리·git)은 안을 볼 수 없으니 그 자체로 실패시킨다. provider 는 hashicorp/aws 만
+b3_scan() {
   local seen=" " queue=("$1") d src
   while [ ${#queue[@]} -gt 0 ]; do
     d="$(cd "${queue[0]}" && pwd -P)"; queue=("${queue[@]:1}")
     case "$seen" in *" $d "*) continue ;; esac
     seen+="$d "
-    grep -hoE '^resource "aws_[a-z0-9_]+"' "$d"/*.tf | sed -E 's/^resource "(.*)"/\1/'
-    while IFS= read -r src; do queue+=("$d/$src"); done < <(grep -hoE '^\s*source\s*=\s*"\.[^"]*"' "$d"/*.tf | sed -E 's/.*"(.*)"/\1/')
+    grep -hoE '^resource "[A-Za-z0-9_-]+"' "$d"/*.tf | sed -E 's/^resource "(.*)"/resource \1/'
+    grep -hoE '^provider "[A-Za-z0-9_-]+"' "$d"/*.tf | sed -E 's/^provider "(.*)"/provider \1/'
+    awk '/^[ \t]*required_providers[ \t]*\{/{f=1} f && /source[ \t]*=/{match($0, /"[^"]*"/); print "provider " substr($0, RSTART + 1, RLENGTH - 2)} f && /^[ \t]*\}[ \t]*$/ && !/=/{f=0}' "$d"/*.tf
+    while IFS= read -r src; do
+      echo "module $src"
+      case "$src" in ./* | ../*) queue+=("$d/$src") ;; esac
+    done < <(awk '/^module "/{f=1} f && /^[ \t]*source[ \t]*=/{match($0, /"[^"]*"/); print substr($0, RSTART + 1, RLENGTH - 2)} /^}/{f=0}' "$d"/*.tf)
   done | sort -u
 }
+b3_types() { b3_scan "$1" | sed -n 's/^resource //p'; }
 b3_check() {
-  local types bad
-  types="$(b3_types "$1")"
+  local scan types bad
+  scan="$(b3_scan "$1")"
+  types="$(sed -n 's/^resource //p' <<<"$scan")"
   [ -n "$types" ] || { echo "리소스를 못 찾았다"; return 1; }
   bad="$(grep -vE "$B3_ALLOWED" <<<"$types")"; [ -z "$bad" ] || { echo "허용 목록 밖: $bad"; return 1; }
   bad="$(grep -E "$B3_FORBIDDEN" <<<"$types")"; [ -z "$bad" ] || { echo "관리형: $bad"; return 1; }
+  bad="$(sed -n 's/^module //p' <<<"$scan" | grep -vE '^\.\.?/')"; [ -z "$bad" ] || { echo "로컬이 아닌 모듈(안을 검사할 수 없다): $bad"; return 1; }
+  bad="$(sed -n 's/^provider //p' <<<"$scan" | grep -vxE 'hashicorp/aws|aws')"; [ -z "$bad" ] || { echo "aws 밖 provider: $bad"; return 1; }
 }
 check "TASK-65#B3 infra/platform(+ 부르는 모듈)의 리소스 종류는 허용 목록 안이고 관리형(NAT·LB·CloudFront·RDS·MSK·ECR·알람)이 없다" b3_check "$P"
 t_b3_follows() {
@@ -304,6 +314,28 @@ t_b3_red() {
   ! b3_check "$d/platform" >/dev/null 2>&1 || { echo "알람을 못 잡았다"; return 1; }
 }
 check "TASK-65#B3 검사는 부르는 모듈 안의 NAT·스택의 CloudWatch 알람을 잡는다(red)" t_b3_red
+# b3_red_case <설명> <스택 main.tf 에 덧붙일 HCL> — 깨끗한 사본에 덧붙이면 b3_check 가 실패해야 한다
+b3_red_case() {
+  local d; d="$(mktemp -d "$TMP/b3.XXXX")"
+  cp -R "$P" "$d/platform"; mkdir -p "$d/main"; cp -R infra/main/modules "$d/main/"
+  rm -rf "$d/platform/.terraform" "$d"/platform/modules/*/.terraform
+  b3_check "$d/platform" >/dev/null 2>&1 || { echo "깨끗한 사본부터 실패"; b3_check "$d/platform"; return 1; }
+  printf '%s\n' "$2" >>"$d/platform/main.tf"
+  ! b3_check "$d/platform" >/dev/null 2>&1 || { echo "$1 을 못 잡았다"; return 1; }
+}
+check "TASK-65#B3 레지스트리 모듈(안을 검사할 수 없다)을 부르면 실패(red)" \
+  b3_red_case "레지스트리 모듈" $'module "vpc" {\n  source  = "terraform-aws-modules/vpc/aws"\n  version = "~> 5.0"\n}'
+check "TASK-65#B3 git 모듈을 부르면 실패(red)" b3_red_case "git 모듈" $'module "x" {\n  source = "git::https://example.com/x.git"\n}'
+check "TASK-65#B3 aws 밖 provider 리소스(helm 등)는 실패(red)" b3_red_case "helm 리소스" 'resource "helm_release" "x" {}'
+check "TASK-65#B3 aws 밖 provider 를 선언하면 실패(red)" \
+  b3_red_case "cloudflare provider" $'terraform {\n  required_providers {\n    cloudflare = {\n      source = "cloudflare/cloudflare"\n    }\n  }\n}'
+t_b3_scan_sources() {
+  local scan; scan="$(b3_scan "$P")"
+  if ! { grep -qx 'module ../main/modules/network' <<<"$scan" && grep -qx 'module ./modules/k3s_node' <<<"$scan" && grep -qx 'provider hashicorp/aws' <<<"$scan"; }; then
+    echo "$scan"; return 1
+  fi
+}
+check "TASK-65#6 b3_scan 은 모듈 source·required_providers source 를 읽는다" t_b3_scan_sources
 
 # TASK-65#6 OPS-5 state 운영 문서: force-unlock(고착된 S3 lockfile) 절차, bootstrap 로컬 state 백업·복구
 check "TASK-65#6 docs/terraform-state.md 존재" test -f docs/terraform-state.md

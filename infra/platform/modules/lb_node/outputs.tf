@@ -12,3 +12,8 @@ output "backend_ip" {
   description = "넘기는 곳(k3s 노드 사설 IP)"
   value       = var.backend_ip
 }
+
+output "ami_id" {
+  description = "LB AMI"
+  value       = aws_instance.this.ami
+}

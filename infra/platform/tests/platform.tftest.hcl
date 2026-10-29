@@ -213,7 +213,7 @@ run "b3_lb_node_on" {
     error_message = "lb_node 를 켜면 HAProxy LB 노드가 생긴다"
   }
   assert {
-    condition     = output.managed_services == toset(["cognito", "ebs-snapshots", "ssm"])
-    error_message = "lb_node 는 EC2 라 관리형 목록이 그대로"
+    condition     = module.lb_node[0].backend_ip == module.k3s_node.private_ip && module.lb_node[0].ami_id == module.k3s_node.ami_id
+    error_message = "켜진 LB 는 관리형이 아닌 EC2(HAProxy) — k3s 노드와 같은 AMI, 노드 사설 IP 로"
   }
 }
