@@ -4,7 +4,7 @@ title: '[품질] SonarQube·SonarQube for IDE 로컬·CI'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 08:19'
+updated_date: '2026-10-29 08:37'
 labels:
   - quality
   - platform
@@ -60,4 +60,6 @@ SonarQube Community Build 를 VM Podman 에서 단독 모드로 띄우고(공식
 
 <!-- SECTION:NOTES:BEGIN -->
 AC#1 진행: deploy/sonar/compose.yaml(SonarQube 26.10.0.133078-community·postgres:18-alpine 다이제스트 고정, 프로젝트 board-sonar, 9000 만 공개, 이름 있는 볼륨), scripts/sonar.sh·_sonar.sh(up/down[--purge]/status, 맥은 vm_proxy_if_mac), make sonar-up·sonar-down·sonar-status. VM 에 compose 공급자가 없어(podman compose → 공급자 없음) install.sh dev 에 docker-compose v5.6.1 플러그인(sha256 고정, /usr/local/lib/docker/cli-plugins) 추가·VM 에 재적용. 실측: 첫 sonar-up 은 vm.max_map_count 65530 으로 Elasticsearch 부트스트랩 검사 실패 → 컨테이너가 멈추면 기다리지 않고 원인 안내하도록 고침(AC#3 에서 sysctl). sonar_test.sh 16개.
+
+AC#3 진행: install.sh dev 에 sonar_kernel_setup — /etc/sysctl.d/99-sonarqube.conf(vm.max_map_count = 524288, fs.file-max = 131072 는 커널 값이 그보다 작을 때만 — Rocky 9 기본 9223372036854775807 을 낮추지 않는다, SonarQube 요구는 '131072 이상'; 한 번 썼으면 계속 쓴다) + sysctl -p 즉시 적용, /etc/security/limits.d/99-sonarqube.conf(rocky soft·hard nofile 131072). 컨테이너는 compose ulimits nofile 131072. 실 VM: install.sh 두 번 실행 → 두 파일 md5 동일, vm.max_map_count=524288·fs.file-max 그대로, ssh 세션 ulimit -n/-Hn 131072. 적용 전 sonar-up 은 ES 부트스트랩 검사(65530)로 실패, 적용 뒤 성공. sonar_test.sh AC#3 3개(가짜 sysctl·임시 디렉터리).
 <!-- SECTION:NOTES:END -->

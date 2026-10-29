@@ -130,6 +130,24 @@ dev_share_setup() {
 }
 # 공유가 없을 때 옛 virtiofs 줄(SHARE_PATH)만 지운다(마운트돼 있지 않다)
 fstab_del_old() { P="$SHARE_PATH" awk '!($2 == ENVIRON["P"] && $3 == "virtiofs")' "$FSTAB" >"$FSTAB.tmp" && fstab_write; }
+# ---------------------------------------------------------------- SonarQube 커널 값(dev, TASK-67#3) — vm_test·sonar_test 가 가짜 sysctl 로 부른다
+# 내장 Elasticsearch 부트스트랩 검사: vm.max_map_count ≥ 262144(524288 로 둔다), fs.file-max ≥ 131072, nofile ≥ 131072.
+# fs.file-max 는 커널 기본이 더 크면(Rocky 9 는 사실상 무한) 낮추지 않는다 — 한 번 131072 로 썼으면 계속 쓴다(다시 돌려도 같은 결과).
+SYSCTL_DIR="/etc/sysctl.d"; LIMITS_DIR="/etc/security/limits.d"
+sonar_kernel_setup() {
+  local f="$SYSCTL_DIR/99-sonarqube.conf" l="$LIMITS_DIR/99-sonarqube.conf" cur keep=0
+  grep -qx 'fs.file-max = 131072' "$f" 2>/dev/null && keep=1
+  cur="$(sysctl -n fs.file-max)"
+  {
+    echo "# deploy/rocky/install.sh 가 쓴다(TASK-67#3) — SonarQube 내장 Elasticsearch 요구값. 손으로 고치지 않는다(다시 쓰인다)"
+    echo "vm.max_map_count = 524288"
+    if [ "$keep" = 1 ] || [ "$cur" -lt 131072 ]; then echo "fs.file-max = 131072"; fi
+  } >"$f.tmp" && mv "$f.tmp" "$f"
+  sysctl -p "$f" >/dev/null
+  # 로그인 세션(ssh — make sonar-* 가 도는 곳)의 열린 파일 수. 컨테이너는 compose 의 ulimits 로 따로 준다
+  printf '# deploy/rocky/install.sh 가 쓴다(TASK-67#3)\n%s soft nofile 131072\n%s hard nofile 131072\n' "$TARGET_USER" "$TARGET_USER" >"$l"
+  log "SonarQube 커널 값: vm.max_map_count=$(sysctl -n vm.max_map_count), fs.file-max=$(sysctl -n fs.file-max), nofile 131072 ($TARGET_USER)"
+}
 [ "${ROCKY_INSTALL_LIB:-0}" = 1 ] && return 0
 
 while [ $# -gt 0 ]; do
@@ -292,6 +310,9 @@ if ! installed "infracost-$INFRACOST_VERSION"; then
   install -m 0755 "$tmp/infracost-linux-arm64" /usr/local/bin/infracost
   mark "infracost-$INFRACOST_VERSION"
 fi
+
+# TASK-67#3 SonarQube(make sonar-up) 커널 값 — 위 sonar_kernel_setup
+sonar_kernel_setup
 
 # TASK-67#1 podman compose 는 이 경로의 docker-compose 플러그인을 찾는다(DOCKER_HOST 를 Podman 소켓으로 맞춰 부른다)
 if ! installed "compose-$COMPOSE_VERSION"; then
