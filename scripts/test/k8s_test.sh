@@ -336,6 +336,8 @@ done
 printf '[ "${FAKE_RESTART_K3D:-0}" = 1 ] && echo running >"$FAKE_STATE/k3d"\nexit 0\n' >>"$TR/scripts/test/k8s_test.sh"
 printf '#!/usr/bin/env bash\necho "gradlew $*" >>"$FAKE_STATE/calls.log"\n' >"$TR/backend/gradlew"
 printf '#!/usr/bin/env bash\necho "frontend-deps" >>"$FAKE_STATE/calls.log"\n' >"$TR/scripts/frontend-deps.sh"
+# TASK-67#2 SonarQube 역방향 검사(scripts/sonar.sh refuse-if-running)는 가짜로 — 진짜 podman 을 부르지 않는다
+printf '#!/usr/bin/env bash\necho "sonar $*" >>"$FAKE_STATE/calls.log"\n' >"$TR/scripts/sonar.sh"
 printf '#!/usr/bin/env bash\necho "npm $*" >>"$FAKE_STATE/calls.log"\n' >"$TR/bin/npm"
 printf '#!/usr/bin/env bash\necho "terraform $*" >>"$FAKE_STATE/calls.log"\n' >"$TR/bin/terraform"
 chmod +x "$TR/scripts/"*.sh "$TR/scripts/test/"*.sh "$TR/backend/gradlew" "$TR/bin/"*

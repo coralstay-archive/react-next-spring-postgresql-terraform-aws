@@ -55,11 +55,13 @@ backend-run: ## 백엔드 실행 (http://localhost:8080/api)
 backend-test: ## 백엔드 테스트 (맥이면 VM 안에서, 떠 있는 k3d 클러스터는 먼저 멈춘다)
 	@if ./scripts/vm.sh on-mac; then ./scripts/vm.sh run make backend-test; else \
 	  ./scripts/k3d.sh stop-if-running "make backend-test" && \
+	  ./scripts/sonar.sh refuse-if-running "make backend-test" && \
 	  cd backend && ./gradlew test; fi
 
 backend-build: ## 백엔드 빌드 (bootJar, 테스트 포함 — 맥이면 VM 안에서, 떠 있는 k3d 클러스터는 먼저 멈춘다)
 	@if ./scripts/vm.sh on-mac; then ./scripts/vm.sh run make backend-build; else \
 	  ./scripts/k3d.sh stop-if-running "make backend-build" && \
+	  ./scripts/sonar.sh refuse-if-running "make backend-build" && \
 	  cd backend && ./gradlew build; fi
 
 # --- Rocky 개발 VM (TASK-64, README 로컬 개발 환경). 맥의 make test·test-integration·backend-test·backend-build 는 이 VM 안에서 돈다.

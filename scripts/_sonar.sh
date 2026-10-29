@@ -3,7 +3,12 @@
 #   sonar_compose <인자...>   podman compose -p board-sonar -f deploy/sonar/compose.yaml <인자...> (podman 이 없으면 docker compose)
 #   sonar_running             board-sonar 컨테이너가 하나라도 떠 있으면 0
 #   sonar_wait_up             /api/system/status 가 UP 이 될 때까지(SONAR_WAIT_TIMEOUT 초) 기다린다
-# 테스트용 환경변수: SONAR_CONTAINER_CLI(podman|docker), SONAR_WAIT_TIMEOUT·SONAR_WAIT_INTERVAL(초), SONAR_PUBLIC_HOST(접속 주소의 호스트)
+#   sonar_preflight [--no-mem]  단독 모드(B1, TASK-67#2): k3s·k3d 실행 중, make test 잠금(VM_LOCK_FILE)·Testcontainers, VM 사용 가능 메모리
+#                             (MemAvailable) < budgets.txt sonar 면 이유·해결을 모두 출력하고 실패. SONAR_LOCK_HELD=1(맥 프록시가 그 잠금
+#                             안에서 부른다)이면 잠금 검사는 건너뛴다
+#   sonar_refuse_if_running <누가>  역방향: SonarQube 가 떠 있으면 make sonar-down 을 안내하고 실패(make test 등 진입점이 부른다)
+# 테스트용 환경변수: SONAR_CONTAINER_CLI(podman|docker), SONAR_WAIT_TIMEOUT·SONAR_WAIT_INTERVAL(초), SONAR_PUBLIC_HOST(접속 주소의 호스트),
+#   SONAR_MEMINFO(/proc/meminfo 대신)
 
 SONAR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SONAR_PROJECT="board-sonar"
@@ -66,4 +71,59 @@ sonar_wait_up() {
     fi
     sleep "$SONAR_WAIT_INTERVAL"
   done
+}
+
+# k3s(VM 안 systemd 서비스 또는 프로세스)
+sonar_k3s_running() {
+  systemctl is-active --quiet k3s 2>/dev/null || systemctl is-active --quiet k3s-agent 2>/dev/null \
+    || pgrep -f '^k3s (server|agent)' >/dev/null 2>&1
+}
+
+sonar_preflight() {
+  local reasons=() rc=0 avail_kb avail min k3d tc
+  if sonar_k3s_running; then
+    reasons+=("k3s 가 실행 중이다 — 5GB VM 에서 SonarQube(약 $(vm_budget sonar-rss) MiB)와 k3s 를 같이 띄우지 않는다.
+     해결: sudo systemctl stop k3s 로 멈춘 뒤 다시(쓰고 나서 make sonar-down → k3s 다시 시작)")
+  fi
+  k3d="$(sonar_ids_by_label k3d.cluster)"
+  if [ -n "$k3d" ]; then
+    reasons+=("k3d 클러스터 컨테이너가 떠 있다(label k3d.cluster).
+     해결: make k3d-stop 뒤 다시")
+  fi
+  if [ "${SONAR_LOCK_HELD:-0}" != 1 ]; then
+    flock -n -E 75 "$VM_LOCK_FILE" true 2>/dev/null || rc=$?
+    if [ "$rc" = 75 ]; then
+      reasons+=("make test(또는 다른 VM 실행)가 돌고 있다(잠금 $VM_LOCK_FILE) — 테스트(Testcontainers)와 SonarQube 를 같이 띄우지 않는다.
+     해결: 끝날 때까지 기다린 뒤 다시. 남은 프로세스 보기: ps -eo pid,etime,args --forest")
+    fi
+  fi
+  tc="$(sonar_ids_by_label org.testcontainers=true | awk 'NF' | wc -l | tr -d ' ')"
+  if [ "$tc" -gt 0 ]; then
+    reasons+=("Testcontainers 컨테이너 ${tc}개가 실행 중이다(label org.testcontainers=true — make test·test-integration).
+     해결: 테스트가 끝나길 기다린다. 남은 컨테이너라면: $(sonar_cli) rm -f \$($(sonar_cli) ps -q --filter label=org.testcontainers=true)")
+  fi
+  if [ "${1:-}" != --no-mem ]; then
+    min="$(vm_budget sonar)"
+    avail_kb="$(awk '/^MemAvailable:/ { print $2 }' "${SONAR_MEMINFO:-/proc/meminfo}" 2>/dev/null || true)"
+    if [ -n "$min" ] && [[ "$avail_kb" =~ ^[0-9]+$ ]]; then
+      avail=$((avail_kb / 1024))
+      sonar_log "VM 사용 가능 메모리 ${avail} MiB (SonarQube 기동 최소 ${min} MiB, budgets.txt sonar)"
+      if [ "$avail" -lt "$min" ]; then
+        reasons+=("VM 사용 가능 메모리 ${avail} MiB < ${min} MiB(budgets.txt sonar) — 띄우면 OOM 으로 죽거나 VM 이 스왑 없이 멈춘다.
+     해결: 다른 컨테이너·프로세스를 내린다(podman ps, make k3d-stop). 그래도 모자라면 VM 을 다시 켠다(make vm-stop → make vm-start)")
+      fi
+    fi
+  fi
+  if [ "${#reasons[@]}" -gt 0 ]; then
+    echo "ERROR: [sonar] 사전 검사 실패 — SonarQube 는 단독으로만 띄운다(TASK-67 B1):" >&2
+    local r; for r in "${reasons[@]}"; do echo "  - $r" >&2; done
+    return 1
+  fi
+}
+
+sonar_refuse_if_running() {
+  local who="${1:-이 명령}"
+  sonar_running || return 0
+  sonar_die "SonarQube($SONAR_PROJECT)가 떠 있다(약 $(vm_budget sonar-rss) MiB) — $who 와 같이 띄우지 않는다(5GB VM, TASK-67 B1).
+  해결: make sonar-down 뒤 다시 (분석 이력은 남는다)"
 }

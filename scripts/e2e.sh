@@ -44,6 +44,8 @@ compose() { docker compose -p board-e2e -f "$ROOT/docker-compose.yml" -f "$FRONT
 
 # TASK-36#6 로컬 k3d 클러스터가 떠 있으면 먼저 멈춘다(compose·백엔드·next dev 와 동시에 띄우지 않는다 — 8GB)
 "$ROOT/scripts/k3d.sh" stop-if-running "make e2e"
+# TASK-67#2 SonarQube 가 떠 있으면 거부한다(B1)
+"$ROOT/scripts/sonar.sh" refuse-if-running "make e2e"
 
 # 이전 E2E_KEEP=1 실행이 남긴 스택
 if [ -f "$KEPT" ]; then

@@ -10,9 +10,15 @@
 #   vm-min                Rocky 개발 VM(rocky-dev) 메모리(/proc/meminfo MemTotal) 최소(TASK-64#4). 5GB(5120MiB) VM 의 실측은
 #                         MemTotal 4649MiB(커널 예약 — Rocky 9.8 커널 실측)라 4608 은 여유가 41MiB 뿐이다. 커널·펌웨어 예약이 조금만 늘어도
 #                         실패하지 않게 4500(여유 약 150MiB). 4GB VM(약 3.7GiB)은 확실히 걸린다. 미만이면 맥의 make test·k3d 진입점이 실패한다(scripts/_vm.sh).
+#   sonar                 SonarQube(TASK-67#2) 기동 전 VM 사용 가능 메모리(MemAvailable) 최소. 미만이면 make sonar-up 이 실패한다(B1, scripts/_sonar.sh).
+#                         실측 RSS(sonar-rss) + 분석(make sonar-scan: gradle test·Testcontainers·스캐너) 여유.
+#   sonar-rss             SonarQube + DB 컨테이너 실측 메모리 합(make sonar-status, 힙 web·ce·search 384m). 2026-10-29 기동 직후 실측:
+#                         sonarqube 1807MB(web 약 720·search 약 700·ce 약 230 MiB RSS) + db 129MB ≈ 1.9GiB → 2000. 안내 기준값
 #   mac-free-min          맥 여유 메모리(vm_stat free+inactive+speculative) 경고 기준. VM 을 켠 8GB 맥에서 이보다 적으면 스왑으로 느려진다.
 docker-min 4608 Docker Desktop 메모리 5GB 이상
 vm-min 4500 rocky-dev VM 메모리 5GB 이상
 mac-free-min 512 맥 여유 메모리 경고 기준
+sonar 2600 SonarQube 기동 전 VM 사용 가능 메모리 최소
+sonar-rss 2000 SonarQube·DB 실측 RSS
 limit 3072 켠 프로필 예산 합계 상한
 profile core 1600 Postgres 256 + MinIO 256 + backend 768 + 마이그레이션 Job 256 + MinIO 버킷 준비 Job 64

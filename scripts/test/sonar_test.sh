@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2016 # sh -c '...' 안의 $ 는 하위 셸에서 풀린다
+# shellcheck disable=SC2016,SC2015 # sh -c '...' 안의 $ 는 하위 셸에서 풀린다, A && B || C 는 실패 출력용
 # SonarQube 로컬·CI 테스트 (TASK-67). scripts/test.sh 가 호출한다.
 # 진짜 SonarQube·Podman·UTM·ssh 는 부르지 않는다(PATH 앞에 둔 가짜 podman·curl·utmctl·ssh·systemctl·pgrep, 임시 HOME·설정 디렉터리).
 set -uo pipefail
@@ -249,6 +249,184 @@ check "TASK-67#1 맥에서는 VM 사전 검사 뒤 VM 안에서 돈다(vm_proxy_
 if need_linter shellcheck; then
   check "TASK-67#1 shellcheck $S $L" shellcheck -x "$S" "$L"
 fi
+
+# ================================================================ TASK-67#2 단독 모드(B1): k3s·make test·메모리 부족이면 이유·해결을 출력하고 실패
+B=deploy/k8s/budgets.txt
+budget() { awk -v k="$1" '$1 == k { print $2; exit }' "$B"; }
+check "TASK-67#2 budgets.txt 에 sonar(기동 전 VM 사용 가능 메모리 최소)·sonar-rss(실측 RSS) 예산" sh -c "
+  grep -Eq '^sonar [0-9]+ ' $B && grep -Eq '^sonar-rss [0-9]+ ' $B"
+check "TASK-67#2 sonar 예산은 실측 RSS 보다 크고 vm-min 보다 작다" sh -c "
+  s=\$(awk '\$1==\"sonar\"{print \$2}' $B); r=\$(awk '\$1==\"sonar-rss\"{print \$2}' $B); v=\$(awk '\$1==\"vm-min\"{print \$2}' $B)
+  [ \"\$s\" -gt \"\$r\" ] && [ \"\$s\" -lt \"\$v\" ]"
+if command -v yq >/dev/null 2>&1; then
+  t_heap() {
+    local k v
+    for k in SONAR_WEB_JAVAOPTS SONAR_CE_JAVAOPTS SONAR_SEARCH_JAVAOPTS; do
+      v="$(yq -r ".services.sonarqube.environment.$k" $C)"
+      [[ "$v" =~ -Xmx([0-9]+)m ]] || { echo "$k 에 -Xmx 없음: $v"; return 1; }
+      [ "${BASH_REMATCH[1]}" -lt 512 ] || { echo "$k 가 기본(512m)보다 작지 않다: $v"; return 1; }
+    done
+  }
+  check "TASK-67#2 힙 축소: SONAR_WEB·CE·SEARCH_JAVAOPTS 의 -Xmx 가 기본 512m 보다 작다" t_heap
+fi
+t_b1_k3s() {
+  fake_reset
+  run_capture sonar_run FAKE_K3S=1 "$S" up
+  rc_is 1 && has_text "k3s" && has_text "해결" && not_called "compose -p board-sonar -f $ROOT/$C up"
+}
+check "TASK-67#2 TASK-67#B1 k3s 가 실행 중이면 띄우지 않고 이유·해결을 출력하고 실패" t_b1_k3s
+t_b1_k3d() {
+  fake_reset
+  run_capture sonar_run FAKE_K3D="k3dserver" "$S" up
+  rc_is 1 && has_text "k3d" && has_text "make k3d-stop" && not_called "compose -p board-sonar -f $ROOT/$C up"
+}
+check "TASK-67#2 TASK-67#B1 k3d 클러스터 컨테이너가 떠 있으면 실패(make k3d-stop 안내)" t_b1_k3d
+t_b1_lock() {
+  fake_reset
+  flock "$LOCK" sleep 30 & local holder=$!
+  sleep 0.3
+  run_capture sonar_run "$S" up
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+  rc_is 1 && has_text "make test" && has_text "$LOCK" && has_text "해결" && not_called "compose -p board-sonar -f $ROOT/$C up"
+}
+check "TASK-67#2 TASK-67#B1 make test 잠금(/tmp/board-repo-test.lock)이 잡혀 있으면 실패" t_b1_lock
+t_lock_held_by_proxy() {
+  # 맥 → VM 프록시는 sonar.sh 를 그 잠금 안에서 돌린다(SONAR_LOCK_HELD=1) — 자기 잠금으로 거부하지 않는다
+  fake_reset
+  flock "$LOCK" sleep 30 & local holder=$!
+  sleep 0.3
+  run_capture sonar_run SONAR_LOCK_HELD=1 "$S" up
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+  rc_is 0
+}
+check "TASK-67#2 맥에서 보낸 실행(VM 잠금을 프록시가 잡고 있다, SONAR_LOCK_HELD=1)은 잠금 검사를 건너뛴다" t_lock_held_by_proxy
+t_mac_lock_busy() {
+  fake_reset
+  run_capture mac_run FAKE_LOCK_BUSY=1 "$S" up
+  [ "$RC" != 0 ] && has_text "/tmp/board-repo-test.lock" && ! grep -q "scripts/sonar.sh" "$FAKE_STATE/calls.log"
+}
+check "TASK-67#2 TASK-67#B1 맥: VM 안 make test 잠금이 잡혀 있으면 VM 으로 보내지 않고 실패" t_mac_lock_busy
+t_mac_sends_lock_held() {
+  fake_reset
+  run_capture mac_run "$S" up
+  rc_is 0 && grep -q "SONAR_LOCK_HELD=1 ./scripts/sonar.sh up" "$FAKE_STATE/calls.log"
+}
+check "TASK-67#2 맥: VM 으로 보낼 때 SONAR_LOCK_HELD=1 을 붙인다" t_mac_sends_lock_held
+t_b1_testcontainers() {
+  fake_reset
+  run_capture sonar_run FAKE_TC="tc1 tc2" "$S" up
+  rc_is 1 && has_text "Testcontainers" && not_called "compose -p board-sonar -f $ROOT/$C up"
+}
+check "TASK-67#2 TASK-67#B1 Testcontainers 컨테이너(테스트 실행 중)가 있으면 실패" t_b1_testcontainers
+t_b1_mem() {
+  fake_reset; fake_meminfo 1500000
+  run_capture sonar_run "$S" up
+  fake_meminfo 3500000
+  rc_is 1 && has_text "1464 MiB" && has_text "$(budget sonar) MiB" && has_text "해결" && not_called "compose -p board-sonar -f $ROOT/$C up"
+}
+check "TASK-67#2 TASK-67#B1 VM 사용 가능 메모리(MemAvailable) < budgets.txt sonar 면 실패" t_b1_mem
+t_b1_all_reasons() {
+  fake_reset; fake_meminfo 1500000
+  run_capture sonar_run FAKE_K3S=1 FAKE_TC=tc1 "$S" up
+  fake_meminfo 3500000
+  rc_is 1 && has_text "k3s" && has_text "Testcontainers" && has_text "MiB"
+}
+check "TASK-67#2 이유가 여럿이면 모두 출력한다" t_b1_all_reasons
+t_up_already_running() {
+  # 이미 떠 있으면 자기 메모리 때문에 거부하지 않는다(멱등)
+  fake_reset; echo running >"$FAKE_STATE/sonar"; fake_meminfo 900000
+  run_capture sonar_run "$S" up
+  fake_meminfo 3500000
+  rc_is 0 && has_text "이미"
+}
+check "TASK-67#2 이미 떠 있으면 메모리 검사 없이 상태만 맞춘다(다시 돌려도 된다)" t_up_already_running
+t_refuse_running() {
+  fake_reset; echo running >"$FAKE_STATE/sonar"
+  run_capture sonar_run "$S" refuse-if-running "make test"
+  rc_is 1 && has_text "make test" && has_text "make sonar-down"
+}
+check "TASK-67#2 TASK-67#B1 역방향: SonarQube 가 떠 있으면 refuse-if-running 은 make sonar-down 을 안내하고 실패" t_refuse_running
+t_refuse_not_running() {
+  fake_reset
+  run_capture sonar_run "$S" refuse-if-running "make test"
+  rc_is 0 && lacks_text "ERROR"
+}
+check "TASK-67#2 역방향: 떠 있지 않으면 통과(런타임이 없어도 — CI)" t_refuse_not_running
+t_refuse_no_runtime() {
+  fake_reset
+  run_capture env PATH="/usr/bin:/bin" HOME="$FAKE_HOME" VM_HOST_OS=Linux SONAR_CONTAINER_CLI= "$ROOT/$S" refuse-if-running "make test"
+  rc_is 0
+}
+check "TASK-67#2 역방향: 컨테이너 런타임이 없어도 통과한다" t_refuse_no_runtime
+t_entrypoints_refuse() {
+  local f n g
+  for f in scripts/test.sh scripts/test-integration.sh; do
+    n="$(grep -n 'scripts/sonar.sh" refuse-if-running' "$f" | head -1 | cut -d: -f1)"
+    g="$(grep -n 'gradlew' "$f" | head -1 | cut -d: -f1)"
+    [ -n "$n" ] && [ "$n" -lt "$g" ] || { echo "$f: gradle 앞에 refuse-if-running 이 없다"; return 1; }
+    [ "$n" -gt "$(grep -n 'vm_proxy_if_mac' "$f" | tail -1 | cut -d: -f1)" ] || { echo "$f: VM 안에서(프록시 뒤) 검사해야 한다"; return 1; }
+  done
+  [ "$(grep -n 'refuse-if-running' scripts/test.sh | head -1 | cut -d: -f1)" -lt "$(grep -n 'repo_test.sh' scripts/test.sh | head -1 | cut -d: -f1)" ] \
+    || { echo "test.sh: 첫 스위트보다 먼저"; return 1; }
+  for t in backend-test backend-build; do
+    make -n "$t" VM_PROXY=0 2>/dev/null | grep -q "scripts/sonar.sh refuse-if-running \"make $t\"" || { echo "make $t: refuse-if-running 없음"; return 1; }
+  done
+  grep -q 'scripts/sonar.sh" refuse-if-running "make e2e"' scripts/e2e.sh || { echo "e2e.sh"; return 1; }
+}
+check "TASK-67#2 TASK-67#B1 테스트 진입점(test.sh·test-integration.sh·backend-test·backend-build·e2e)은 SonarQube 가 떠 있으면 거부한다" t_entrypoints_refuse
+
+# ================================================================ TASK-67#3 install.sh dev: vm.max_map_count·fs.file-max·nofile (다시 돌려도 같은 결과)
+# ROCKY_INSTALL_LIB=1 로 함수만 읽고 임시 디렉터리·가짜 sysctl 로 부른다. KFILE_MAX: 커널이 지금 보고하는 fs.file-max
+SB="$TMP/sysctl"
+mkdir -p "$SB/bin"
+cat >"$SB/bin/sysctl" <<'SH'
+#!/usr/bin/env bash
+printf 'sysctl %s\n' "$*" >>"$FAKE_SB/calls.log"
+case "$*" in
+  "-n fs.file-max") cat "$FAKE_SB/file-max" ;;
+  "-n vm.max_map_count") cat "$FAKE_SB/map-count" ;;
+  "-p "*) f="${*: -1}"
+    v="$(sed -n 's/^vm.max_map_count = //p' "$f")"; [ -n "$v" ] && echo "$v" >"$FAKE_SB/map-count"
+    v="$(sed -n 's/^fs.file-max = //p' "$f")"; [ -n "$v" ] && echo "$v" >"$FAKE_SB/file-max"; exit 0 ;;
+esac
+SH
+chmod +x "$SB/bin/sysctl"
+sb_reset() { rm -rf "${SB:?}/etc" "$SB/calls.log"; mkdir -p "$SB/etc/sysctl.d" "$SB/etc/security/limits.d"; echo 65530 >"$SB/map-count"; echo "$1" >"$SB/file-max"; }
+inst_kernel() {
+  env PATH="$SB/bin:$PATH" FAKE_SB="$SB" ROCKY_INSTALL_LIB=1 bash -c '
+    . deploy/rocky/install.sh
+    SYSCTL_DIR="$FAKE_SB/etc/sysctl.d"; LIMITS_DIR="$FAKE_SB/etc/security/limits.d"; TARGET_USER=rocky
+    sonar_kernel_setup'
+}
+SYSCTL_F="$SB/etc/sysctl.d/99-sonarqube.conf"
+LIMITS_F="$SB/etc/security/limits.d/99-sonarqube.conf"
+t_kernel_low_filemax() {
+  sb_reset 65536
+  run_capture inst_kernel
+  rc_is 0 || return 1
+  grep -qx 'vm.max_map_count = 524288' "$SYSCTL_F" && grep -qx 'fs.file-max = 131072' "$SYSCTL_F" \
+    || { echo "--- sysctl:"; cat "$SYSCTL_F"; return 1; }
+  grep -qx 'rocky soft nofile 131072' "$LIMITS_F" && grep -qx 'rocky hard nofile 131072' "$LIMITS_F" || { cat "$LIMITS_F"; return 1; }
+  [ "$(cat "$SB/map-count")" = 524288 ] && [ "$(cat "$SB/file-max")" = 131072 ] || { echo "적용(sysctl -p) 안 됨"; cat "$SB/calls.log"; return 1; }
+  # 다시 돌려도 같은 결과
+  cp "$SYSCTL_F" "$TMP/s1"; cp "$LIMITS_F" "$TMP/l1"
+  run_capture inst_kernel
+  rc_is 0 && diff "$TMP/s1" "$SYSCTL_F" && diff "$TMP/l1" "$LIMITS_F" && [ "$(cat "$SB/file-max")" = 131072 ]
+}
+check "TASK-67#3 install.sh dev: vm.max_map_count=524288·fs.file-max=131072·nofile 131072 를 쓰고 바로 적용, 다시 돌려도 같은 결과" t_kernel_low_filemax
+t_kernel_high_filemax() {
+  # 커널 기본 fs.file-max 가 이미 더 크면(Rocky 9: 9223372036854775807) 낮추지 않는다 — SonarQube 요구는 "131072 이상"
+  sb_reset 9223372036854775807
+  run_capture inst_kernel
+  rc_is 0 && grep -qx 'vm.max_map_count = 524288' "$SYSCTL_F" && ! grep -q 'fs.file-max' "$SYSCTL_F" \
+    && [ "$(cat "$SB/file-max")" = 9223372036854775807 ] || { cat "$SYSCTL_F"; return 1; }
+  cp "$SYSCTL_F" "$TMP/s1"; run_capture inst_kernel
+  rc_is 0 && diff "$TMP/s1" "$SYSCTL_F"
+}
+check "TASK-67#3 install.sh dev: 커널 fs.file-max 가 이미 131072 보다 크면 낮추지 않는다(다시 돌려도 같은 결과)" t_kernel_high_filemax
+check "TASK-67#3 install.sh: sonar_kernel_setup 은 dev 프로필(server 종료 뒤)에서만 부른다" sh -c "
+  s=\$(grep -n 'PROFILE\" = server' $I | head -n1 | cut -d: -f1); k=\$(grep -n '^sonar_kernel_setup\$' $I | head -n1 | cut -d: -f1)
+  [ -n \"\$s\" ] && [ -n \"\$k\" ] && [ \"\$k\" -gt \"\$s\" ]"
 
 echo "sonar tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]
