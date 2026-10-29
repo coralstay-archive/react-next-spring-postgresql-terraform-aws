@@ -104,7 +104,7 @@ VM 안(install.sh `--profile dev`): Podman + 사용자 소켓(`/run/user/<uid>/p
   VirtioFS(태그 `share`)가 VM `/mnt/share`에 마운트된다. UTM 의 Apple Virtualization 백엔드는 디렉터리 공유를 "여러 디렉터리 공유"로 내보내서
   `/mnt/share` 바로 아래에 고른 맥 폴더 이름의 디렉터리(`/mnt/share/react-next-spring-postgresql-terraform-aws`)가 하나 생긴다 — 설치 스크립트가
   그 디렉터리(태그 루트에 `.git`·`Makefile`이 있으면 루트)를 `/repo`로 bind 하고(fstab, 부팅 때도), 스크립트가 이를 알아보고 rsync 를 건너뛴다.
-  하위 디렉터리가 여럿이라 저장소를 고를 수 없으면 실패한다 — 공유는 저장소 폴더 하나만 고른다. 이때
+  저장소(`.git`·`Makefile`)를 고를 수 없거나(하위 디렉터리 여럿) `/repo`를 내리지 못하면(사용 중) fstab·마운트를 바꾸지 않고 실패한다 — 공유는 저장소 폴더 하나만 고른다. 이때
   `frontend/node_modules`·`backend/build`·`backend/.gradle`을 VM 로컬 디렉터리로 bind 해서 덮는다(맥의 darwin `node_modules`·빌드 산출물과
   섞이지 않게). VM 을 만든 뒤에 공유를 붙였다면 `/repo` bind 와 덮기는 아직 없다 — 공유를 붙이고 VM 을 다시 켠 뒤 한 번 설치 스크립트를 다시 돌린다
   (cloud-init 이 VM 안에 남겨 둔 스크립트, 다시 돌려도 된다. 옛 배치 — 태그를 `/repo`에 바로 마운트한 fstab 줄 — 도 이것으로 옮겨진다):

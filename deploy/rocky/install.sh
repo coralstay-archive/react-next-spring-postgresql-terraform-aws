@@ -37,50 +37,83 @@ die() { echo "ERROR: [install] $*" >&2; exit 1; }
 
 # ---------------------------------------------------------------- 저장소 공유(dev) — 함수는 vm_test.sh 가 가짜 mount 로 부르게 여기 둔다
 SHARE_STAGE="/mnt/share"; FSTAB="/etc/fstab"
+SHARE_CONTEXT="context=system_u:object_r:container_file_t:s0"
+SHARE_OVERLAYS="frontend/node_modules backend/build backend/.gradle"
+# fstab 편집: awk -v 는 \040 같은 이스케이프를 풀어 버려서 값은 ENVIRON 으로 넘긴다
+fstab_write() { cat "$FSTAB.tmp" >"$FSTAB" && rm -f "$FSTAB.tmp"; }
 fstab_add() { grep -qF " $2 " "$FSTAB" || echo "$1 $2 $3 $4 0 0" >>"$FSTAB"; }
-fstab_del() { awk -v p="$1" '$2 != p' "$FSTAB" >"$FSTAB.tmp" && cat "$FSTAB.tmp" >"$FSTAB" && rm -f "$FSTAB.tmp"; }
-# 공유 안의 저장소 루트: 루트에 .git·Makefile 이 있으면 루트(QEMU 백엔드), 아니면 하위 디렉터리가 하나뿐일 때 그것(Apple Virtualization
-# 백엔드 — 디렉터리 공유를 "여러 디렉터리 공유"로 내보내 태그 루트 아래에 고른 맥 폴더 이름의 디렉터리가 하나 생긴다, 2026-10-29 실측)
-share_root() {
-  local d n=0 only=""
-  if [ -e "$1/.git" ] || [ -f "$1/Makefile" ]; then printf '%s' "$1"; return 0; fi
-  for d in "$1"/*; do [ -d "$d" ] && { n=$((n + 1)); only="$d"; }; done
-  [ "$n" = 1 ] && printf '%s' "$only"
+# 마운트 위치가 SHARE_PATH 인 줄(옛 virtiofs 줄 포함)을 $1 로 바꾸고, 그 아래 덮기 줄보다 앞에 둔다(손으로 mount -a 해도 순서가 맞게)
+fstab_set_repo() {
+  L="$1" P="$SHARE_PATH" awk '$2 == ENVIRON["P"] { next }
+    !done && index($2, ENVIRON["P"] "/") == 1 { print ENVIRON["L"]; done = 1 } { print } END { if (!done) print ENVIRON["L"] }' "$FSTAB" >"$FSTAB.tmp" && fstab_write
 }
-# VirtioFS 태그를 SHARE_STAGE 에 마운트하고 저장소 루트를 SHARE_PATH 로 bind, 그 아래 플랫폼별 산출물은 VM 로컬 디렉터리($1)로 덮는다.
+# fstab 필드 이스케이프(\ → \134, 공백 → \040, 탭 → \011)
+fstab_esc() { local v="${1//\\/\\134}"; v="${v// /\\040}"; printf '%s' "${v//$'\t'/\\011}"; }
+# 공유 안의 저장소 위치(공유 루트 기준 상대 경로, 루트면 빈 문자열): 루트에 .git·Makefile 이 있으면 루트(QEMU 백엔드), 아니면 하위
+# 디렉터리가 하나뿐이고 그 안에 .git·Makefile 이 있을 때 그것(Apple Virtualization 백엔드 — 디렉터리 공유를 "여러 디렉터리 공유"로
+# 내보내 태그 루트 아래에 고른 맥 폴더 이름의 디렉터리가 하나 생긴다, 2026-10-29 실측). 이름에 줄바꿈이 있으면 거부(fstab 에 못 쓴다)
+share_rel() {
+  local d n=0 only=""
+  if [ -e "$1/.git" ] || [ -f "$1/Makefile" ]; then return 0; fi
+  for d in "$1"/*; do [ -d "$d" ] && { n=$((n + 1)); only="${d##*/}"; }; done
+  [ "$n" = 1 ] && { [ -e "$1/$only/.git" ] || [ -f "$1/$only/Makefile" ]; } && [ "$only" = "${only//$'\n'/}" ] && printf '/%s' "$only"
+}
+# 덮기 bind 를 fstab 대로 다시 붙인다(umount -R 이 일부만 내렸을 때 — 산출물이 맥 공유로 새지 않게)
+share_remount_overlays() { local d; for d in $SHARE_OVERLAYS; do grep -qF " $SHARE_PATH/$d " "$FSTAB" && ! mountpoint -q "$SHARE_PATH/$d" && mount "$SHARE_PATH/$d" 2>/dev/null; done; return 0; }
+# VirtioFS 태그를 SHARE_STAGE 에 마운트하고 저장소 디렉터리를 SHARE_PATH 로 bind, 그 아래 플랫폼별 산출물은 VM 로컬 디렉터리($1)로 덮는다.
 # context=container_file_t: SELinux 레이블이 없는 공유 파일을 Podman 볼륨으로 써도 거부되지 않게. 다시 돌려도 된다.
+# 순서: 공유 안을 먼저 보고(저장소를 못 고르면 아무것도 바꾸지 않고 실패) → SHARE_PATH 를 내리고(실패하면 fstab 그대로 두고 실패) → fstab → 마운트.
 dev_share_setup() {
-  local overlay="$1" root line d src
-  # 옛 배치(태그를 SHARE_PATH 에 바로 마운트)는 지우고 아래에서 스테이징 + bind 로 다시 만든다
-  if awk -v p="$SHARE_PATH" '$2 == p && $3 == "virtiofs" { f = 1 } END { exit !f }' "$FSTAB"; then
-    log "옛 fstab 줄($SHARE_PATH virtiofs)을 $SHARE_STAGE + bind 로 바꾼다"
-    fstab_del "$SHARE_PATH"
-    ! mountpoint -q "$SHARE_PATH" || umount -R "$SHARE_PATH" || die "$SHARE_PATH 를 내리지 못했다(쓰는 프로세스가 있다?) — 끝낸 뒤 다시 돌린다"
-  fi
-  mkdir -p "$SHARE_STAGE" "$SHARE_PATH"
-  fstab_add "$SHARE_TAG" "$SHARE_STAGE" virtiofs "rw,nofail,context=system_u:object_r:container_file_t:s0"
-  systemctl daemon-reload
-  # 공유는 선택이다: UTM 창에서 디렉터리를 직접 붙였을 때만 마운트된다. 없으면 SHARE_PATH 는 VM 로컬 디렉터리이고, 맥의 make test 가
-  # rsync 로 작업 트리를 맞춘다(scripts/_vm.sh vm_sync_repo) — 그래서 사용자 소유로 둔다.
-  if ! mountpoint -q "$SHARE_STAGE" && ! mount "$SHARE_STAGE" 2>/dev/null; then
+  local overlay="$1" old=0 probe="" staged=0 rel line d src
+  awk -v p="$SHARE_PATH" '$2 == p && $3 == "virtiofs" { f = 1 } END { exit !f }' "$FSTAB" && old=1
+  mkdir -p "$SHARE_STAGE"; mountpoint -q "$SHARE_PATH" || mkdir -p "$SHARE_PATH"
+  # 1) 공유 안 보기: 옛 배치(태그를 SHARE_PATH 에 바로 마운트)로 붙어 있으면 거기서, 아니면 SHARE_STAGE 에 마운트해서
+  if [ "$old" = 1 ] && mountpoint -q "$SHARE_PATH"; then
+    probe="$SHARE_PATH"
+  elif mountpoint -q "$SHARE_STAGE"; then
+    probe="$SHARE_STAGE"
+  elif mount -t virtiofs -o "$SHARE_CONTEXT" "$SHARE_TAG" "$SHARE_STAGE" 2>/dev/null; then
+    probe="$SHARE_STAGE"; staged=1
+  else
+    # 공유는 선택이다: UTM 창에서 디렉터리를 직접 붙였을 때만 마운트된다. 없으면 SHARE_PATH 는 VM 로컬 디렉터리이고, 맥의 make test 가
+    # rsync 로 작업 트리를 맞춘다(scripts/_vm.sh vm_sync_repo) — 그래서 사용자 소유로 둔다. 태그 줄은 남겨 나중에 붙인 공유가
+    # 부팅 때 SHARE_STAGE 에 마운트되게 한다(맥의 make test 가 보고 이 스크립트 재실행을 안내한다)
     log "공유 디렉터리(VirtioFS 태그 $SHARE_TAG)가 없다 — $SHARE_PATH 는 VM 로컬(맥의 make test 가 rsync 로 맞춘다)"
+    [ "$old" = 0 ] || fstab_del_old
+    fstab_add "$SHARE_TAG" "$SHARE_STAGE" virtiofs "rw,nofail,$SHARE_CONTEXT"
+    systemctl daemon-reload
     mountpoint -q "$SHARE_PATH" || chown "$TARGET_USER:" "$SHARE_PATH"
     return 0
   fi
-  root="$(share_root "$SHARE_STAGE")" || die "공유($SHARE_STAGE)에서 저장소를 고르지 못했다 — 루트에 .git·Makefile 이 없고 하위 디렉터리가 하나가 아니다: $(cd "$SHARE_STAGE" && printf '%s ' *)
-  해결: UTM 창의 공유 디렉터리를 저장소 폴더 하나로 고친다"
-  line="${root// /\\040} $SHARE_PATH none bind,nofail,x-systemd.requires-mounts-for=$SHARE_STAGE 0 0"
-  if ! grep -qxF "$line" "$FSTAB"; then
-    fstab_del "$SHARE_PATH"
-    ! mountpoint -q "$SHARE_PATH" || umount -R "$SHARE_PATH" || die "$SHARE_PATH 를 내리지 못했다(쓰는 프로세스가 있다?) — 끝낸 뒤 다시 돌린다"
-    echo "$line" >>"$FSTAB"
-    systemctl daemon-reload
+  if ! rel="$(share_rel "$probe")"; then
+    d="$(cd "$probe" && printf '%s ' *)"
+    [ "$staged" = 0 ] || umount "$SHARE_STAGE" || true
+    die "공유($SHARE_TAG)에서 저장소를 고르지 못했다 — 루트에 .git·Makefile 이 없고, .git·Makefile 이 있는 하위 디렉터리 하나도 아니다: $d
+  아무것도 바꾸지 않았다. 해결: UTM 창의 공유 디렉터리를 저장소 폴더 하나로 고치고 VM 을 다시 켠 뒤 다시 돌린다"
   fi
-  mountpoint -q "$SHARE_PATH" || mount "$SHARE_PATH" || die "$root → $SHARE_PATH bind 마운트 실패"
-  log "저장소 공유: $SHARE_TAG($root) → $SHARE_PATH"
+  line="$(fstab_esc "$SHARE_STAGE$rel") $SHARE_PATH none bind,nofail,x-systemd.requires-mounts-for=$SHARE_STAGE 0 0"
+  # 2) SHARE_PATH 가 옛 마운트·다른 폴더의 bind 면 내린다. 일부만 내려가면(EBUSY) 덮기를 다시 붙이고 fstab 은 그대로 둔 채 실패
+  if mountpoint -q "$SHARE_PATH" && ! grep -qxF "$line" "$FSTAB"; then
+    if ! umount -R "$SHARE_PATH"; then
+      share_remount_overlays
+      die "$SHARE_PATH 를 내리지 못했다(쓰는 프로세스가 있다 — sudo fuser -vm $SHARE_PATH). fstab 은 바꾸지 않았다. 끝낸 뒤 다시 돌린다"
+    fi
+  fi
+  [ "$staged" = 1 ] || mountpoint -q "$SHARE_STAGE" || mount -t virtiofs -o "$SHARE_CONTEXT" "$SHARE_TAG" "$SHARE_STAGE" \
+    || die "공유($SHARE_TAG)를 $SHARE_STAGE 에 마운트하지 못했다"
+  # 3) fstab: 태그 → SHARE_STAGE, 저장소 bind 는 덮기 줄 앞(옛 virtiofs 줄·다른 폴더 줄은 바꾼다)
+  fstab_add "$SHARE_TAG" "$SHARE_STAGE" virtiofs "rw,nofail,$SHARE_CONTEXT"
+  grep -qxF "$line" "$FSTAB" || fstab_set_repo "$line"
+  systemctl daemon-reload
+  # 4) 마운트. 아래 디렉터리는 사용자 소유로 둔다(공유가 나중에 빠져도 rsync — 사용자 권한 — 로 맞출 수 있게)
+  if ! mountpoint -q "$SHARE_PATH"; then
+    chown "$TARGET_USER:" "$SHARE_PATH"
+    mount "$SHARE_PATH" || die "$SHARE_STAGE$rel → $SHARE_PATH bind 마운트 실패"
+  fi
+  log "저장소 공유: $SHARE_TAG($SHARE_STAGE$rel) → $SHARE_PATH"
   # 플랫폼이 다른 산출물은 맥과 섞이지 않게 VM 로컬 디렉터리를 bind 로 덮는다: frontend/node_modules(네이티브 모듈 darwin ↔ linux),
   # backend/build·backend/.gradle(맥 IDE 빌드와 동시 실행 충돌). 맥 쪽에는 빈 마운트 지점 디렉터리만 생긴다(gitignore 대상).
-  for d in frontend/node_modules backend/build backend/.gradle; do
+  for d in $SHARE_OVERLAYS; do
     [ -d "$SHARE_PATH/${d%%/*}" ] || continue
     src="$overlay/${d//\//-}"
     runuser -u "$TARGET_USER" -- mkdir -p "$src" "$SHARE_PATH/$d"
@@ -89,6 +122,8 @@ dev_share_setup() {
     mountpoint -q "$SHARE_PATH/$d" || mount "$SHARE_PATH/$d" || die "$src → $SHARE_PATH/$d bind 마운트 실패"
   done
 }
+# 공유가 없을 때 옛 virtiofs 줄(SHARE_PATH)만 지운다(마운트돼 있지 않다)
+fstab_del_old() { P="$SHARE_PATH" awk '!($2 == ENVIRON["P"] && $3 == "virtiofs")' "$FSTAB" >"$FSTAB.tmp" && fstab_write; }
 [ "${ROCKY_INSTALL_LIB:-0}" = 1 ] && return 0
 
 while [ $# -gt 0 ]; do

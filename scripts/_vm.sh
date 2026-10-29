@@ -162,10 +162,17 @@ vm_repo_is_virtiofs() {
   vm_ssh "[ \"\$(findmnt -n -o FSTYPE -M $(vm_q "$VM_GUEST_REPO"))\" = virtiofs ]" 2>/dev/null
 }
 
-# 공유를 VM 을 만든 뒤에 붙이면 태그는 /mnt/share 에 마운트되지만 /repo bind 는 없다 — rsync 로 계속하되 재실행 명령을 안내한다
+# rsync 방식으로 갈 때 VM 쪽 상태를 본다. 공유가 /mnt/share 에만 붙어 있으면(VM 을 만든 뒤에 붙였거나, 공유 안에서 저장소를 고를 수
+# 없어 설치 스크립트가 bind 하지 못했다 — 하위 디렉터리 여럿) rsync 로 계속하되 재실행 명령을 안내한다. /repo 를 쓸 수 없으면(공유가
+# 빠진 뒤 root 소유 마운트 지점만 남았다) rsync 가 권한 오류로 실패하기 전에 이유와 해결을 알리고 멈춘다.
 vm_check_share_unbound() {
-  vm_ssh "mountpoint -q $(vm_q "$VM_GUEST_SHARE_STAGE")" 2>/dev/null || return 0
-  vm_warn "VM $VM_GUEST_SHARE_STAGE 에 VirtioFS 공유가 붙어 있는데 $VM_GUEST_REPO 로 bind 되지 않았다 — 이번에는 rsync 로 맞춘다.
+  if vm_ssh "mountpoint -q $(vm_q "$VM_GUEST_SHARE_STAGE")" 2>/dev/null; then
+    vm_warn "VM $VM_GUEST_SHARE_STAGE 에 VirtioFS 공유가 붙어 있는데 $VM_GUEST_REPO 로 bind 되지 않았다(VM 을 만든 뒤 공유를 붙였거나,
+  공유 안에서 저장소를 고를 수 없다 — 저장소 폴더 하나만 공유한다) — 이번에는 rsync 로 맞춘다.
+  해결(한 번, 다시 돌려도 된다): ssh $VM_SSH_HOST $VM_REINSTALL_CMD"
+  fi
+  vm_ssh "[ ! -e $(vm_q "$VM_GUEST_REPO") ] || [ -w $(vm_q "$VM_GUEST_REPO") ]" 2>/dev/null \
+    || vm_die "VM $VM_GUEST_REPO 를 $VM_USER 가 쓸 수 없다(공유가 빠진 뒤 root 소유 마운트 지점만 남았다?) — rsync 로 맞출 수 없다.
   해결(한 번, 다시 돌려도 된다): ssh $VM_SSH_HOST $VM_REINSTALL_CMD"
 }
 
