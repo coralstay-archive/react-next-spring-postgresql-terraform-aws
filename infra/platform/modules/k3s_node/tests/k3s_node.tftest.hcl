@@ -23,6 +23,13 @@ override_data {
   }
 }
 
+override_resource {
+  target = aws_ebs_volume.data
+  values = {
+    id = "vol-0abc123def4567890"
+  }
+}
+
 variables {
   name              = "board-test"
   vpc_id            = "vpc-123"
@@ -173,5 +180,86 @@ run "iam" {
       for s in jsondecode(aws_iam_role_policy.params.policy).Statement : !contains(flatten([s.Action]), "*")
     ])
     error_message = "와일드카드 Action 금지"
+  }
+}
+
+# TASK-65#3 데이터 볼륨: 노드와 같은 AZ 의 gp3 암호화 별도 볼륨, /dev/sdf 로 연결, 지울 때 최종 스냅샷, 스냅샷 대상 태그
+run "data_volume" {
+  command = apply
+
+  assert {
+    condition     = aws_ebs_volume.data.type == "gp3" && aws_ebs_volume.data.encrypted && aws_ebs_volume.data.size == 20
+    error_message = "gp3 20GB 암호화"
+  }
+  assert {
+    condition     = aws_ebs_volume.data.availability_zone == aws_instance.this.availability_zone
+    error_message = "노드와 같은 AZ"
+  }
+  assert {
+    condition     = aws_ebs_volume.data.final_snapshot
+    error_message = "볼륨을 지울 때 최종 스냅샷"
+  }
+  assert {
+    condition = (
+      aws_volume_attachment.data.device_name == "/dev/sdf" && aws_volume_attachment.data.volume_id == aws_ebs_volume.data.id
+      && aws_volume_attachment.data.instance_id == aws_instance.this.id && aws_volume_attachment.data.stop_instance_before_detaching
+    )
+    error_message = "/dev/sdf 로 이 노드에 연결, 분리 전에 노드를 멈춘다"
+  }
+  assert {
+    condition     = aws_ebs_volume.data.tags["Snapshot"] == "board-test-data" && output.snapshot_tag["Snapshot"] == "board-test-data"
+    error_message = "스냅샷(DLM) 대상 태그 Snapshot=<name>-data"
+  }
+  assert {
+    condition     = output.data_volume_id == aws_ebs_volume.data.id && output.data_mount_path == "/data"
+    error_message = "출력: data_volume_id, data_mount_path"
+  }
+}
+
+# TASK-65#3 data_snapshot_id 를 주면 그 스냅샷에서 볼륨을 만든다(복원 리허설은 TASK-52)
+run "data_volume_from_snapshot" {
+  command = apply
+
+  variables {
+    data_snapshot_id = "snap-0123456789abcdef0"
+  }
+
+  assert {
+    condition     = aws_ebs_volume.data.snapshot_id == "snap-0123456789abcdef0"
+    error_message = "스냅샷에서 복원"
+  }
+}
+
+# TASK-65#3 data_snapshot_id 형식 검사
+run "data_snapshot_id_invalid" {
+  command = plan
+
+  variables {
+    data_snapshot_id = "vol-0123"
+  }
+
+  expect_failures = [var.data_snapshot_id]
+}
+
+# TASK-65#3 TASK-65#B2 user_data: 데이터 볼륨 스크립트(board-data-volume.sh)를 볼륨 ID·마운트 경로·지킬 서비스로 부른다.
+# 포맷 조건(blkid 2)·마운트 차단(RequiresMountsFor)의 동작은 scripts/test/platform_test.sh 가 가짜 명령으로 본다
+run "user_data_data_volume" {
+  command = apply
+
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, base64encode(file("files/data-volume.sh")))
+    error_message = "files/data-volume.sh 를 그대로(base64) 싣는다"
+  }
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "/usr/local/sbin/board-data-volume.sh vol-0abc123def4567890 /data k3s.service")
+    error_message = "볼륨 ID·/data·k3s.service 로 부른다"
+  }
+  assert {
+    condition     = strcontains(aws_instance.this.user_data, "data-dir: /data/k3s") && strcontains(aws_instance.this.user_data, "default-local-storage-path: /data/local-path")
+    error_message = "k3s 데이터·PV(local-path) 디렉터리는 데이터 볼륨 위"
+  }
+  assert {
+    condition     = !strcontains(aws_instance.this.user_data, "mkfs")
+    error_message = "포맷은 스크립트 안에서만(blkid 종료 코드 2 일 때) — user_data 에 직접 mkfs 를 쓰지 않는다"
   }
 }

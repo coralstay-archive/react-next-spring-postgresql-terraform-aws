@@ -1,0 +1,17 @@
+#!/bin/bash
+# k3s_node user_data (TASK-65). 첫 부팅에 한 번 cloud-init 이 실행한다. 실패하면 cloud-init status 가 error 가 된다.
+set -euo pipefail
+
+# --- 데이터 볼륨(TASK-65#3): 서비스 가드 → 볼륨 ID 로 장치 찾기 → 빈 장치만 포맷 → ${data_mount_path} 마운트
+install -d -m 755 /usr/local/sbin
+echo '${data_volume_b64}' | base64 -d >/usr/local/sbin/board-data-volume.sh
+chmod 755 /usr/local/sbin/board-data-volume.sh
+/usr/local/sbin/board-data-volume.sh ${volume_id} ${data_mount_path} ${data_services}
+
+# k3s 데이터·PV(local-path — DB·Kafka·MinIO) 디렉터리는 데이터 볼륨 위. config.yaml 은 k3s 설치 스크립트(TASK-36) 몫이라 드롭인으로 둔다
+install -d -m 700 ${data_mount_path}/k3s
+install -d -m 755 ${data_mount_path}/local-path /etc/rancher/k3s/config.yaml.d
+cat >/etc/rancher/k3s/config.yaml.d/10-data.yaml <<'YAML'
+data-dir: ${data_mount_path}/k3s
+default-local-storage-path: ${data_mount_path}/local-path
+YAML

@@ -21,8 +21,9 @@ data "aws_ami" "rocky" {
 }
 
 locals {
-  region    = data.aws_region.current.region
-  param_arn = "arn:aws:ssm:${local.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_parameter_path}"
+  region       = data.aws_region.current.region
+  snapshot_tag = { Snapshot = "${var.name}-data" }
+  param_arn    = "arn:aws:ssm:${local.region}:${data.aws_caller_identity.current.account_id}:parameter${var.ssm_parameter_path}"
 }
 
 # --- IAM -------------------------------------------------------------------
@@ -146,12 +147,40 @@ resource "aws_instance" "this" {
     delete_on_termination = true
   }
 
+  user_data = templatefile("${path.module}/user_data.sh.tftpl", {
+    volume_id       = aws_ebs_volume.data.id
+    data_mount_path = var.data_mount_path
+    data_services   = join(" ", var.data_services)
+    data_volume_b64 = filebase64("${path.module}/files/data-volume.sh")
+  })
+
   tags = merge(var.tags, { Name = "${var.name}-node" })
 
   lifecycle {
     # 새 AMI 가 나올 때마다 노드를 바꾸지 않는다. 바꾸려면 -replace 로 명시한다(데이터는 별도 볼륨)
     ignore_changes = [ami]
   }
+}
+
+# --- 데이터 볼륨 (TASK-65#3) ---------------------------------------------------
+# 노드와 따로 사는 gp3 볼륨. 노드를 바꿔도(user_data 변경·AMI 교체) 데이터는 남는다. data_snapshot_id 로 스냅샷에서 만들 수 있다.
+
+resource "aws_ebs_volume" "data" {
+  availability_zone = var.availability_zone
+  size              = var.data_volume_size
+  type              = "gp3"
+  encrypted         = true
+  snapshot_id       = var.data_snapshot_id
+  final_snapshot    = true # 볼륨을 지우면 마지막 스냅샷을 남긴다
+
+  tags = merge(var.tags, local.snapshot_tag, { Name = "${var.name}-data" })
+}
+
+resource "aws_volume_attachment" "data" {
+  device_name                    = var.data_device_name
+  volume_id                      = aws_ebs_volume.data.id
+  instance_id                    = aws_instance.this.id
+  stop_instance_before_detaching = true
 }
 
 # 공인 IPv4 1개(decision-11). 스팟이 stop/start 돼도 주소가 그대로다

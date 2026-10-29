@@ -53,6 +53,41 @@ variable "ssm_parameter_path" {
   }
 }
 
+variable "data_volume_size" {
+  description = "데이터 볼륨 GB (k3s·PV — DB·Kafka·MinIO)"
+  type        = number
+  default     = 20
+}
+
+variable "data_snapshot_id" {
+  description = "데이터 볼륨을 만들 스냅샷(snap-…). null 이면 빈 볼륨(첫 부팅에 포맷). 복원 리허설은 TASK-52"
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.data_snapshot_id == null || can(regex("^snap-[0-9a-f]{8,17}$", var.data_snapshot_id))
+    error_message = "data_snapshot_id 는 null 또는 snap-<hex>."
+  }
+}
+
+variable "data_device_name" {
+  description = "데이터 볼륨 연결 장치 이름 (nitro 에서는 nvmeXn1 로 보이고 스크립트가 볼륨 ID 로 찾는다)"
+  type        = string
+  default     = "/dev/sdf"
+}
+
+variable "data_mount_path" {
+  description = "데이터 볼륨 마운트 경로"
+  type        = string
+  default     = "/data"
+}
+
+variable "data_services" {
+  description = "데이터 볼륨이 마운트돼야 뜨는 systemd 서비스(B2)"
+  type        = list(string)
+  default     = ["k3s.service"]
+}
+
 variable "tags" {
   description = "추가 태그"
   type        = map(string)

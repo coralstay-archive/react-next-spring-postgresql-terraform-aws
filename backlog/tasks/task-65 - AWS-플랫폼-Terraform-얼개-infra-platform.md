@@ -4,7 +4,7 @@ title: '[AWS] 플랫폼 Terraform 얼개 (infra/platform)'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 03:42'
+updated_date: '2026-10-29 05:45'
 labels:
   - aws
   - platform
@@ -65,4 +65,6 @@ documentation:
 AC#1 (0c138a9): infra/platform 루트 스택(versions·providers·backend·variables·main·outputs·envs), bootstrap 버킷 재사용 key=platform/terraform.tfstate, network 모듈 재사용, lock 3플랫폼 해시(aws 6.68.0 — infra/main 과 같은 버전), tests/platform.tftest.hcl + scripts/test/platform_test.sh(test.sh 가 부른다), test.sh 루트 목록에 infra/platform
 
 AC#2: modules/k3s_node — Rocky 9.8 arm64 AMI(792107900819), t4g.large 스팟 persistent/stop, IMDSv2, 루트 gp3 암호화, EIP 1개, SG 80·443 IPv4·IPv6 만(B1: 22 없음, key_name 없음), IAM SSM Core + /board/* 읽기(+SSM 경유 kms:Decrypt). 모듈 테스트 tests/k3s_node.tftest.hcl
+
+AC#3: k3s_node 데이터 볼륨 gp3 암호화(data_snapshot_id 로 스냅샷 복원, final_snapshot, Snapshot 태그), /dev/sdf attach(stop 후 분리). files/data-volume.sh — 볼륨 ID by-id 링크로만 장치 탐색, blkid -p 2 일 때만 mkfs.xfs, 그 밖 코드는 실패(OPS-11), k3s.service 드롭인 RequiresMountsFor + ExecStartPre mountpoint 를 먼저 씀(B2, OPS-9). fstab 은 nofail(+device-timeout) — 계획의 'nofail 아님'과 다름: 볼륨이 없을 때 비상 모드로 빠져 SSM 도 못 쓰게 되는 것을 피하고, 서비스 차단은 드롭인이 맡는다(리뷰 확인 필요). k3s data-dir·local-path 를 /data 위로(config.yaml.d 드롭인). 셸 테스트는 platform_test.sh 가짜 명령
 <!-- SECTION:NOTES:END -->

@@ -42,3 +42,18 @@ output "role_name" {
   description = "노드 role 이름"
   value       = aws_iam_role.this.name
 }
+
+output "data_volume_id" {
+  description = "데이터 볼륨 ID"
+  value       = aws_ebs_volume.data.id
+}
+
+output "data_mount_path" {
+  description = "데이터 볼륨 마운트 경로"
+  value       = var.data_mount_path
+}
+
+output "snapshot_tag" {
+  description = "데이터 볼륨 스냅샷(DLM) 대상 태그"
+  value       = local.snapshot_tag
+}

@@ -49,5 +49,113 @@ check "TASK-65#B1 k3s_node 설정에 22 번 포트가 없다" sh -c "! grep -Eq 
 check "TASK-65#B1 k3s_node 는 SSH 키(key_name)를 쓰지 않는다" sh -c "! grep -Eq '^\\s*key_name\\b' $N/*.tf"
 check "TASK-65#B1 k3s_node 는 SSM Core 정책을 붙인다" grep -q 'AmazonSSMManagedInstanceCore' "$N/main.tf"
 
+# TASK-65#3 TASK-65#B2 데이터 볼륨 스크립트(files/data-volume.sh): DATA_VOLUME_LIB=1 로 함수만 읽고 가짜 blkid·mkfs.xfs·mount·mountpoint·
+# systemctl 로 부른다. 장치는 볼륨 ID 의 by-id 링크로만 찾고(이름 기반 대체 없음 — OPS-11), blkid 종료 코드 2(빈 장치)일 때만 포맷하며,
+# 지킬 서비스(k3s)에는 마운트 없이는 뜨지 않는 systemd 드롭인을 먼저 쓴다(OPS-9)
+DV=$N/files/data-volume.sh
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+FAKE="$TMP/bin"; mkdir -p "$FAKE"
+cat >"$FAKE/blkid" <<'SH'
+#!/usr/bin/env bash
+echo "blkid $*" >>"$DV_STATE/calls.log"
+case " $* " in *" -s UUID "*) echo "1111-2222"; exit 0 ;; esac
+exit "${FAKE_BLKID_RC:-0}"
+SH
+cat >"$FAKE/mkfs.xfs" <<'SH'
+#!/usr/bin/env bash
+echo "mkfs.xfs $*" >>"$DV_STATE/calls.log"
+SH
+cat >"$FAKE/mount" <<'SH'
+#!/usr/bin/env bash
+echo "mount $*" >>"$DV_STATE/calls.log"; [ "${FAKE_MOUNT_RC:-0}" = 0 ] && touch "$DV_STATE/mounted"; exit "${FAKE_MOUNT_RC:-0}"
+SH
+cat >"$FAKE/mountpoint" <<'SH'
+#!/usr/bin/env bash
+[ -f "$DV_STATE/mounted" ]
+SH
+cat >"$FAKE/systemctl" <<'SH'
+#!/usr/bin/env bash
+echo "systemctl $*" >>"$DV_STATE/calls.log"
+SH
+chmod +x "$FAKE"/*
+
+# dv_run <blkid 종료 코드> <장치 링크 만들기 0|1> — 새 임시 루트에서 스크립트 main 을 부른다. 결과는 DV_RC·DV_STATE
+dv_run() {
+  DV_STATE="$(cd "$(mktemp -d "$TMP/s.XXXX")" && pwd -P)"; export DV_STATE
+  mkdir -p "$DV_STATE/by-id" "$DV_STATE/systemd" "$DV_STATE/data"; : >"$DV_STATE/fstab"; : >"$DV_STATE/calls.log"
+  [ "$2" = 1 ] && { : >"$DV_STATE/nvme1n1"; ln -s "$DV_STATE/nvme1n1" "$DV_STATE/by-id/nvme-Amazon_Elastic_Block_Store_vol0abc123def4567890"; }
+  DV_RC=0
+  PATH="$FAKE:$PATH" FAKE_BLKID_RC="$1" BY_ID_DIR="$DV_STATE/by-id" FSTAB="$DV_STATE/fstab" SYSTEMD_DIR="$DV_STATE/systemd" \
+    WAIT_TRIES=2 WAIT_SECS=0 bash -c '
+      DATA_VOLUME_LIB=1 . "$1"
+      is_block() { [ -e "$1" ]; }   # 테스트에서는 보통 파일을 블록 장치로 본다
+      main vol-0abc123def4567890 "$DV_STATE/data" k3s.service' _ "$DV" >"$DV_STATE/out" 2>&1 || DV_RC=$?
+}
+dv_called() { grep -qF -- "$1" "$DV_STATE/calls.log" || { echo "호출 없음: $1"; cat "$DV_STATE/calls.log" "$DV_STATE/out"; return 1; }; }
+dv_not_called() { ! grep -qF -- "$1" "$DV_STATE/calls.log" || { echo "호출되면 안 됨: $1"; cat "$DV_STATE/calls.log"; return 1; }; }
+dv_dropin() { cat "$DV_STATE/systemd/k3s.service.d/10-data-mount.conf" 2>/dev/null; }
+
+check "TASK-65#3 data-volume.sh 는 실행 가능하고 bash 문법이 맞다" sh -c "test -x $DV && bash -n $DV"
+check "TASK-65#3 장치는 볼륨 ID 의 by-id 링크로만 찾는다(/dev/sdf·xvdf 이름 대체 없음 — OPS-11)" sh -c "
+  grep -q 'nvme-Amazon_Elastic_Block_Store_' $DV && ! grep -Eq '/dev/(sd|xvd)[a-z]' $DV"
+t_dv_blank() {
+  dv_run 2 1
+  [ "$DV_RC" = 0 ] || { echo "rc=$DV_RC"; cat "$DV_STATE/out"; return 1; }
+  dv_called "blkid -p $DV_STATE/nvme1n1" && dv_called "mkfs.xfs -L data $DV_STATE/nvme1n1" && dv_called "mount $DV_STATE/data" \
+    && grep -qx "UUID=1111-2222 $DV_STATE/data xfs defaults,nofail,x-systemd.device-timeout=60s 0 2" "$DV_STATE/fstab"
+}
+check "TASK-65#3 blkid 종료 코드 2(빈 장치)면 xfs 로 포맷하고 fstab(UUID)·마운트" t_dv_blank
+t_dv_existing() {
+  dv_run 0 1
+  [ "$DV_RC" = 0 ] && dv_not_called "mkfs.xfs" && dv_called "mount $DV_STATE/data"
+}
+check "TASK-65#3 파일시스템이 있으면(blkid 0) 포맷하지 않고 마운트만" t_dv_existing
+t_dv_probe_error() {
+  local rc
+  for rc in 4 8 1; do
+    dv_run "$rc" 1
+    [ "$DV_RC" != 0 ] || { echo "blkid $rc 인데 성공"; return 1; }
+    dv_not_called "mkfs.xfs" && dv_not_called "mount" || return 1
+    [ ! -s "$DV_STATE/fstab" ] || { echo "fstab 이 바뀌었다"; return 1; }
+    grep -q "blkid" "$DV_STATE/out" || { cat "$DV_STATE/out"; return 1; }
+  done
+}
+check "TASK-65#3 blkid 가 2 도 0 도 아니면(4·8·1 — 오류·모호) 포맷·마운트 없이 실패(OPS-11)" t_dv_probe_error
+t_dv_missing() {
+  dv_run 2 0
+  [ "$DV_RC" != 0 ] && dv_not_called "mkfs.xfs" && dv_not_called "blkid" && grep -q "vol-0abc123def4567890" "$DV_STATE/out"
+}
+check "TASK-65#3 볼륨이 붙지 않으면 기다린 뒤 다른 장치를 고르지 않고 실패" t_dv_missing
+t_dv_rerun() {
+  dv_run 2 1
+  PATH="$FAKE:$PATH" FAKE_BLKID_RC=0 BY_ID_DIR="$DV_STATE/by-id" FSTAB="$DV_STATE/fstab" SYSTEMD_DIR="$DV_STATE/systemd" \
+    bash -c 'DATA_VOLUME_LIB=1 . "$1"; is_block() { [ -e "$1" ]; }; main vol-0abc123def4567890 "$DV_STATE/data" k3s.service' _ "$DV" >/dev/null 2>&1 || return 1
+  [ "$(grep -c "UUID=1111-2222" "$DV_STATE/fstab")" = 1 ] && [ "$(grep -c "mkfs.xfs" "$DV_STATE/calls.log")" = 1 ]
+}
+check "TASK-65#3 다시 돌려도 포맷·fstab 줄을 더하지 않는다" t_dv_rerun
+t_dv_guard() {
+  dv_run 2 1
+  dv_dropin | grep -qx "RequiresMountsFor=$DV_STATE/data" && dv_dropin | grep -qx "ExecStartPre=/usr/bin/mountpoint -q $DV_STATE/data" \
+    && dv_called "systemctl daemon-reload"
+}
+check "TASK-65#B2 k3s.service 드롭인: RequiresMountsFor=/data + 시작 전 mountpoint 확인 → 마운트되지 않으면 뜨지 않는다" t_dv_guard
+t_dv_guard_first() {
+  dv_run 2 0
+  [ "$DV_RC" != 0 ] && dv_dropin | grep -q "RequiresMountsFor=$DV_STATE/data"
+}
+check "TASK-65#B2 볼륨을 못 찾아 실패해도 드롭인은 먼저 써 둔다(나중에 설치되는 k3s 가 빈 루트 디스크에 뜨지 않게)" t_dv_guard_first
+t_dv_mount_fail() {
+  DV_STATE="$(cd "$(mktemp -d "$TMP/s.XXXX")" && pwd -P)"; export DV_STATE
+  mkdir -p "$DV_STATE/by-id" "$DV_STATE/systemd"; : >"$DV_STATE/fstab"; : >"$DV_STATE/calls.log"; : >"$DV_STATE/nvme1n1"
+  ln -s "$DV_STATE/nvme1n1" "$DV_STATE/by-id/nvme-Amazon_Elastic_Block_Store_vol0abc123def4567890"
+  ! PATH="$FAKE:$PATH" FAKE_BLKID_RC=0 FAKE_MOUNT_RC=32 BY_ID_DIR="$DV_STATE/by-id" FSTAB="$DV_STATE/fstab" SYSTEMD_DIR="$DV_STATE/systemd" \
+    bash -c 'DATA_VOLUME_LIB=1 . "$1"; is_block() { [ -e "$1" ]; }; main vol-0abc123def4567890 "$DV_STATE/data" k3s.service' _ "$DV" >/dev/null 2>&1
+}
+check "TASK-65#B2 마운트에 실패하면 스크립트도 실패한다(cloud-init 오류로 드러난다)" t_dv_mount_fail
+if command -v shellcheck >/dev/null 2>&1; then
+  check "TASK-65#3 data-volume.sh shellcheck" shellcheck "$DV"
+fi
+
 echo "platform tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]
