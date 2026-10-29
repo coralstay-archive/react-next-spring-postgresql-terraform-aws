@@ -42,8 +42,10 @@ services:
       nofile:
         soft: 131072
         hard: 131072
+    # VM 루프백에만 연다 — 처음 기동 뒤 자격 증명을 바꾸기 전(admin/admin)에도 VM 밖에서 붙지 못한다(TASK-67 리뷰).
+    # 맥 브라우저·IDE 는 ssh 터널: ssh -N -L 9000:localhost:9000 rocky-dev → http://localhost:9000. 스캐너는 --network host 로 붙는다
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
     volumes:
       - sonarqube_data:/opt/sonarqube/data
       - sonarqube_extensions:/opt/sonarqube/extensions

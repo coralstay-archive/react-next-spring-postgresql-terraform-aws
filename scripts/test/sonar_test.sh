@@ -54,11 +54,13 @@ printf 'podman %s\n' "$*" >>"$FAKE_STATE/calls.log"
 case "$1" in
   compose)
     case " $* " in
+      *" stop "*) rm -f "$FAKE_STATE/sonar" ;;
       *" up "*) [ "${FAKE_COMPOSE_FAIL:-0}" = 1 ] && { echo "Error: fake compose up failed" >&2; exit 1; }; echo running >"$FAKE_STATE/sonar" ;;
       *" down "*) rm -f "$FAKE_STATE/sonar" ;;
       *" ps "*) [ -f "$FAKE_STATE/sonar" ] && printf 'board-sonar-sonarqube-1 running\nboard-sonar-db-1 running\n' ;;
     esac ;;
   ps)
+    [ "${FAKE_PS_FAIL:-0}" = 1 ] && { echo "Error: fake podman ps failed" >&2; exit 125; }
     case " $* " in
       *"com.docker.compose.service=sonarqube"*) [ -f "$FAKE_STATE/sonar" ] && [ "${FAKE_SONARQUBE_EXITED:-0}" != 1 ] && echo aaa111 ;;
       *"com.docker.compose.project=board-sonar"*) [ -f "$FAKE_STATE/sonar" ] && printf 'aaa111\nbbb222\n' ;;
@@ -86,8 +88,10 @@ printf 'curl %s\n' "$path" >>"$S/calls.log"
 printf 'curl-argv %s\n' "$argv" >>"$S/argv.log"
 conf=""; [ -n "$cfg" ] && conf="$(cat "$cfg")"
 printf '%s\n' "$conf" >>"$S/curl-config.log"
-val() { sed -n "s/^$1 = \"\\(.*\\)\"\$/\\1/p" <<<"$conf" | head -n1; }
-form() { sed -n "s/^data-urlencode = \"$1=\\(.*\\)\"\$/\\1/p" <<<"$conf" | head -n1; }
+# curl 설정 값의 이스케이프(\\ \\")를 푼다
+unesc() { sed -e 's/\\"/"/g' -e 's/\\\\/\\/g'; }
+val() { sed -n "s/^$1 = \"\\(.*\\)\"\$/\\1/p" <<<"$conf" | head -n1 | unesc; }
+form() { sed -n "s/^data-urlencode = \"$1=\\(.*\\)\"\$/\\1/p" <<<"$conf" | head -n1 | unesc; }
 adminpw="$(cat "$S/adminpw" 2>/dev/null || echo admin)"; token="$(cat "$S/token" 2>/dev/null || true)"
 user="$(val user)"
 authed() { [ "$user" = "admin:$adminpw" ] || { [ -n "$token" ] && [ "$user" = "$token:" ]; }; }
@@ -102,6 +106,10 @@ case "$path" in
     authed || exit 22
     t="squ_FAKE$RANDOM$RANDOM"; printf '%s' "$t" >"$S/token"; printf '{"login":"admin","name":"%s","token":"%s"}' "$(form name)" "$t" ;;
   /api/user_tokens/revoke | /api/new_code_periods/set) authed || exit 22 ;;
+  # 품질 게이트(CI 래칫): 만든 게이트 이름은 state/gates 에
+  /api/qualitygates/show) authed || exit 22; grep -qx "$(sed -n 's/.*[?&]name=\([^&]*\).*/\1/p' <<<"$url")" "$S/gates" 2>/dev/null || exit 22; echo '{}' ;;
+  /api/qualitygates/create) authed || exit 22; form name >>"$S/gates"; echo '{}' ;;
+  /api/qualitygates/create_condition | /api/qualitygates/select | /api/projects/create) authed || exit 22; echo '{}' ;;
   *) : ;;
 esac
 SH
@@ -116,6 +124,7 @@ printf 'ssh %s\n' "$*" >>"$FAKE_STATE/calls.log"
 case "$*" in
   *meminfo*) echo "${FAKE_VM_MEM_KB:-4760000}" ;;
   *"-E 75"*) exit "$([ "${FAKE_LOCK_BUSY:-0}" = 1 ] && echo 75 || echo 0)" ;;
+  *"com.docker.compose.project=board-sonar"*) [ -n "${FAKE_VM_SONAR:-}" ] && echo "$FAKE_VM_SONAR"; exit "${FAKE_VM_PS_RC:-0}" ;;
   *findmnt*) exit 0 ;;
   *"frontend/node_modules"*) exit 0 ;;
   *"scripts/sonar.sh"*) echo "FAKE-REMOTE-SONAR"; exit "${FAKE_REMOTE_RC:-0}" ;;
@@ -165,7 +174,7 @@ L=scripts/_sonar.sh
 I=deploy/rocky/install.sh
 
 # ================================================================ TASK-67#1 compose(다이제스트 고정) + make sonar-up·sonar-down·sonar-status
-check "TASK-67#1 $C·$S·$L 존재, sonar.sh 는 실행 가능" sh -c "test -f $C && test -x $S && test -f $L && bash -n $S && bash -n $L"
+check "TASK-67#1 ${C}·${S}·${L} 존재, sonar.sh 는 실행 가능" sh -c "test -f $C && test -x $S && test -f $L && bash -n $S && bash -n $L"
 if need_linter yq; then
   t_compose_images() {
     local sq db
@@ -176,7 +185,8 @@ if need_linter yq; then
   check "TASK-67#1 compose: SonarQube Community Build·postgres:18-alpine 를 태그@sha256 다이제스트로 고정" t_compose_images
   t_compose_ports() {
     [ "$(yq -r '.name' $C)" = board-sonar ] || { echo "프로젝트 이름(name)이 board-sonar 가 아니다"; return 1; }
-    [ "$(yq -r '.services.sonarqube.ports | join(",")' $C)" = "9000:9000" ] || { echo "sonarqube 포트는 9000:9000 하나"; return 1; }
+    # VM 루프백에만 연다 — 자격 증명을 바꾸기 전(admin/admin)에도 밖에서 붙지 못한다. 맥은 ssh 터널로(TASK-67 리뷰)
+    [ "$(yq -r '.services.sonarqube.ports | join(",")' $C)" = "127.0.0.1:9000:9000" ] || { echo "sonarqube 포트는 127.0.0.1:9000:9000 하나"; return 1; }
     [ "$(yq -r '.services.db | has("ports")' $C)" = false ] || { echo "db 포트를 열면 안 된다"; return 1; }
     # 데이터는 VM 로컬 이름 있는 볼륨(SELinux 레이블 문제 없음, sonar-down 은 지우지 않는다)
     local v; for v in sonarqube_data sonarqube_extensions sonar_db; do
@@ -187,7 +197,7 @@ if need_linter yq; then
     [ "$(yq -r '.services.sonarqube.depends_on.db.condition' $C)" = service_healthy ] || { echo "db 준비 뒤 기동"; return 1; }
     [ "$(yq -r '.services.sonarqube.environment.SONAR_JDBC_URL' $C)" = "jdbc:postgresql://db:5432/sonar" ] || { echo "JDBC URL"; return 1; }
   }
-  check "TASK-67#1 compose: 프로젝트 board-sonar, 9000 만 공개(db 비공개), 이름 있는 볼륨, db healthy 뒤 기동" t_compose_ports
+  check "TASK-67#1 compose: 프로젝트 board-sonar, 9000 은 VM 루프백(127.0.0.1)에만(db 비공개), 이름 있는 볼륨, db healthy 뒤 기동" t_compose_ports
 fi
 check "TASK-67#1 install.sh dev: compose 공급자(docker-compose 플러그인)를 버전·sha256 고정으로 podman 이 찾는 곳에 설치" sh -c "
   grep -Eq '^COMPOSE_VERSION=\"?[0-9]+\.[0-9]+\.[0-9]+\"?' $I && grep -Eq '^COMPOSE_SHA256=\"?[0-9a-f]{64}\"?' $I \
@@ -200,9 +210,9 @@ t_up_linux() {
   fake_reset
   run_capture sonar_run "$S" up
   rc_is 0 && called "podman compose -p board-sonar -f $ROOT/$C up -d" && called "curl /api/system/status" \
-    && has_text "http://192.168.64.77:9000"
+    && has_text "http://localhost:9000" && has_text "ssh -N -L 9000:localhost:9000 rocky-dev"
 }
-check "TASK-67#1 sonar.sh up(VM 안): podman compose -p board-sonar up -d → /api/system/status UP 대기 → 접속 주소 http://<VM IP>:9000" t_up_linux
+check "TASK-67#1 sonar.sh up(VM 안): podman compose -p board-sonar up -d → /api/system/status UP 대기 → 접속(맥 ssh 터널 → http://localhost:9000)" t_up_linux
 t_up_wait_timeout() {
   fake_reset
   run_capture sonar_run FAKE_SONAR_STATUS=STARTING SONAR_WAIT_TIMEOUT=1 "$S" up
@@ -231,9 +241,9 @@ check "TASK-67#1 sonar.sh down --purge: 볼륨과 VM 설정(~/.config/board-sona
 t_status() {
   fake_reset; echo running >"$FAKE_STATE/sonar"
   run_capture sonar_run "$S" status
-  rc_is 0 && has_text "실행 중" && has_text "http://192.168.64.77:9000" && has_text "1.9GB"
+  rc_is 0 && has_text "실행 중" && has_text "ssh -N -L 9000:localhost:9000 rocky-dev" && has_text "1.9GB"
 }
-check "TASK-67#1 sonar.sh status: 실행 여부·접속 주소(VM IP:9000)·컨테이너 메모리" t_status
+check "TASK-67#1 sonar.sh status: 실행 여부·접속 방법(ssh 터널)·컨테이너 메모리" t_status
 t_status_stopped() {
   fake_reset
   run_capture sonar_run "$S" status
@@ -565,9 +575,9 @@ t_scan_k3s() {
 check "TASK-67#4 TASK-67#B1 sonar-scan 도 k3s 가 떠 있으면 거부한다" t_scan_k3s
 check "TASK-67#4 make sonar-scan → scripts/sonar.sh scan" sh -c "grep -Eq '^sonar-scan:.*## ' Makefile && make -n sonar-scan | grep -q 'scripts/sonar.sh scan'"
 G=backend/build.gradle.kts
-check "TASK-67#4 백엔드: org.sonarqube·jacoco 버전 고정, JaCoCo XML, 에이전트는 -Pcoverage 일 때만(평소 make test 에 부담 없음), projectKey board-backend" sh -c "
+check "TASK-67#4 백엔드: org.sonarqube·jacoco 버전 고정, JaCoCo XML, 에이전트는 -Pcoverage 일 때만(-Pcoverage=false 는 끔)(평소 make test 에 부담 없음), projectKey board-backend" sh -c "
   grep -Eq 'id\(\"org.sonarqube\"\) version \"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\"' $G && grep -Eq 'toolVersion = \"[0-9]+\.[0-9]+\.[0-9]+\"' $G \
-    && grep -q 'xml.required = true' $G && grep -q 'gradleProperty(\"coverage\")' $G && grep -q 'isEnabled' $G \
+    && grep -q 'xml.required = true' $G && grep -q 'gradleProperty(\"coverage\").map { it != \"false\" }.getOrElse(false)' $G && grep -q 'isEnabled' $G \
     && grep -q '\"sonar.projectKey\", \"board-backend\"' $G"
 FP=frontend/sonar-project.properties
 check "TASK-67#4 프론트: sonar-project.properties(board-frontend, lcov), vitest 커버리지(v8, lcov)·test:coverage 스크립트" sh -c "
@@ -577,11 +587,12 @@ check "TASK-67#4 프론트: sonar-project.properties(board-frontend, lcov), vite
 t_cov_pkg_pinned() {
   local v c
   v="$(jq -r '.devDependencies.vitest' frontend/package.json)"; c="$(jq -r '.devDependencies["@vitest/coverage-v8"]' frontend/package.json)"
-  [[ "$c" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "@vitest/coverage-v8 는 정확한 버전으로: $c"; return 1; }
-  [ "$(jq -r '.packages["node_modules/vitest"].version' frontend/package-lock.json)" = "$c" ] || { echo "vitest(lock) 와 coverage-v8 버전이 다르다($v / $c)"; return 1; }
-  [ "$(jq -r '.packages["node_modules/@vitest/coverage-v8"].version' frontend/package-lock.json)" = "$c" ] || { echo "lock 에 coverage-v8 없음"; return 1; }
+  [ "$c" = "$v" ] || { echo "@vitest/coverage-v8 범위($c)가 vitest($v)와 다르다"; return 1; }
+  [ "$(jq -r '.packages["node_modules/vitest"].version' frontend/package-lock.json)" = "$(jq -r '.packages["node_modules/@vitest/coverage-v8"].version' frontend/package-lock.json)" ] \
+    || { echo "lock 의 vitest·coverage-v8 버전이 다르다"; return 1; }
+  [ "$(jq -r '.packages[""].devDependencies["@vitest/coverage-v8"]' frontend/package-lock.json)" = "$c" ] || { echo "lock 이 package.json 과 다르다"; return 1; }
 }
-check "TASK-67#4 @vitest/coverage-v8 은 설치된 vitest 와 같은 정확한 버전(lock 포함)" t_cov_pkg_pinned
+check "TASK-67#4 @vitest/coverage-v8 은 vitest 와 같은 범위, lock 의 설치 버전도 같다" t_cov_pkg_pinned
 SC=deploy/sonar/scanner/Containerfile
 check "TASK-67#4 스캐너 컨테이너: 베이스 이미지 다이제스트 고정 + sonar-scanner-cli jar sha256 고정(ADD --checksum) — 공식 이미지는 amd64 뿐이라 VM(arm64)용으로 빌드, JS 분석용 Node(install.sh 와 같은 버전) 복사" sh -c "
   grep -Eq '^FROM docker\.io/library/node:[0-9.]+-bookworm-slim@sha256:[0-9a-f]{64} AS node$' $SC \
@@ -659,5 +670,56 @@ if command -v yq >/dev/null 2>&1; then
   check "TASK-67#6 트리거: pull_request·workflow_dispatch" sh -c "[ \"\$(yq -r '.on | keys | sort | join(\",\")' $W)\" = pull_request,workflow_dispatch ]"
 fi
 
+# ================================================================ TASK-67 리뷰 반영
+# --- 자격 증명을 못 맞추면 SonarQube 를 멈춘다(기본 admin/admin 인 채로 두지 않는다)
+t_creds_fail_stops() {
+  fake_reset; echo "someone-else-Changed1!" >"$FAKE_STATE/adminpw"
+  run_capture sonar_run "$S" up
+  rc_is 1 && called "compose -p board-sonar -f $ROOT/$C stop" && has_text "멈췄다"
+}
+check "TASK-67#4 TASK-67#B2 관리자 비밀번호·토큰을 맞추지 못하면 SonarQube 컨테이너를 멈추고 크게 실패한다" t_creds_fail_stops
+t_creds_escape() {
+  # 사람이 적어 둔 비밀번호에 " \ 가 있어도 curl 설정(-K)이 깨지지 않는다
+  fake_reset; mkdir -p "$CFG_DIR"; local pw='pa"ss\wd-Aa1-long'
+  printf '%s' "$pw" >"$CFG_DIR/admin-password"; printf '%s' "$pw" >"$FAKE_STATE/adminpw"
+  run_capture sonar_run "$S" up
+  rc_is 0 && not_called "curl /api/users/change_password" && called "curl /api/user_tokens/generate" \
+    && grep -qF 'user = "admin:pa\"ss\\wd-Aa1-long"' "$FAKE_STATE/curl-config.log"
+}
+check "TASK-67#4 curl 설정 값은 \\ 와 \" 를 이스케이프한다" t_creds_escape
+# --- 잠금·런타임 확인이 실패하면 "없음"으로 보지 않는다(실패 쪽으로 닫힌다)
+t_lock_check_error() {
+  fake_reset
+  run_capture sonar_run VM_LOCK_FILE=/nonexistent-dir-board/x.lock "$S" up
+  rc_is 1 && has_text "잠금" && has_text "확인하지 못했다" && not_called "compose -p board-sonar -f $ROOT/$C up"
+}
+check "TASK-67#2 TASK-67#B1 잠금 확인이 0·75 가 아닌 코드로 끝나면(파일을 못 연다 등) 거부한다" t_lock_check_error
+t_ps_error_up() {
+  fake_reset
+  run_capture sonar_run FAKE_PS_FAIL=1 "$S" up
+  rc_is 1 && has_text "확인하지 못했다" && not_called "compose -p board-sonar -f $ROOT/$C up"
+}
+check "TASK-67#2 TASK-67#B1 컨테이너 목록(podman ps)이 실패하면 sonar-up 은 거부한다" t_ps_error_up
+t_ps_error_refuse() {
+  fake_reset
+  run_capture sonar_run FAKE_PS_FAIL=1 "$S" refuse-if-running "make test"
+  rc_is 1 && has_text "확인하지 못했다" && has_text "make test"
+}
+check "TASK-67#2 TASK-67#B1 역방향: podman ps 가 실패하면 '안 떠 있음'으로 보지 않고 거부한다" t_ps_error_refuse
+# --- 맥에서 부른 역방향 검사(k3d 진입점 등)는 VM 안 Podman 을 본다
+t_refuse_mac() {
+  fake_reset
+  run_capture mac_run FAKE_VM_SONAR=abc "$S" refuse-if-running "make k3d-up"
+  rc_is 1 && has_text "make sonar-down" && has_text "make k3d-up" && called "com.docker.compose.project=board-sonar" || return 1
+  fake_reset
+  run_capture mac_run "$S" refuse-if-running "make k3d-up"
+  rc_is 0 || return 1
+  fake_reset
+  run_capture mac_run FAKE_VM_PS_RC=125 "$S" refuse-if-running "make k3d-up"
+  rc_is 1 && has_text "확인하지 못했다"
+}
+check "TASK-67#2 TASK-67#B1 맥: refuse-if-running 은 ssh 로 VM 안 SonarQube 를 확인한다(떠 있거나 확인 실패면 거부)" t_refuse_mac
+check "TASK-67#2 TASK-67#B1 k3d 진입점(up·profile·smoke)의 k3d_preflight 도 SonarQube 가 떠 있으면 거부한다" \
+  grep -q 'scripts/sonar.sh" refuse-if-running' scripts/_k3d.sh
 echo "sonar tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

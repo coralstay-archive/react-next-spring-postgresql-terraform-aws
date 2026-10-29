@@ -64,6 +64,7 @@ case "${1:-}" in
         echo "${FAKE_DOCKER_MEM:-5150000000}" ;;
   ps) case " $* " in
         *"label=k3d.cluster="*) for id in ${FAKE_K3D_CONTAINERS:-}; do echo "$id"; done ;;
+        *"com.docker.compose.project=board-sonar"*) for id in ${FAKE_SONAR:-}; do echo "$id"; done ;;
         *) for id in ${FAKE_TC:-}; do echo "$id"; done ;;
       esac ;;
   stop) if [ "${FAKE_DOCKER_STOP_FAIL:-0}" = 1 ]; then echo "Error response from daemon: fake stop failed" >&2; exit 1; fi ;;
@@ -129,7 +130,7 @@ calls() { cat "$FAKE_STATE/calls.log"; }
 k3d_run() {
   env -u FORCE -u PROFILES -u SKIP_BUILD -u K3D_BUDGETS_FILE -u K3D_PROFILES_DIR -u POSTGRES_PASSWORD -u DB_URL \
     -u POSTGRES_DB -u POSTGRES_USER -u MINIO_ROOT_USER -u MINIO_ROOT_PASSWORD -u JWT_SECRET -u OTP_HASH_KEY \
-    SMOKE_TIMEOUT=0 K3D_WAIT_TIMEOUT=1s PATH="$FAKE/bin:$PATH" "$@"
+    SMOKE_TIMEOUT=0 K3D_WAIT_TIMEOUT=1s SONAR_CONTAINER_CLI=docker PATH="$FAKE/bin:$PATH" "$@"
 }
 # 호출 기록에 줄(부분 문자열)이 있는지/없는지
 called() { grep -qF -- "$1" "$FAKE_STATE/calls.log" || { echo "호출 없음: $1"; calls; return 1; }; }
@@ -171,6 +172,18 @@ t_up_tc() {
     && not_called "k3d cluster create" && not_called "docker build"
 }
 check "TASK-36#7 make k3d-up: Testcontainers 컨테이너(label org.testcontainers=true)가 떠 있으면 실패(이유·해결법)" t_up_tc
+t_up_sonar() {
+  # TASK-67 B1: SonarQube(board-sonar)가 떠 있으면 k3d 를 띄우지 않는다(반대 방향은 make sonar-up 의 사전 검사)
+  local sub
+  for sub in up profile smoke; do
+    fake_reset; [ "$sub" = up ] || echo running >"$FAKE_STATE/k3d"
+    run_capture k3d_run FAKE_SONAR="sq1 db1" FAKE_ACTIVE_PROFILES=core PROFILES=core ./scripts/k3d.sh "$sub"
+    if ! { rc_is 1 && has_text "make sonar-down" && not_called "k3d cluster create" && not_called "kubectl --context k3d-board apply" && not_called "curl"; }; then
+      echo "k3d $sub"; return 1
+    fi
+  done
+}
+check "TASK-67#2 TASK-67#B1 make k3d-up·k3d-profile·k3d-smoke: SonarQube 가 떠 있으면 make sonar-down 을 안내하고 실패" t_up_sonar
 t_up_budget() {
   fake_reset
   run_capture k3d_run K3D_BUDGETS_FILE="$BUD" K3D_PROFILES_DIR="$PDIR" PROFILES=core,big ./scripts/k3d.sh up

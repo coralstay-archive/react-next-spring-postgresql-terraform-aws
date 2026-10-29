@@ -249,9 +249,12 @@ make k3d-down                     # 클러스터 삭제(데이터까지)
 
 SonarQube Community Build 를 Rocky 개발 VM 안 Podman 에 **단독**으로 띄워 분석하고, IDE 는 SonarQube for IDE(옛 SonarLint) 연결 모드로 붙인다.
 서비스는 [`deploy/sonar/compose.yaml`](deploy/sonar/compose.yaml)(SonarQube 26.10 Community·postgres:18-alpine, 태그@sha256 고정, DB 포트 비공개, 이름 있는 볼륨).
+9000 은 VM 의 `127.0.0.1` 에만 연다 — 처음 기동 뒤 관리자 비밀번호를 바꾸기 전(admin/admin)에도 VM 밖(같은 네트워크)에서 붙지 못한다.
+맥에서는 ssh 터널로 `http://localhost:9000` 에 붙는다(`make sonar-status` 가 안내한다). 비밀번호·토큰을 맞추지 못하면 sonar-up 이 SonarQube 를 멈추고 실패한다.
 
 ```bash
-make sonar-up       # 사전 검사 → podman compose up → UP 대기 → (처음) 관리자 비밀번호·분석 토큰 → http://<VM IP>:9000
+make sonar-up       # 사전 검사 → podman compose up → UP 대기 → (처음) 관리자 비밀번호·분석 토큰
+ssh -N -L 9000:localhost:9000 rocky-dev   # 맥 브라우저·IDE 용 터널(9000 은 VM 루프백에만 열린다) → http://localhost:9000
 make sonar-scan     # 백엔드(gradle JaCoCo XML + org.sonarqube) → 프론트(vitest lcov + 스캐너 컨테이너), 품질 게이트 실패면 non-zero
 make sonar-status   # 실행 여부·접속 주소·컨테이너 메모리
 make sonar-down     # 내리기(메모리 회수, 분석 이력은 남는다). make sonar-down PURGE=1 은 볼륨·VM 설정까지 지운다
@@ -259,7 +262,7 @@ make sonar-down     # 내리기(메모리 회수, 분석 이력은 남는다). m
 
 - **단독 모드(스크립트가 강제한다)**: `make sonar-up` 은 k3s·k3d 실행 중, make test 잠금(`/tmp/board-repo-test.lock`)·Testcontainers 컨테이너,
   VM 사용 가능 메모리(MemAvailable) < 2600 MiB(`deploy/k8s/budgets.txt` 의 `sonar`)이면 이유·해결을 출력하고 실패한다. 반대로
-  `make test`·`test-integration`·`backend-test`·`backend-build`·`e2e` 는 SonarQube 가 떠 있으면 `make sonar-down` 을 안내하고 실패한다 —
+  `make test`·`test-integration`·`backend-test`·`backend-build`·`e2e`·`k3d-up`·`k3d-profile`·`k3d-smoke` 는 SonarQube 가 떠 있으면(또는 확인하지 못하면) `make sonar-down` 을 안내하고 실패한다 —
   **커밋 훅의 make test 도 막히므로 분석이 끝나면 내린다**. 힙은 web·ce·search 모두 `-Xmx384m`(기본 512m), 기동 직후 실측
   SonarQube + DB 약 2000 MiB(`sonar-rss`). `make sonar-scan` 은 SonarQube 를 띄운 채 gradle test(Testcontainers)를 돌리므로 시작할 때
   남은 Gradle 데몬을 내리고 `--no-daemon` 으로 돈다.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SonarQube 로컬 공통 함수 (TASK-67). source 해서 쓴다(scripts/sonar.sh). scripts/_vm.sh 를 먼저 source 한다.
 #   sonar_compose <인자...>   podman compose -p board-sonar -f deploy/sonar/compose.yaml <인자...> (podman 이 없으면 docker compose)
-#   sonar_running             board-sonar 컨테이너가 하나라도 떠 있으면 0
+#   sonar_running             board-sonar 컨테이너가 하나라도 떠 있으면 0, 없으면 1, 확인하지 못하면(podman ps 실패) 2
 #   sonar_wait_up             /api/system/status 가 UP 이 될 때까지(SONAR_WAIT_TIMEOUT 초) 기다린다
 #   sonar_preflight [--no-mem]  단독 모드(B1, TASK-67#2): k3s·k3d 실행 중, make test 잠금(VM_LOCK_FILE)·Testcontainers, VM 사용 가능 메모리
 #                             (MemAvailable) < budgets.txt sonar 면 이유·해결을 모두 출력하고 실패. SONAR_LOCK_HELD=1(맥 프록시가 그 잠금
@@ -9,8 +9,9 @@
 #   sonar_ensure_credentials  (B2, TASK-67#4) 관리자 비밀번호를 API 로 무작위 값으로 바꾸고 분석 토큰(GLOBAL_ANALYSIS_TOKEN)을 만들어
 #                             SONAR_CONFIG_DIR(기본 VM 의 ~/.config/board-sonar, 0700/0600)에만 둔다. 다시 돌리면 저장값을 확인만 한다.
 #                             비밀값은 출력하지 않고 curl 인자에도 싣지 않는다(-K 설정을 프로세스 치환으로). 새 코드 기준은 PREVIOUS_VERSION
-#   sonar_refuse_if_running <누가>  역방향: SonarQube 가 떠 있으면 make sonar-down 을 안내하고 실패(make test 등 진입점이 부른다)
-# 테스트용 환경변수: SONAR_CONTAINER_CLI(podman|docker), SONAR_WAIT_TIMEOUT·SONAR_WAIT_INTERVAL(초), SONAR_PUBLIC_HOST(접속 주소의 호스트),
+#   sonar_refuse_if_running <누가>  역방향: SonarQube 가 떠 있으면(또는 확인하지 못하면) make sonar-down 을 안내하고 실패(make test·
+#                             k3d 진입점이 부른다). 맥에서 부르면 ssh 로 VM 안 Podman 을 본다
+# 테스트용 환경변수: SONAR_CONTAINER_CLI(podman|docker), SONAR_WAIT_TIMEOUT·SONAR_WAIT_INTERVAL(초),
 #   SONAR_MEMINFO(/proc/meminfo 대신)
 
 SONAR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -42,22 +43,23 @@ sonar_compose() {
   "$cli" compose -p "$SONAR_PROJECT" -f "$SONAR_COMPOSE_FILE" "$@"
 }
 
-# 라벨(여러 개면 모두 맞는 것)로 찾은 실행 중 컨테이너 id(런타임이 없으면 빈 값)
+# 라벨(여러 개면 모두 맞는 것)로 찾은 실행 중 컨테이너 id. 런타임이 없으면 빈 값(CI·맥), ps 가 실패하면 1(모른다 — "없음"이 아니다)
 sonar_ids_by_label() {
   local cli l f=(); cli="$(sonar_cli)"
   [ -n "$cli" ] || return 0
   for l in "$@"; do f+=(--filter "label=$l"); done
-  "$cli" ps -q "${f[@]}" 2>/dev/null || true
+  "$cli" ps -q "${f[@]}"
 }
 
-sonar_running() { [ -n "$(sonar_ids_by_label "com.docker.compose.project=$SONAR_PROJECT")" ]; }
-
-# 맥 브라우저가 붙을 주소: VM 의 첫 IPv4(hostname -I)
-sonar_public_url() {
-  local host="${SONAR_PUBLIC_HOST:-}"
-  [ -n "$host" ] || host="$(hostname -I 2>/dev/null | awk '{ print $1 }')"
-  printf 'http://%s:9000' "${host:-<VM IP>}"
+sonar_running() {
+  local ids
+  ids="$(sonar_ids_by_label "com.docker.compose.project=$SONAR_PROJECT")" || return 2
+  [ -n "$ids" ]
 }
+
+# 맥 브라우저·IDE 접속(9000 은 VM 루프백에만 열려 있다)
+# shellcheck disable=SC2034 # scripts/sonar.sh 가 쓴다
+SONAR_TUNNEL_HINT="맥에서 ssh -N -L 9000:localhost:9000 rocky-dev 를 열고 http://localhost:9000"
 
 sonar_status_value() { curl -fsS --max-time 5 "$SONAR_HOST_URL/api/system/status" 2>/dev/null | jq -r '.status // empty' 2>/dev/null || true; }
 
@@ -94,8 +96,10 @@ sonar_preflight() {
     reasons+=("k3s 가 실행 중이다 — 5GB VM 에서 SonarQube(약 $(vm_budget sonar-rss) MiB)와 k3s 를 같이 띄우지 않는다.
      해결: sudo systemctl stop k3s 로 멈춘 뒤 다시(쓰고 나서 make sonar-down → k3s 다시 시작)")
   fi
-  k3d="$(sonar_ids_by_label k3d.cluster)"
-  if [ -n "$k3d" ]; then
+  if ! k3d="$(sonar_ids_by_label k3d.cluster)"; then
+    reasons+=("컨테이너 목록($(sonar_cli) ps)을 확인하지 못했다 — k3d·Testcontainers·SonarQube 가 떠 있는지 모른 채 띄우지 않는다.
+     해결: $(sonar_cli) ps 오류를 고친다(Podman 사용자 소켓: systemctl --user status podman.socket)")
+  elif [ -n "$k3d" ]; then
     reasons+=("k3d 클러스터 컨테이너가 떠 있다(label k3d.cluster).
      해결: make k3d-stop 뒤 다시")
   fi
@@ -104,9 +108,12 @@ sonar_preflight() {
     if [ "$rc" = 75 ]; then
       reasons+=("make test(또는 다른 VM 실행)가 돌고 있다(잠금 $VM_LOCK_FILE) — 테스트(Testcontainers)와 SonarQube 를 같이 띄우지 않는다.
      해결: 끝날 때까지 기다린 뒤 다시. 남은 프로세스 보기: ps -eo pid,etime,args --forest")
+    elif [ "$rc" != 0 ]; then
+      reasons+=("make test 잠금($VM_LOCK_FILE)을 확인하지 못했다(flock 종료 코드 $rc) — 테스트가 도는지 모른 채 띄우지 않는다.
+     해결: 잠금 파일·디렉터리 권한을 확인한다(ls -l $VM_LOCK_FILE)")
     fi
   fi
-  tc="$(sonar_ids_by_label org.testcontainers=true | awk 'NF' | wc -l | tr -d ' ')"
+  tc="$({ sonar_ids_by_label org.testcontainers=true || true; } | awk 'NF' | wc -l | tr -d ' ')"
   if [ "$tc" -gt 0 ]; then
     reasons+=("Testcontainers 컨테이너 ${tc}개가 실행 중이다(label org.testcontainers=true — make test·test-integration).
      해결: 테스트가 끝나길 기다린다. 남은 컨테이너라면: $(sonar_cli) rm -f \$($(sonar_cli) ps -q --filter label=org.testcontainers=true)")
@@ -131,18 +138,30 @@ sonar_preflight() {
 }
 
 sonar_refuse_if_running() {
-  local who="${1:-이 명령}"
-  sonar_running || return 0
+  local who="${1:-이 명령}" rc=0 ids
+  if vm_on_mac; then
+    # 맥(k3d 진입점 등): SonarQube 는 VM 안에 있다 — VM 이 꺼져 있으면 떠 있을 수 없다
+    [ "$(vm_state)" = started ] || return 0
+    ids="$(vm_ssh podman ps -q --filter "label=com.docker.compose.project=$SONAR_PROJECT" 2>/dev/null)" || rc=2
+    [ "$rc" = 0 ] && { [ -n "$ids" ] || rc=1; }
+  else
+    sonar_running || rc=$?
+  fi
+  [ "$rc" = 1 ] && return 0
+  [ "$rc" = 2 ] && sonar_die "SonarQube($SONAR_PROJECT)가 떠 있는지 확인하지 못했다(podman ps 실패) — $who 를 하지 않는다(TASK-67 B1).
+  해결: podman ps 오류를 고친 뒤 다시(VM 안: systemctl --user status podman.socket)"
   sonar_die "SonarQube($SONAR_PROJECT)가 떠 있다(약 $(vm_budget sonar-rss) MiB) — $who 와 같이 띄우지 않는다(5GB VM, TASK-67 B1).
   해결: make sonar-down 뒤 다시 (분석 이력은 남는다)"
 }
 
 # ---------------------------------------------------------------- 관리자 비밀번호·분석 토큰(B2)
 # sonar_api <메서드> <경로> <user:password> [폼 k=v...] — 인증·폼은 curl 설정(-K, 프로세스 치환)으로만 넘긴다(ps 에 보이지 않게)
+# curl 설정 값 이스케이프(\ → \\, " → \")
+sonar_cfg_esc() { local v="${1//\\/\\\\}"; printf '%s' "${v//\"/\\\"}"; }
 sonar_api() {
   local m="$1" p="$2" auth="$3" f; shift 3
-  curl -fsS --max-time 30 -X "$m" -K <(printf 'user = "%s"\n' "$auth"; for f in "$@"; do printf 'data-urlencode = "%s"\n' "$f"; done) \
-    "$SONAR_HOST_URL$p"
+  curl -fsS --max-time 30 -X "$m" -K <(printf 'user = "%s"\n' "$(sonar_cfg_esc "$auth")"
+    for f in "$@"; do printf 'data-urlencode = "%s"\n' "$(sonar_cfg_esc "$f")"; done) "$SONAR_HOST_URL$p"
 }
 sonar_valid() { sonar_api GET /api/authentication/validate "$1" 2>/dev/null | jq -e '.valid == true' >/dev/null 2>&1; }
 # SonarQube 규칙: 12자 이상, 대·소문자·숫자·특수문자
@@ -193,3 +212,4 @@ sonar_token() {
   if [ -n "${SONAR_TOKEN:-}" ]; then printf '%s' "$SONAR_TOKEN"; return 0; fi
   cat "$SONAR_CONFIG_DIR/token" 2>/dev/null || true
 }
+

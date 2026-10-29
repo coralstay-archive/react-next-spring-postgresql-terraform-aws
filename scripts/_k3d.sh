@@ -79,6 +79,12 @@ k3d_preflight() {
      해결: 테스트가 끝나길 기다린다. 남은 컨테이너라면: docker rm -f \$(docker ps -q --filter label=org.testcontainers=true)")
   fi
 
+  # TASK-67 B1: SonarQube(VM 안 board-sonar)가 떠 있으면(또는 확인하지 못하면) 같이 띄우지 않는다(5GB VM). k3s 로 바뀌어도 그대로 쓴다
+  local sonar_out
+  if ! sonar_out="$("$K3D_ROOT/scripts/sonar.sh" refuse-if-running "make k3d-*" 2>&1)"; then
+    reasons+=("${sonar_out#"ERROR: [sonar] "}")
+  fi
+
   # 3) 프로필 예산 합계 ≤ 상한(FORCE=1 만 통과)
   for p in "${profiles[@]}"; do
     b="$(k3d_profile_budget "$p")"

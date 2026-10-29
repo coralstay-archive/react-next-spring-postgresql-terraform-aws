@@ -30,7 +30,9 @@ esac
 vm_proxy_if_mac "SONAR_LOCK_HELD=1 ./scripts/sonar.sh $(printf '%q ' "$@")"
 
 cmd_up() {
-  if sonar_running; then
+  local rc=0; sonar_running || rc=$?
+  [ "$rc" = 2 ] && sonar_die "컨테이너 목록($(sonar_cli) ps)을 확인하지 못했다 — 띄우지 않는다. 해결: VM 안 systemctl --user status podman.socket"
+  if [ "$rc" = 0 ]; then
     sonar_log "이미 떠 있다 — 사전 검사(메모리)는 건너뛰고 상태만 맞춘다"
     sonar_preflight --no-mem
   else
@@ -39,8 +41,12 @@ cmd_up() {
   sonar_log "SonarQube 기동(podman compose -p $SONAR_PROJECT, $SONAR_COMPOSE_FILE)"
   sonar_compose up -d
   sonar_wait_up
-  sonar_ensure_credentials
-  sonar_log "준비됐다: $(sonar_public_url) (맥 브라우저) · 분석: make sonar-scan · 상태: make sonar-status · 내리기: make sonar-down"
+  # 자격 증명을 맞추지 못하면 기본 admin/admin 인 채로 두지 않는다 — 멈추고 크게 실패한다
+  if ! (sonar_ensure_credentials); then
+    sonar_compose stop || true
+    sonar_die "관리자 비밀번호·분석 토큰을 맞추지 못해 SonarQube 를 멈췄다(위 오류). 고친 뒤 다시 make sonar-up"
+  fi
+  sonar_log "준비됐다: $SONAR_TUNNEL_HINT · 분석: make sonar-scan · 상태: make sonar-status · 내리기: make sonar-down"
   sonar_log "UI 로그인: admin / 비밀번호는 출력하지 않는다 — 보기: ssh $VM_SSH_HOST cat ~/.config/board-sonar/admin-password"
 }
 
@@ -73,7 +79,7 @@ cmd_scan() {
       -e SONAR_TOKEN -e SONAR_HOST_URL -v "$ROOT:/usr/src" -w /usr/src/frontend "$SONAR_SCANNER_IMAGE" \
       -Dsonar.projectBaseDir=/usr/src/frontend -Dsonar.qualitygate.wait=true || rc_f=$?
   fi
-  echo "==> [sonar] 결과: board-backend $([ "$rc_b" = 0 ] && echo 통과 || echo "실패(rc=$rc_b)") · board-frontend $([ "$rc_f" = 0 ] && echo 통과 || echo "실패(rc=$rc_f)") — $(sonar_public_url)/projects" >&2
+  echo "==> [sonar] 결과: board-backend $([ "$rc_b" = 0 ] && echo 통과 || echo "실패(rc=$rc_b)") · board-frontend $([ "$rc_f" = 0 ] && echo 통과 || echo "실패(rc=$rc_f)") — $SONAR_HOST_URL/projects" >&2
   [ "$rc_b" = 0 ] && [ "$rc_f" = 0 ]
 }
 
@@ -89,12 +95,14 @@ cmd_down() {
 }
 
 cmd_status() {
-  if ! sonar_running; then
+  local rc=0; sonar_running || rc=$?
+  [ "$rc" = 2 ] && sonar_die "컨테이너 목록($(sonar_cli) ps)을 확인하지 못했다"
+  if [ "$rc" != 0 ]; then
     echo "SonarQube($SONAR_PROJECT): 꺼져 있다 — 띄우기: make sonar-up"
     return 0
   fi
   echo "SonarQube($SONAR_PROJECT): 실행 중 (서버 상태: $(sonar_status_value | grep . || echo '응답 없음'))"
-  echo "  접속: $(sonar_public_url) (맥 브라우저) — 관리자 admin, 비밀번호는 출력하지 않는다: ssh $VM_SSH_HOST cat ~/.config/board-sonar/admin-password"
+  echo "  접속: $SONAR_TUNNEL_HINT (9000 은 VM 루프백에만) — 관리자 admin, 비밀번호는 출력하지 않는다: ssh $VM_SSH_HOST cat ~/.config/board-sonar/admin-password"
   echo "  컨테이너 메모리:"
   local ids; mapfile -t ids < <(sonar_ids_by_label "com.docker.compose.project=$SONAR_PROJECT")
   "$(sonar_cli)" stats --no-stream --format '{{.Name}} {{.MemUsage}}' "${ids[@]}" 2>/dev/null | sed 's/^/    /' || true
