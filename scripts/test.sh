@@ -34,6 +34,9 @@ echo "==> vm"
 echo "==> platform"
 "$ROOT/scripts/test/platform_test.sh"
 
+echo "==> cost"
+"$ROOT/scripts/test/cost_test.sh"
+
 echo "==> terraform"
 if command -v terraform >/dev/null 2>&1; then
   # provider 는 모듈마다 받지 않고 캐시를 같이 쓴다. 테스트는 mock_provider 라 AWS 자격 증명이 필요 없다.

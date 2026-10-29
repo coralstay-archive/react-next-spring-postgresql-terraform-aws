@@ -1,10 +1,10 @@
 ---
 id: TASK-66
 title: '[비용] Infracost 로컬·CI'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 03:25'
+updated_date: '2026-10-29 06:56'
 labels:
   - cost
   - platform
@@ -41,3 +41,21 @@ Terraform 변경의 월 비용을 로컬(make cost, VM 안)과 CI(PR 코멘트)�
 - [ ] #4 scripts/cost-guard.sh: breakdown JSON 의 totalMonthlyCost 가 상한(기본 30 USD, 변수로 조정)을 넘으면 실패. 샘플 JSON 으로 셸 테스트를 고정해 make test 에서 오프라인으로 돈다
 - [ ] #5 CI: infra 변경 PR 에 비용 표·차이를 코멘트하고 cost-guard 실행(GitHub secret INFRACOST_API_KEY, 없으면 건너뜀), actionlint 통과
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+## 구현 계획 (승인된 계획 2026-10-29)
+1. AC#1 infracost CLI 고정 버전: deploy/rocky/install.sh dev 프로필의 고정 버전 목록에 추가(arm64 릴리스 tarball + sha256 검증, 이미 같은 버전이면 건너뜀). CI 는 같은 버전·체크섬으로 내려받는 스크립트(scripts/ci/install-infracost.sh)를 공유.
+2. AC#2 infracost.yml(projects: infra/platform — envs/prod.tfvars, 비교용 infra/main) + infracost-usage.yml(월 가동 시간 730, 데이터·루트 볼륨 스냅샷 크기, 데이터 전송량). 스팟 반영은 키를 등록한 뒤 실측해서 노트에 기록하고, 반영되지 않으면 usage 파일·README 로 보정.
+3. AC#3 make cost·make cost-diff: scripts/cost.sh(맥에서는 vm_proxy_if_mac 로 VM 안 실행). 키가 없으면(infracost configure get api_key 비어 있음, INFRACOST_API_KEY 없음) 경고 후 0 으로 건너뜀. cost-diff 는 main 브랜치 기준 breakdown JSON 과 비교. 키 등록 방법 README.
+4. AC#4 scripts/cost-guard.sh <breakdown.json> [상한, 기본 30]: totalMonthlyCost 를 jq 로 읽어 상한 초과면 실패, 형식 오류도 실패. scripts/test/cost_test.sh 가 샘플 JSON(fixtures)으로 고정, test.sh 가 부른다(오프라인).
+5. AC#5 .github/workflows/cost.yml: infra/** 변경 PR 에서 breakdown·diff → infracost comment github(PR 코멘트), cost-guard. 키(secret INFRACOST_API_KEY) 없으면 건너뜀. permissions 최소(pull-requests: write, contents: read), actionlint 통과.
+- 실제 AWS 호출 없음. Infracost 는 리소스 메타데이터만 가격 API 로 보낸다(유저 승인). 구현은 서브에이전트, 부모가 make test 재검증 → 독립 리뷰 → Done.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC#1: infracost v0.10.47 고정 — install.sh dev 프로필(arm64 tarball + sha256, installed/mark 로 같은 버전 건너뜀), CI 는 scripts/ci/install-infracost.sh(arm64·amd64 sha256, 같은 버전이면 건너뜀). sha256 은 릴리스의 .sha256 파일과 내려받은 파일 해시가 같음을 확인. VM 재설치 후 infracost --version = v0.10.47 확인. cost_test.sh 10개(가짜 curl·uname: sha 불일치 실패·arch 선택·건너뜀·shellcheck). 참고: infracost 가 v2.x(infracost/cli) 업데이트를 안내하지만 계획대로 v0.10.x 고정.
+<!-- SECTION:NOTES:END -->

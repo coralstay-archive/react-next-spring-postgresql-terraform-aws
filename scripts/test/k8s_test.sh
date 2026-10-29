@@ -329,7 +329,7 @@ TR="$TMP/tr"
 mkdir -p "$TR/scripts/test" "$TR/backend" "$TR/frontend" "$TR/infra" "$TR/bin"
 cp scripts/test.sh scripts/test-integration.sh scripts/e2e.sh scripts/_proc.sh scripts/k3d.sh scripts/_k3d.sh scripts/_vm.sh "$TR/scripts/"
 mkdir -p "$TR/deploy/k8s"; cp deploy/k8s/budgets.txt "$TR/deploy/k8s/"
-for s in repo_test deploy_test tools_test k8s_test vm_test platform_test; do
+for s in repo_test deploy_test tools_test k8s_test vm_test platform_test cost_test; do
   printf '#!/usr/bin/env bash\necho "suite %s" >>"$FAKE_STATE/calls.log"\n' "$s" >"$TR/scripts/test/$s.sh"
 done
 # FAKE_RESTART_K3D=1: 테스트 도중 누가 클러스터를 다시 띄운 상황(시작 검사와 백엔드 테스트 사이의 TOCTOU)

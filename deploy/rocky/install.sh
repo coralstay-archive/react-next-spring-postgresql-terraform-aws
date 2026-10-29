@@ -3,14 +3,15 @@
 # AWS Rocky EC2(TASK-52, user-data)가 같은 스크립트를 쓴다. root 로 실행한다. 다시 돌려도 된다(설치된 고정 버전은 건너뛴다).
 #   --profile server   Podman(사용자 소켓)·git·make·rsync·jq 등 공통 — 운영 호스트
 #   --profile dev      server + 개발 도구(Java 25 Temurin·Node·clang/llvm/libbpf-devel/bpftool/kernel-devel·kubectl·kubeconform·yq·
-#                      ShellCheck·actionlint·terraform·graphviz) + 저장소 공유(VirtioFS → /repo) + VM 로컬 빌드 디렉터리
+#                      ShellCheck·actionlint·terraform·infracost·graphviz) + 저장소 공유(VirtioFS → /repo) + VM 로컬 빌드 디렉터리
 #   --user <이름>      Podman 사용자 소켓·linger 를 켤 사용자(필수)
 #   --share-tag/--share-path  dev 의 VirtioFS 태그(UTM 기본 share)와 저장소 위치(기본 /repo). 태그는 /mnt/share 에 마운트하고 그 안의
 #                      저장소 디렉터리를 /repo 로 bind 한다(UTM Apple Virtualization 백엔드는 고른 폴더를 태그 루트의 하위 디렉터리로 내보낸다)
 # SELinux 는 enforcing 그대로 둔다 — 끄지 않고, enforcing 이 아니면 실패한다. 저장소 공유는 context=container_file_t 로 마운트해서
 # Podman 볼륨으로 써도 거부되지 않게 한다.
 # 고정 버전은 아래 *_VERSION·*_SHA256(aarch64 — 개발 VM·t4g EC2). 버전을 올릴 때는 sha256 도 같이 바꾸고, CI(ci.yml)에도 있는
-# 도구(shellcheck·kubeconform·yq)는 같은 버전으로 맞춘다(scripts/test/vm_test.sh 가 비교한다).
+# 도구(shellcheck·kubeconform·yq)는 같은 버전으로 맞춘다(scripts/test/vm_test.sh 가 비교한다). infracost 는 CI 설치 스크립트
+# (scripts/ci/install-infracost.sh)와 같은 버전·sha256 이다(scripts/test/cost_test.sh 가 비교한다).
 set -euo pipefail
 
 KUBECTL_VERSION="1.37.1"
@@ -27,6 +28,8 @@ ACTIONLINT_VERSION="1.7.12"
 ACTIONLINT_SHA256="325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6"
 TERRAFORM_VERSION="1.16.0"
 TERRAFORM_SHA256="60f86cea49a653e22a93c000f16cbfa391ce41c6f6a11d36557c35da411f684c"
+INFRACOST_VERSION="0.10.47"
+INFRACOST_SHA256="1db33dddcac989f39687fa9bf00ed9d8cce4268450578848e5bf6287ad8a7b44"
 TEMURIN_PACKAGE="temurin-25-jdk-25.0.5.0.0.8"
 
 PROFILE=""; TARGET_USER=""; SHARE_TAG="share"; SHARE_PATH="/repo"
@@ -277,6 +280,14 @@ if ! installed "terraform-$TERRAFORM_VERSION"; then
   unzip -o -q "$tmp/terraform.zip" terraform -d "$tmp"
   install -m 0755 "$tmp/terraform" /usr/local/bin/terraform
   mark "terraform-$TERRAFORM_VERSION"
+fi
+# TASK-66#1 비용 추정(make cost). 가격 API 키는 VM 안에서 infracost configure set api_key 로 따로 넣는다(README 비용 추정)
+if ! installed "infracost-$INFRACOST_VERSION"; then
+  log "infracost v$INFRACOST_VERSION"
+  fetch "https://github.com/infracost/infracost/releases/download/v$INFRACOST_VERSION/infracost-linux-arm64.tar.gz" "$INFRACOST_SHA256" "$tmp/infracost.tar.gz"
+  tar -xzf "$tmp/infracost.tar.gz" -C "$tmp" infracost-linux-arm64
+  install -m 0755 "$tmp/infracost-linux-arm64" /usr/local/bin/infracost
+  mark "infracost-$INFRACOST_VERSION"
 fi
 
 # ---------------------------------------------------------------- 저장소 공유(VirtioFS) + VM 로컬 빌드 디렉터리(dev) — 위 dev_share_setup
