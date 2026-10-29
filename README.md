@@ -709,6 +709,19 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
 - **계산하지 않는 것**: 데이터 볼륨 DLM 스냅샷(`aws_dlm_lifecycle_policy` 미지원 — 증분 수 GB × $0.05, $0.5 미만), Cognito MAU·SMS
   건당 요금(사용량), Budgets(2개까지 무료). 상한($30)은 이 몫을 남겨 둔 값이다. 실제 금액은 TASK-52 apply 뒤 Cost Explorer 로 맞춰 본다.
 
+```bash
+make cost                   # breakdown 표 + 상한 검사(scripts/cost-guard.sh, platform 프로젝트). make cost COST_LIMIT=25
+make cost-diff              # main 대비 차이. make cost-diff COST_BASE=<브랜치·커밋>
+```
+
+- 맥에서 실행하면 Rocky 개발 VM 안에서 돈다(`make test` 와 같은 `vm_proxy_if_mac`). infracost(v0.10.47 고정)는 `deploy/rocky/install.sh` dev 프로필이 설치한다.
+- **API 키(무료) 등록 — VM 안에서 한 번**: `ssh rocky-dev` 로 들어가 `infracost configure set api_key <키>`
+  (키는 [Infracost](https://www.infracost.io/) 가입 후 받는다. VM 의 `~/.config/infracost/credentials.yml` 에 저장된다).
+  저장소·`.env` 에는 넣지 않는다. 키가 없으면(`INFRACOST_API_KEY` 도, 저장된 키도 없으면) 경고만 내고 건너뛴다 — `make test` 는 키 없이
+  샘플 JSON 으로 상한 검사를 오프라인 테스트한다(`scripts/test/cost_test.sh`).
+- 상한 검사: `scripts/cost-guard.sh [--project <이름>] <breakdown·diff JSON> [상한]` — `totalMonthlyCost` 가 상한(인자 > `COST_LIMIT_USD` > 30)을
+  넘으면 실패(1), 형식 오류도 실패(2).
+
 ## 정리 (terraform destroy)
 
 순서와 명령은 [docs/first-deploy.md 12단계](docs/first-deploy.md#12-정리-destroy-순서)에 있다. 요약:

@@ -7,7 +7,7 @@
 LOCAL_ENV = local_env="$$(./scripts/local-env.sh .env)" && eval "$$local_env" &&
 
 .PHONY: help test test-integration vm-create vm-start vm-stop vm-status vm-ssh k3d-up k3d-profile k3d-smoke k3d-stop k3d-down dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
-	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams
+	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams cost cost-diff
 
 help: ## 타깃 목록
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -95,6 +95,16 @@ frontend-build: ## 프론트 정적 export (frontend/out)
 
 diagrams: ## diagrams/*.dot → docs/diagrams/*.svg 렌더 + 문서의 <!--dot:이름--> 블록 갱신 (graphviz 필요)
 	python3 scripts/build-diagrams.py
+
+# --- 비용 추정 (TASK-66, README 비용 추정). Infracost(infracost.yml). 맥이면 VM 안에서 돈다. API 키가 없으면 경고 후 건너뛴다
+COST_LIMIT ?= 30
+COST_BASE ?= main
+
+cost: ## Terraform 월 비용 추정(infra/platform·비교용 infra/main) + 상한 검사(COST_LIMIT, 기본 30 USD)
+	./scripts/cost.sh breakdown $(COST_LIMIT)
+
+cost-diff: ## 기준 브랜치(COST_BASE, 기본 main) 대비 월 비용 차이
+	./scripts/cost.sh diff $(COST_BASE)
 
 e2e: ## Playwright E2E: 로컬 스택(compose·백엔드·next dev)을 띄워 chromium 시나리오 실행 후 정리 (느림, make test 에 없음, 떠 있는 k3d 는 먼저 멈춘다). E2E_ARGS 로 인자 전달
 	./scripts/e2e.sh $(E2E_ARGS)
