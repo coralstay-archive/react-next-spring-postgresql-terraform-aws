@@ -1,0 +1,12 @@
+java temurin-25.0.2+10.0.LTS
+gradle 9.4.1
+nodejs lts
+# @oss infra   terraform        v1.16.0
+# @oss infra   kubeconform      v0.8.0
+# @oss infra   k3d              v5.9.0
+# @oss infra   infracost        v0.10.47
+# @oss infra   podman           main
+# @oss infra   docker-compose   v5.6.1
+# @oss core    yq               v4.54.1
+# @oss sh      shellcheck       v0.11.0
+# @oss sh      actionlint       v1.7.12
