@@ -1,10 +1,10 @@
 ---
 id: TASK-64
 title: '[플랫폼] Rocky 개발 VM(UTM) + Podman'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-10-24 09:06'
-updated_date: '2026-10-29 03:15'
+updated_date: '2026-10-29 03:22'
 labels:
   - platform
 dependencies: []
@@ -34,13 +34,13 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 make vm-create: Rocky 9 aarch64 GenericCloud 이미지 다운로드(체크섬 검증)·Apple Virtualization용 raw 변환, cloud-init seed ISO 생성, 저장소의 AppleScript(deploy/dev-vm/create-vm.applescript)로 UTM VM rocky-dev(5GB·CPU 4·디스크 40GB) 생성. 저장소는 rsync(ssh)로 VM /repo에 동기화하는 것이 기본이고, 유저가 UTM 화면에서 붙인 VirtioFS 공유가 있으면 자동 감지해 그것을 쓴다(UTM 샌드박스는 AppleScript로 받은 경로에 접근 권한을 남기지 못함 — 유저 결정 2026-10-25). 이미 있으면 거부하고 안내
-- [ ] #2 cloud-init: 전용 SSH 키, SELinux enforcing 유지, 고정 버전 설치(podman·Java 25·Node·clang/llvm/libbpf/bpftool/kernel-devel·kubectl·kubeconform·yq·git·make), podman 소켓 활성화. VM 안 설치 스크립트는 AWS Rocky EC2와 공유
-- [ ] #3 맥 ~/.ssh/config에 rocky-dev(별도 include 파일), make vm-start·vm-stop·vm-status·vm-ssh
-- [ ] #4 사전 검사: VM 메모리·맥 여유 메모리 측정, VM이 꺼져 있으면 켜지 않고 make vm-start를 안내하며 실패. k3s·테스트 진입점이 모두 같은 검사를 거침
-- [ ] #5 맥에서 make test를 실행하면 Testcontainers·compose가 VM의 Podman을 쓴다(SSH 터널 소켓 또는 VM 안 실행 중 하나로, 설계 근거 기록). 맥에 Docker가 없어도 커밋 훅의 make test가 통과. CI(ubuntu)는 기존 방식 유지
-- [ ] #6 테스트의 YAML→JSON은 ruby 대신 고정 버전 yq(로컬 VM·CI 동일 버전)
-- [ ] #7 README 로컬 개발 환경 절(VM 만들기·켜기·끄기·다시 만들기, 메모리 규칙, SELinux 주의, 권한 창 1회 안내)
+- [x] #1 make vm-create: Rocky 9 aarch64 GenericCloud 이미지 다운로드(체크섬 검증)·Apple Virtualization용 raw 변환, cloud-init seed ISO 생성, 저장소의 AppleScript(deploy/dev-vm/create-vm.applescript)로 UTM VM rocky-dev(5GB·CPU 4·디스크 40GB) 생성. 저장소는 rsync(ssh)로 VM /repo에 동기화하는 것이 기본이고, 유저가 UTM 화면에서 붙인 VirtioFS 공유가 있으면 자동 감지해 그것을 쓴다(UTM 샌드박스는 AppleScript로 받은 경로에 접근 권한을 남기지 못함 — 유저 결정 2026-10-25). 이미 있으면 거부하고 안내
+- [x] #2 cloud-init: 전용 SSH 키, SELinux enforcing 유지, 고정 버전 설치(podman·Java 25·Node·clang/llvm/libbpf/bpftool/kernel-devel·kubectl·kubeconform·yq·git·make), podman 소켓 활성화. VM 안 설치 스크립트는 AWS Rocky EC2와 공유
+- [x] #3 맥 ~/.ssh/config에 rocky-dev(별도 include 파일), make vm-start·vm-stop·vm-status·vm-ssh
+- [x] #4 사전 검사: VM 메모리·맥 여유 메모리 측정, VM이 꺼져 있으면 켜지 않고 make vm-start를 안내하며 실패. k3s·테스트 진입점이 모두 같은 검사를 거침
+- [x] #5 맥에서 make test를 실행하면 Testcontainers·compose가 VM의 Podman을 쓴다(SSH 터널 소켓 또는 VM 안 실행 중 하나로, 설계 근거 기록). 맥에 Docker가 없어도 커밋 훅의 make test가 통과. CI(ubuntu)는 기존 방식 유지
+- [x] #6 테스트의 YAML→JSON은 ruby 대신 고정 버전 yq(로컬 VM·CI 동일 버전)
+- [x] #7 README 로컬 개발 환경 절(VM 만들기·켜기·끄기·다시 만들기, 메모리 규칙, SELinux 주의, 권한 창 1회 안내)
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -71,4 +71,12 @@ documentation:
 [진행 12] UTM Apple Virtualization 백엔드는 디렉터리 공유를 '여러 디렉터리 공유'로 내보내 태그 share 루트 아래에 고른 맥 폴더 이름의 디렉터리가 하나 생긴다(실측: /repo/react-next-…) — /repo 가 저장소가 아니었다. install.sh dev_share_setup: 태그를 /mnt/share 에 마운트, 루트에 .git·Makefile 이 있으면 루트·아니면 하위 디렉터리 하나를 /repo 로 bind(fstab x-systemd.requires-mounts-for), 여럿이면 실패. 옛 줄(share /repo virtiofs)은 지우고 내린 뒤 옮긴다. _vm.sh: VirtioFS 판정을 findmnt FSTYPE 로(stat -f 는 fuseblk 로 보고 — 실측), /mnt/share 만 있고 bind 가 없으면 재실행 명령 경고. vm_test 72 통과(가짜 mount 로 중첩·루트·모호·옛 줄 이전·재실행). 실 VM: 재설치 후·재부팅 후 /repo = share[/react-…] virtiofs, node_modules·backend/build·.gradle VM 로컬 bind, 재실행 fstab 그대로. 맥 make test(VirtioFS 감지·rsync 생략) rc=0
 
 [진행 13] 리뷰(e70f957) 실패 경로 반영: 공유 안을 먼저 보고(옛 배치면 /repo 에서, 아니면 /mnt/share 를 fstab 없이 마운트) 저장소를 못 고르면 fstab·마운트를 그대로 둔 채 실패, 하위 디렉터리 하나도 .git·Makefile 이 있어야 함. /repo 는 umount -R 이 성공한 뒤에만 fstab 수정 — EBUSY 면 덮기를 다시 붙이고 실패. /repo bind 줄은 덮기 줄 앞, fstab 이스케이프 \\134·\\040·\\011, 마운트 지점 /repo 는 항상 사용자 소유. _vm.sh: /mnt/share 경고에 '고를 수 없음' 포함, /repo 를 쓸 수 없으면 rsync 전에 재실행 안내 후 실패. vm_test 76 통과(공백·역슬래시, EBUSY, 폴더 이름 변경, 이전 중 모호 → 그대로). 실 VM 재적용: fstab·findmnt -R /repo 변화 없음, /repo 마운트 지점 rocky 소유
+
+[진행 13] 부모 검증(2026-10-29): e8f73cd 위에서 맥 make test rc=0 — VirtioFS 공유로 rsync 없이 실행, repo 236·deploy 143·tools 42·k8s 66·vm 76·terraform 9모듈 통과, backend BUILD SUCCESSFUL(변경 없어 UP-TO-DATE), frontend 577. 실 VM: /mnt/share(virtiofs) → /repo bind(share[/react-next-spring-postgresql-terraform-aws]) + 덮기 3개, 재부팅 후 동일. 독립 리뷰(e70f957) 지적 6건 e8f73cd 반영. Terraform lock 3플랫폼 해시 고정(2c77e41).
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+맥에서 Docker 없이 개발·테스트하도록 UTM Rocky Linux 9.8 VM(rocky-dev, 5GB·CPU 4·40GB)과 Podman 환경을 만들었다. make vm-create(이미지 체크섬·raw 변환·cloud-init seed·AppleScript, 권한 창 1회), vm-start/stop/status/ssh, ~/.ssh/config.d/rocky-dev. install.sh(dev/server 프로필, SELinux enforcing, 고정 버전 도구, rootless Podman 소켓 --time=0)는 AWS EC2와 공유한다. 사전 검사는 VM 을 스스로 켜지 않는다. 맥의 make test 는 VM 안에서 돈다: UTM 공유가 있으면 /mnt/share(VirtioFS, Apple 백엔드는 폴더 이름 하위 디렉터리) → /repo bind 로 바로 쓰고, 없으면 rsync. 동시 실행 잠금·ssh 끊김 정리·worktree 지원. yq 고정 버전으로 ruby 제거, Terraform lock 은 3플랫폼 해시. 검증: make test 전체 통과(repo 236, deploy 143, tools 42, k8s 66, vm 76, terraform 9모듈, backend 888, frontend 577), 실 VM 재부팅 후 마운트 유지, 독립 리뷰 2회 반영. 남은 것: 실 VM 에서 옛 배치 마이그레이션·사용 중 언마운트·모호한 공유는 가짜 테스트로만 확인.
+<!-- SECTION:FINAL_SUMMARY:END -->
