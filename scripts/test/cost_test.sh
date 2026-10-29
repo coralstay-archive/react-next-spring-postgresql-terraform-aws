@@ -156,5 +156,43 @@ for w in "infracost.yml" "infracost-usage.yml" "spot_price" "monthly_hrs" "DLM" 
   check "TASK-66#2 README '비용 추정 (Infracost)' 절에 '$w'" sh -c "$(declare -f readme_cost); readme_cost | grep -qF -- '$w'"
 done
 
+# ================================================================ TASK-66#4 TASK-66#B1 cost-guard: totalMonthlyCost 상한(기본 $30) — 샘플 JSON(오프라인)
+G=scripts/cost-guard.sh
+FX=scripts/test/fixtures/infracost
+guard() { run_capture env -u COST_LIMIT_USD "$@"; }
+check "TASK-66#4 $G 는 실행 가능하고 bash 문법이 맞다" sh -c "test -x $G && bash -n $G"
+t_guard_under() { guard "$G" "$FX/breakdown-under.json"; rc_is 0 && has_text '$27.23' && has_text '$30'; }
+check "TASK-66#4 상한 아래(\$27.23 ≤ 기본 \$30)면 통과하고 금액·상한을 출력" t_guard_under
+t_guard_over() { guard "$G" "$FX/breakdown-over.json"; rc_is 1 && has_text '$53.44' && has_text '초과'; }
+check "TASK-66#B1 월 추정 비용이 상한(기본 \$30)을 넘으면 실패(\$53.44)" t_guard_over
+t_guard_exact() { guard "$G" "$FX/breakdown-exact.json"; rc_is 0; }
+check "TASK-66#B1 상한과 같으면(\$30) 넘지 않았으니 통과" t_guard_exact
+t_guard_arg() { guard "$G" "$FX/breakdown-under.json" 20; rc_is 1 && has_text '$20'; }
+check "TASK-66#B1 상한을 인자로 조정(20 → \$27.23 실패)" t_guard_arg
+t_guard_env() {
+  run_capture env COST_LIMIT_USD=25.5 "$G" "$FX/breakdown-under.json"; rc_is 1 || return 1
+  run_capture env COST_LIMIT_USD=25.5 "$G" "$FX/breakdown-under.json" 60; rc_is 0
+}
+check "TASK-66#B1 상한을 변수 COST_LIMIT_USD 로 조정(인자가 우선)" t_guard_env
+t_guard_project() {
+  guard "$G" "$FX/breakdown-two-projects.json"; rc_is 1 || return 1
+  guard "$G" --project platform "$FX/breakdown-two-projects.json"; rc_is 0 && has_text 'platform' || return 1
+  guard "$G" --project main "$FX/breakdown-two-projects.json" 20; rc_is 1
+}
+check "TASK-66#4 --project <이름>: 그 프로젝트의 totalMonthlyCost(없으면 전체 합)" t_guard_project
+t_guard_diff() { guard "$G" --project platform "$FX/diff-two-projects.json"; rc_is 1 && has_text '$31.50'; }
+check "TASK-66#B1 infracost diff JSON 도 같은 키(새 breakdown)로 검사 — \$31.50 실패" t_guard_diff
+t_guard_bad_input() {
+  local f
+  for f in "$FX/breakdown-broken.json" "$FX/breakdown-null.json" "$TMP/nope.json"; do
+    guard "$G" "$f"; rc_is 2 || { echo "($f)"; return 1; }
+  done
+  guard "$G" --project nope "$FX/breakdown-two-projects.json"; rc_is 2 || return 1
+  guard "$G" "$FX/breakdown-under.json" abc; rc_is 2 || return 1
+  guard "$G"; rc_is 2
+}
+check "TASK-66#4 형식 오류(깨진 JSON·null·파일 없음·모르는 프로젝트·상한이 숫자 아님·인자 없음)는 실패(2)" t_guard_bad_input
+check "TASK-66#4 scripts/test.sh 가 cost_test.sh 를 부른다(make test, 오프라인)" grep -q 'scripts/test/cost_test.sh' scripts/test.sh
+
 echo "cost tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

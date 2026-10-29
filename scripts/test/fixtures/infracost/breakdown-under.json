@@ -1,0 +1,15 @@
+{
+  "version": "0.2",
+  "currency": "USD",
+  "projects": [
+    {
+      "name": "platform",
+      "metadata": { "path": "infra/platform", "type": "terraform_dir" },
+      "breakdown": { "resources": [], "totalHourlyCost": "0.0373", "totalMonthlyCost": "27.229" }
+    }
+  ],
+  "totalHourlyCost": "0.0373",
+  "totalMonthlyCost": "27.229",
+  "timeGenerated": "2026-10-29T00:00:00Z",
+  "summary": { "totalDetectedResources": 30, "totalSupportedResources": 6 }
+}

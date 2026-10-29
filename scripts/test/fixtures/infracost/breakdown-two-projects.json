@@ -1,0 +1,9 @@
+{
+  "version": "0.2",
+  "currency": "USD",
+  "projects": [
+    { "name": "platform", "breakdown": { "totalMonthlyCost": "27.229" } },
+    { "name": "main", "breakdown": { "totalMonthlyCost": "21.04" } }
+  ],
+  "totalMonthlyCost": "48.269"
+}

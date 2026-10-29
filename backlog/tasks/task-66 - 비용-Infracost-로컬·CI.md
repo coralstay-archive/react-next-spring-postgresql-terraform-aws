@@ -4,7 +4,7 @@ title: '[비용] Infracost 로컬·CI'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 07:05'
+updated_date: '2026-10-29 07:09'
 labels:
   - cost
   - platform
@@ -60,4 +60,6 @@ Terraform 변경의 월 비용을 로컬(make cost, VM 안)과 CI(PR 코멘트)�
 AC#1: infracost v0.10.47 고정 — install.sh dev 프로필(arm64 tarball + sha256, installed/mark 로 같은 버전 건너뜀), CI 는 scripts/ci/install-infracost.sh(arm64·amd64 sha256, 같은 버전이면 건너뜀). sha256 은 릴리스의 .sha256 파일과 내려받은 파일 해시가 같음을 확인. VM 재설치 후 infracost --version = v0.10.47 확인. cost_test.sh 10개(가짜 curl·uname: sha 불일치 실패·arch 선택·건너뜀·shellcheck). 참고: infracost 가 v2.x(infracost/cli) 업데이트를 안내하지만 계획대로 v0.10.x 고정.
 
 AC#2: infracost.yml(platform=infra/platform, 비교용 main=infra/main, envs/prod.tfvars, 공통 usage 파일) + infracost-usage.yml. 스팟: Infracost v0.10.47 소스(internal/providers/terraform/aws/instance.go)는 spot_price 가 있을 때만 purchaseOption=spot — 노드는 instance_market_options 라 온디맨드로 계산됨(소스 확인, 실측 아님). 보정: module.k3s_node.aws_instance.this monthly_hrs=282(=730×0.026/0.0672, 주석 단가와 산식을 cost_test 가 확인). DLM 스냅샷은 미지원 리소스라 README 에 따로 적음. aws_data_transfer 10GB. **실측 미완**: API 키가 없어 breakdown 을 돌리지 못함 — 유저가 VM 에서 키를 등록한 뒤 make cost 로 (1) 노드가 on_demand 로 찍히는지 (2) 보정 후 합계, (3) aws_data_transfer·main 프로젝트 파싱을 확인해 노트에 남겨야 함. cost_test #2 11개.
+
+AC#4·B1: scripts/cost-guard.sh [--project <이름>] <JSON> [상한] — totalMonthlyCost(또는 프로젝트 breakdown) 를 jq 로 읽어 상한(인자 > COST_LIMIT_USD > 30) 초과면 1, 같으면 통과, 형식 오류(깨진 JSON·null·파일 없음·모르는 프로젝트·숫자 아닌 상한)는 2. breakdown·diff JSON 모두 같은 키. 샘플 JSON 7개(scripts/test/fixtures/infracost)로 cost_test 10개, make test 의 ==> cost 단계(오프라인).
 <!-- SECTION:NOTES:END -->

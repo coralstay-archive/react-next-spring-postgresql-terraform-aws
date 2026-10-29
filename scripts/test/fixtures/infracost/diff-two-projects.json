@@ -1,0 +1,21 @@
+{
+  "version": "0.2",
+  "currency": "USD",
+  "projects": [
+    {
+      "name": "platform",
+      "pastBreakdown": { "totalMonthlyCost": "26.0" },
+      "breakdown": { "totalMonthlyCost": "31.5" },
+      "diff": { "totalMonthlyCost": "5.5" }
+    },
+    {
+      "name": "main",
+      "pastBreakdown": { "totalMonthlyCost": "21.04" },
+      "breakdown": { "totalMonthlyCost": "21.04" },
+      "diff": { "totalMonthlyCost": "0" }
+    }
+  ],
+  "pastTotalMonthlyCost": "47.04",
+  "totalMonthlyCost": "52.54",
+  "diffTotalMonthlyCost": "5.5"
+}
