@@ -4,6 +4,7 @@ title: '[AWS] 배포 스크립트 견고성'
 status: Draft
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-29 01:21'
 labels:
   - infra
   - aws
@@ -39,3 +40,9 @@ dependencies: []
 - [ ] #10 OPS-26 프론트 먼저 빌드, 실패 알림
 - [ ] #11 OPS-27 배포 후 make smoke
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+[2026-10-29 보관] 유저 결정(decision-11: 관리형 미사용, 스팟 1대, CloudFront 없음, 임시 배포 계획 없음)에 따라 나눠 흡수하고 이 draft는 보관한다. OPS-27(배포 후 스모크) → TASK-42. 나머지 OPS-15~23·25·26은 EC2+Compose 배포 스크립트(remote-deploy.sh) 보강이라 폐기 — 레거시 경로는 TASK-52 AC #5에서 철거한다.
+<!-- SECTION:NOTES:END -->

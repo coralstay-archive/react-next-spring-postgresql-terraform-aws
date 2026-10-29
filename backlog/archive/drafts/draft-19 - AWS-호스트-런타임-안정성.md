@@ -4,6 +4,7 @@ title: '[AWS] 호스트 런타임 안정성'
 status: Draft
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-29 01:21'
 labels:
   - infra
   - aws
@@ -30,3 +31,9 @@ dependencies: []
 - [ ] #5 OPS-13 swap과 메모리 한도 조정
 - [ ] #6 OPS-14 api hang 자동 복구(헬스 기반)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+[2026-10-29 보관] 유저 결정(decision-11: 관리형 미사용, 스팟 1대, CloudFront 없음, 임시 배포 계획 없음)에 따라 나눠 흡수하고 이 draft는 보관한다. OPS-2·OPS-10(user_data 변경 정책, cloud-init 상태 확인·dnf 재시도) → TASK-65, OPS-3 → TASK-52 AC #10, OPS-12 → TASK-61, OPS-13 → TASK-62, OPS-14 → TASK-60.
+<!-- SECTION:NOTES:END -->

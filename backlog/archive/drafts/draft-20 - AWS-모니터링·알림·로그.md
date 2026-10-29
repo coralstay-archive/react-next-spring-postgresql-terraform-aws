@@ -4,6 +4,7 @@ title: '[AWS] 모니터링·알림·로그'
 status: Draft
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-29 01:21'
 labels:
   - infra
   - aws
@@ -30,3 +31,9 @@ dependencies: []
 - [ ] #4 OPS-8 CloudFront 액세스 로그
 - [ ] #5 OPS-7 /api 5xx 오류 캐시 TTL 0, 배포 다운타임 문서화
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+[2026-10-29 보관] 유저 결정(decision-11: 관리형 미사용, 스팟 1대, CloudFront 없음, 임시 배포 계획 없음)에 따라 나눠 흡수하고 이 draft는 보관한다. OPS-34 → TASK-61, OPS-37 → TASK-52 AC #3. OPS-35(SNS·CloudWatch 알람)·OPS-7·OPS-8(CloudFront)은 관리형 미사용·CloudFront 없음으로 폐기 — 알림은 Alertmanager(TASK-61).
+<!-- SECTION:NOTES:END -->

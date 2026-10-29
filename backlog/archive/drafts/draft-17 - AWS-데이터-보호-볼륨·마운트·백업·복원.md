@@ -4,6 +4,7 @@ title: '[AWS] 데이터 보호: 볼륨·마운트·백업·복원'
 status: Draft
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-29 01:21'
 labels:
   - infra
   - aws
@@ -32,3 +33,9 @@ dependencies: []
 - [ ] #4 OPS-24 배포 전 스냅샷 또는 pg_dump, expand/contract 마이그레이션 규칙
 - [ ] #5 OPS-36 복원 런북과 복원 시험
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+[2026-10-29 보관] 유저 결정(decision-11: 관리형 미사용, 스팟 1대, CloudFront 없음, 임시 배포 계획 없음)에 따라 나눠 흡수하고 이 draft는 보관한다. OPS-1 → TASK-52 AC #10, OPS-9·OPS-11(데이터 볼륨 마운트·포맷 안전) → TASK-65(새 노드 얼개), OPS-24 → TASK-60·TASK-62 #3, OPS-36 → TASK-60.
+<!-- SECTION:NOTES:END -->

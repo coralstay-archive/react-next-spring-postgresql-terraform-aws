@@ -4,6 +4,7 @@ title: '[AWS] Terraform 운영 문서와 destroy 안전'
 status: Draft
 assignee: []
 created_date: '2026-10-12 04:09'
+updated_date: '2026-10-29 01:21'
 labels:
   - infra
   - aws
@@ -29,3 +30,9 @@ dependencies: []
 - [ ] #3 OPS-6 ecr_force_delete 노출, 공용 OIDC provider 주의
 - [ ] #4 OPS-28 키별 시크릿 회전 런북, put-secrets 부분 실패 처리
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+[2026-10-29 보관] 유저 결정(decision-11: 관리형 미사용, 스팟 1대, CloudFront 없음, 임시 배포 계획 없음)에 따라 나눠 흡수하고 이 draft는 보관한다. OPS-4 → TASK-52 AC #6, OPS-5(force-unlock·bootstrap state 백업) → TASK-65, OPS-28 → TASK-52 AC #11. OPS-6(ECR force_delete·공용 OIDC)은 ECR 미사용으로 폐기.
+<!-- SECTION:NOTES:END -->
