@@ -4,7 +4,7 @@ title: '[검진센터] 장애 주입 연습'
 status: To Do
 assignee: []
 created_date: '2026-10-24 04:25'
-updated_date: '2026-10-24 09:05'
+updated_date: '2026-10-29 06:47'
 labels:
   - ops
   - checkcenter
@@ -44,4 +44,6 @@ documentation:
 
 <!-- SECTION:NOTES:BEGIN -->
 구현 언어: Java Spring Boot(검진센터 모듈 checkcenter/, 유저 결정 2026-10-24).
+
+[2026-10-29 보관] 유저 결정: 장애 실험은 유저가 이 프로젝트 밖에서 따로 만든다. 이 프로젝트에서는 구현하지 않는다. 검진센터(TASK-56~58)는 그대로 구현.
 <!-- SECTION:NOTES:END -->

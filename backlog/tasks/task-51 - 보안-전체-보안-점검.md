@@ -4,7 +4,7 @@ title: '[보안] 전체 보안 점검'
 status: To Do
 assignee: []
 created_date: '2026-10-24 03:46'
-updated_date: '2026-10-24 09:05'
+updated_date: '2026-10-29 06:47'
 labels:
   - security
 dependencies:
@@ -29,7 +29,6 @@ dependencies:
   - TASK-56
   - TASK-57
   - TASK-58
-  - TASK-59
   - TASK-60
   - TASK-61
   - TASK-62
@@ -60,5 +59,5 @@ documentation:
 - [ ] #3 Argo·Rollouts·CI 토큰 권한, 섀도우 쓰기 차단, SSRF, DoS 한도 확인
 - [ ] #4 발견사항마다 심각도와 수정 태스크 연결, High는 수정 또는 승인된 예외
 - [ ] #5 결과 문서를 backlog/docs에 남김
-- [ ] #6 추가 점검 대상: eBPF 에이전트 권한(capability·호스트 접근), 검진센터(인증·장애 주입 기능의 운영 비활성), 배포 안전장치(서명·정책)
+- [ ] #6 추가 점검 대상: eBPF 에이전트 권한(capability·호스트 접근), 검진센터(인증·읽기 전용 점검 계정), 배포 안전장치(서명·정책). 장애 실험(TASK-59)은 유저가 따로 구축하므로 대상 아님(2026-10-29)
 <!-- AC:END -->
