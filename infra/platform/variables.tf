@@ -50,3 +50,68 @@ variable "k3s_install_cmd" {
   type        = string
   default     = ""
 }
+
+variable "domain_name" {
+  description = "사용자 도메인. 비우면 <EIP>.sslip.io (도메인 결정은 TASK-52)"
+  type        = string
+  default     = ""
+}
+
+variable "enable_lb_node" {
+  description = "HAProxy LB 노드(t4g.small + EIP 하나 더). 기본 false — Traefik 이 노드에서 바로 받는다(decision-11)"
+  type        = bool
+  default     = false
+}
+
+variable "enable_snapshots" {
+  description = "데이터 볼륨 DLM 일일 스냅샷"
+  type        = bool
+  default     = true
+}
+
+variable "snapshot_time_utc" {
+  description = "DLM 일일 스냅샷 시각(UTC, HH:MM). 기본 18:00 UTC = 03:00 KST"
+  type        = string
+  default     = "18:00"
+}
+
+variable "snapshot_retain_count" {
+  description = "보관할 스냅샷 개수"
+  type        = number
+  default     = 7
+}
+
+variable "budget_monthly_usd" {
+  description = "AWS Budgets 월 비용 한도(USD). decision-11 추정 $22~27"
+  type        = number
+  default     = 30
+}
+
+variable "budget_email" {
+  description = "Budgets 알림 이메일. 비우면 Budgets 를 만들지 않는다"
+  type        = string
+  default     = ""
+}
+
+variable "cognito_domain_prefix" {
+  description = "Cognito Hosted UI 도메인 prefix(리전 안에서 전역 고유, aws·amazon·cognito 불가)"
+  type        = string
+}
+
+variable "cognito_deletion_protection" {
+  description = "User Pool 삭제 보호"
+  type        = bool
+  default     = true
+}
+
+variable "cognito_extra_callback_urls" {
+  description = "공개 주소 콜백 외에 추가로 허용할 Cognito 콜백(예: 로컬 개발)"
+  type        = list(string)
+  default     = []
+}
+
+variable "cognito_extra_logout_urls" {
+  description = "공개 주소 로그아웃 URL 외에 추가로 허용할 URL"
+  type        = list(string)
+  default     = []
+}

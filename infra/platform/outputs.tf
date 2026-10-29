@@ -37,3 +37,28 @@ output "data_volume_id" {
   description = "데이터 볼륨 ID"
   value       = module.k3s_node.data_volume_id
 }
+
+output "public_base_url" {
+  description = "브라우저가 보는 공개 주소 → 앱 PUBLIC_BASE_URL, OAuth 콜백 기준"
+  value       = local.public_base_url
+}
+
+output "lb_public_ip" {
+  description = "lb_node EIP (enable_lb_node=false 면 null)"
+  value       = length(module.lb_node) == 0 ? null : module.lb_node[0].public_ip
+}
+
+output "cognito" {
+  description = "Cognito 앱 설정 → COGNITO_ISSUER_URI, COGNITO_CLIENT_ID, COGNITO_DOMAIN"
+  value = {
+    issuer_uri = module.cognito.issuer_uri
+    client_id  = module.cognito.client_id
+    domain_url = module.cognito.domain_url
+  }
+}
+
+output "cognito_client_secret" {
+  description = "COGNITO_CLIENT_SECRET (SSM SecureString 으로 옮긴다)"
+  value       = module.cognito.client_secret
+  sensitive   = true
+}

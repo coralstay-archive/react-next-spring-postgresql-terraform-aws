@@ -4,7 +4,7 @@ title: '[AWS] 플랫폼 Terraform 얼개 (infra/platform)'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 05:50'
+updated_date: '2026-10-29 05:56'
 labels:
   - aws
   - platform
@@ -69,4 +69,6 @@ AC#2: modules/k3s_node — Rocky 9.8 arm64 AMI(792107900819), t4g.large 스팟 p
 AC#3: k3s_node 데이터 볼륨 gp3 암호화(data_snapshot_id 로 스냅샷 복원, final_snapshot, Snapshot 태그), /dev/sdf attach(stop 후 분리). files/data-volume.sh — 볼륨 ID by-id 링크로만 장치 탐색, blkid -p 2 일 때만 mkfs.xfs, 그 밖 코드는 실패(OPS-11), k3s.service 드롭인 RequiresMountsFor + ExecStartPre mountpoint 를 먼저 씀(B2, OPS-9). fstab 은 nofail(+device-timeout) — 계획의 'nofail 아님'과 다름: 볼륨이 없을 때 비상 모드로 빠져 SSM 도 못 쓰게 되는 것을 피하고, 서비스 차단은 드롭인이 맡는다(리뷰 확인 필요). k3s data-dir·local-path 를 /data 위로(config.yaml.d 드롭인). 셸 테스트는 platform_test.sh 가짜 명령
 
 AC#4: user_data — 저장소 고정 커밋(repo_commit 40자리 검증)을 git fetch --depth 1 로 받아 deploy/rocky/install.sh --profile server --user rocky, dnf·fetch·install.sh 재시도 3회, set -euo pipefail, 끝 표식 /var/lib/board-node/bootstrap.done. files/node-ready.sh → board-node-ready(cloud-init status --wait 가 done + 표식일 때만 0; error·degraded 실패), 출력 node_ready_check. user_data_replace_on_change=true(OPS-2). k3s_install_cmd(기본 빈 값 — TASK-36 스크립트 자리)
+
+AC#5: modules/lb_node(HAProxy t4g.small 온디맨드, 80·443 TCP 패스스루 → 노드 사설 IP, SSM, EIP, count=enable_lb_node 기본 false), snapshots.tf(DLM, enable_snapshots 기본 true, 7개), budgets.tf(budget_email 없으면 안 만듦, ACTUAL 80%·FORECASTED 100%), cognito 는 ../main/modules/cognito 재사용(공개 주소 = domain_name 또는 <EIP>.sslip.io, 추가 콜백 변수)
 <!-- SECTION:NOTES:END -->

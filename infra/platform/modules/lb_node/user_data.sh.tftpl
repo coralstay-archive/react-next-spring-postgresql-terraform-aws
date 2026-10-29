@@ -1,0 +1,45 @@
+#!/bin/bash
+# lb_node user_data (TASK-65#5). HAProxy 가 80·443 을 TCP 그대로 k3s 노드(${backend_ip})에 넘긴다.
+set -euo pipefail
+
+retry() {
+  local max="$1" n=1
+  shift
+  until "$@"; do
+    [ "$n" -ge "$max" ] && return 1
+    sleep $((n * 15))
+    n=$((n + 1))
+  done
+}
+
+retry 3 dnf -y install haproxy
+cat >/etc/haproxy/haproxy.cfg <<'CFG'
+global
+    log /dev/log local0
+    maxconn 4096
+
+defaults
+    mode tcp
+    log global
+    option tcplog
+    timeout connect 5s
+    timeout client 1m
+    timeout server 1m
+
+frontend http
+    bind :::80 v4v6
+    default_backend http
+
+backend http
+    server node ${backend_ip}:80 check
+
+frontend https
+    bind :::443 v4v6
+    default_backend https
+
+backend https
+    server node ${backend_ip}:443 check
+CFG
+# SELinux enforcing 그대로 — haproxy 가 임의 포트로 나가는 연결만 허용한다
+setsebool -P haproxy_connect_any 1
+systemctl enable --now haproxy

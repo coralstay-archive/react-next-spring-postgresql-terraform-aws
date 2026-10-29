@@ -15,3 +15,17 @@ data_volume_size = 20
 repo_commit = "CHANGE-ME"
 # k3s 설치(TASK-36 스크립트). 비우면 설치하지 않는다
 k3s_install_cmd = ""
+
+# 도메인 전에는 EIP 의 sslip.io 이름(decision-11). 도메인은 TASK-52 에서
+domain_name = ""
+
+# 토글(decision-11): HAProxy LB 노드는 기본 꺼 둔다. 데이터 볼륨 스냅샷은 켠다
+enable_lb_node   = false
+enable_snapshots = true
+
+# AWS Budgets 월 알림. 이메일을 넣어야 만들어진다
+budget_monthly_usd = 30
+budget_email       = ""
+
+cognito_domain_prefix       = "board-platform-login-change-me"
+cognito_deletion_protection = true

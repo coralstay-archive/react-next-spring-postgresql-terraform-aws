@@ -191,5 +191,13 @@ if command -v shellcheck >/dev/null 2>&1; then
   check "TASK-65#4 node-ready.sh shellcheck" shellcheck "$NR"
 fi
 
+# TASK-65#5 토글 모듈: lb_node(테스트 있음, 기본 꺼짐), 스냅샷·Budgets 토글, cognito 는 레거시 모듈 재사용(복사하지 않는다)
+check "TASK-65#5 lb_node 모듈 테스트 존재" test -f "$P/modules/lb_node/tests/lb_node.tftest.hcl"
+check "TASK-65#5 enable_lb_node 기본 false" sh -c "grep -A3 'variable \"enable_lb_node\"' $P/variables.tf | grep -q 'default *= false'"
+check "TASK-65#5 cognito 는 ../main/modules/cognito 재사용" sh -c "grep -q 'source *= \"../main/modules/cognito\"' $P/main.tf && test ! -d $P/modules/cognito"
+for k in enable_lb_node enable_snapshots budget_monthly_usd budget_email cognito_domain_prefix; do
+  check "TASK-65#5 envs/prod.tfvars 에 $k" grep -Eq "^$k += " "$P/envs/prod.tfvars"
+done
+
 echo "platform tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]
