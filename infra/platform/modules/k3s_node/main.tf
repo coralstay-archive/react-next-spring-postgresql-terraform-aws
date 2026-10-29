@@ -1,5 +1,5 @@
 # k3s 노드 (TASK-65, decision-11): Rocky 9.8 arm64 t4g.large 스팟 1대. DB·Kafka·MinIO·모니터링이 모두 이 노드의 k3s 안에서 돈다.
-# SSH 없이 SSM 으로만 접속하고(B1), Traefik 이 80·443 을 바로 받는다(LB·CloudFront 없음).
+# SSH 없이 SSM 으로만 접속하고(B1, 에이전트 최소 권한), Traefik 이 80·443 을 바로 받는다(LB·CloudFront 없음).
 
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
@@ -41,10 +41,24 @@ resource "aws_iam_role" "this" {
   tags = var.tags
 }
 
-# Session Manager 접속·Run Command (22 대신)
-resource "aws_iam_role_policy_attachment" "ssm_core" {
-  role       = aws_iam_role.this.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+# SSM 에이전트 최소 권한(Session Manager = ssmmessages, Run Command = ec2messages). AmazonSSMManagedInstanceCore 는 쓰지 않는다 —
+# ssm:GetParameter* 가 모든 파라미터에 열리기 때문이다. 리소스 수준 권한이 없는 동작이라 Resource 는 *
+resource "aws_iam_role_policy" "ssm_agent" {
+  name = "ssm-agent"
+  role = aws_iam_role.this.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "SsmAgent"
+      Effect = "Allow"
+      Action = [
+        "ssm:UpdateInstanceInformation",
+        "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel", "ssmmessages:OpenControlChannel", "ssmmessages:OpenDataChannel",
+        "ec2messages:AcknowledgeMessage", "ec2messages:DeleteMessage", "ec2messages:FailMessage", "ec2messages:GetEndpoint", "ec2messages:GetMessages", "ec2messages:SendReply",
+      ]
+      Resource = "*"
+    }]
+  })
 }
 
 resource "aws_iam_role_policy" "params" {
@@ -60,12 +74,16 @@ resource "aws_iam_role_policy" "params" {
         Resource = [local.param_arn, "${local.param_arn}/*"]
       },
       {
-        # SecureString 기본 키(aws/ssm)는 처음 쓸 때 생기므로 ARN 대신 SSM 경유 조건으로 제한한다
-        Sid       = "DecryptViaSsm"
-        Effect    = "Allow"
-        Action    = ["kms:Decrypt"]
-        Resource  = "*"
-        Condition = { StringEquals = { "kms:ViaService" = "ssm.${local.region}.amazonaws.com" } }
+        # SecureString 기본 키(aws/ssm)는 처음 쓸 때 생기므로 ARN 대신 조건으로 제한한다: SSM 경유 + /board/* 파라미터의 암호화 컨텍스트
+        # (Parameter Store 는 PARAMETER_ARN 을 암호화 컨텍스트로 넘긴다)
+        Sid      = "DecryptViaSsm"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = "*"
+        Condition = {
+          StringEquals = { "kms:ViaService" = "ssm.${local.region}.amazonaws.com" }
+          StringLike   = { "kms:EncryptionContext:PARAMETER_ARN" = "${local.param_arn}/*" }
+        }
       },
     ]
   })
@@ -135,9 +153,11 @@ resource "aws_instance" "this" {
   }
 
   metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 2 # 파드(컨테이너 네트워크)의 SDK 도 IMDSv2 로 인스턴스 프로파일을 받는다
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+    # 2: External Secrets(파드)가 노드 자격 증명으로 /board/* 를 읽는다. 그래서 파드도 IMDS 에 닿는다 —
+    # 앱 네임스페이스는 NetworkPolicy 로 169.254.169.254 를 막는다(TASK-52). 노드 role 이 최소 권한인 이유이기도 하다
+    http_put_response_hop_limit = 2
   }
 
   root_block_device {

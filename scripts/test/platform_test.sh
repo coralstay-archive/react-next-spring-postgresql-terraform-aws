@@ -47,7 +47,9 @@ N=$P/modules/k3s_node
 check "TASK-65#2 k3s_node 모듈 테스트 존재" test -f "$N/tests/k3s_node.tftest.hcl"
 check "TASK-65#B1 k3s_node 설정에 22 번 포트가 없다" sh -c "! grep -Eq '(from|to)_port *= *22\\b' $N/*.tf"
 check "TASK-65#B1 k3s_node 는 SSH 키(key_name)를 쓰지 않는다" sh -c "! grep -Eq '^\\s*key_name\\b' $N/*.tf"
-check "TASK-65#B1 k3s_node 는 SSM Core 정책을 붙인다" grep -q 'AmazonSSMManagedInstanceCore' "$N/main.tf"
+check "TASK-65#B1 k3s_node 는 SSM 에이전트 권한(ssmmessages)으로 접속한다" grep -q 'ssmmessages:OpenDataChannel' "$N/main.tf"
+check "TASK-65#2 노드·LB 는 managed policy(AmazonSSMManagedInstanceCore 등)를 붙이지 않는다 — 파라미터·KMS 가 * 로 열린다" sh -c "
+  ! grep -q 'aws_iam_role_policy_attachment' $N/main.tf $P/modules/lb_node/main.tf"
 
 # TASK-65#3 TASK-65#B2 데이터 볼륨 스크립트(files/data-volume.sh): DATA_VOLUME_LIB=1 로 함수만 읽고 가짜 blkid·mkfs.xfs·mount·mountpoint·
 # systemctl 로 부른다. 장치는 볼륨 ID 의 by-id 링크로만 찾고(이름 기반 대체 없음 — OPS-11), blkid 종료 코드 2(빈 장치)일 때만 포맷하며,

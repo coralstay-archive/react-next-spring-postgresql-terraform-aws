@@ -27,8 +27,12 @@ run "instance" {
     error_message = "IMDSv2 필수, 루트 암호화"
   }
   assert {
-    condition     = aws_iam_role_policy_attachment.ssm_core.policy_arn == "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-    error_message = "SSM 접속"
+    condition = toset(flatten([for s in jsondecode(aws_iam_role_policy.ssm_agent.policy).Statement : s.Action])) == toset([
+      "ssm:UpdateInstanceInformation",
+      "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel", "ssmmessages:OpenControlChannel", "ssmmessages:OpenDataChannel",
+      "ec2messages:AcknowledgeMessage", "ec2messages:DeleteMessage", "ec2messages:FailMessage", "ec2messages:GetEndpoint", "ec2messages:GetMessages", "ec2messages:SendReply",
+    ])
+    error_message = "SSM 접속은 에이전트 최소 권한만(SSMManagedInstanceCore 아님 — 파라미터 읽기 없음)"
   }
   assert {
     condition     = aws_eip.this.instance == aws_instance.this.id

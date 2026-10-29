@@ -88,6 +88,10 @@ run "instance" {
     error_message = "IMDSv2 필수"
   }
   assert {
+    condition     = one(aws_instance.this.metadata_options).http_put_response_hop_limit == 2
+    error_message = "hop 2: External Secrets(파드)가 노드 자격 증명으로 /board/* 를 읽는다 — 앱 네임스페이스는 NetworkPolicy 로 IMDS 차단(TASK-52)"
+  }
+  assert {
     condition     = one(aws_instance.this.root_block_device).encrypted && one(aws_instance.this.root_block_device).volume_type == "gp3"
     error_message = "루트 볼륨 gp3 + 암호화"
   }
@@ -145,13 +149,35 @@ run "security_group" {
   }
 }
 
-# TASK-65#2 IAM: SSM Core(Session Manager) + /board/* 파라미터 읽기(SecureString 복호화는 SSM 경유로만). 그 밖의 권한 없음
+# TASK-65#2 IAM 최소 권한: AmazonSSMManagedInstanceCore 를 붙이지 않는다(ssm:GetParameter* 가 모든 파라미터에 열린다).
+# 대신 SSM 에이전트(Session Manager·Run Command)에 필요한 동작만 + /board/* 파라미터 읽기 + 그 파라미터의 복호화만
 run "iam" {
   command = apply
 
   assert {
-    condition     = aws_iam_role_policy_attachment.ssm_core.policy_arn == "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-    error_message = "SSM Session Manager·Run Command 용 managed policy"
+    condition = anytrue([
+      for s in jsondecode(aws_iam_role_policy.ssm_agent.policy).Statement :
+      toset(s.Action) == toset([
+        "ssm:UpdateInstanceInformation",
+        "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel", "ssmmessages:OpenControlChannel", "ssmmessages:OpenDataChannel",
+        "ec2messages:AcknowledgeMessage", "ec2messages:DeleteMessage", "ec2messages:FailMessage", "ec2messages:GetEndpoint", "ec2messages:GetMessages", "ec2messages:SendReply",
+      ])
+    ]) && length(jsondecode(aws_iam_role_policy.ssm_agent.policy).Statement) == 1
+    error_message = "SSM 에이전트 정책은 Session Manager(ssmmessages)·Run Command(ec2messages)·UpdateInstanceInformation 만"
+  }
+  assert {
+    condition = alltrue([
+      for s in concat(jsondecode(aws_iam_role_policy.ssm_agent.policy).Statement, jsondecode(aws_iam_role_policy.params.policy).Statement) :
+      alltrue([for a in flatten([s.Action]) : !strcontains(a, "*")])
+    ])
+    error_message = "와일드카드 Action 없음"
+  }
+  assert {
+    condition = alltrue([
+      for s in concat(jsondecode(aws_iam_role_policy.ssm_agent.policy).Statement, jsondecode(aws_iam_role_policy.params.policy).Statement) :
+      !anytrue([for a in flatten([s.Action]) : startswith(a, "ssm:GetParameter")]) || !contains(flatten([s.Resource]), "*")
+    ])
+    error_message = "ssm:GetParameter* 는 * 리소스에 주지 않는다(/board/* 문장에만)"
   }
   assert {
     condition     = jsondecode(aws_iam_role.this.assume_role_policy).Statement[0].Principal.Service == "ec2.amazonaws.com"
@@ -169,8 +195,9 @@ run "iam" {
     condition = anytrue([
       for s in jsondecode(aws_iam_role_policy.params.policy).Statement :
       s.Action == ["kms:Decrypt"] && s.Condition.StringEquals["kms:ViaService"] == "ssm.us-east-1.amazonaws.com"
+      && s.Condition.StringLike["kms:EncryptionContext:PARAMETER_ARN"] == "arn:aws:ssm:us-east-1:123456789012:parameter/board/*"
     ])
-    error_message = "SecureString 복호화는 SSM 경유로만"
+    error_message = "SecureString 복호화는 SSM 경유 + /board/* 파라미터의 암호화 컨텍스트로만"
   }
   assert {
     condition     = length(jsondecode(aws_iam_role_policy.params.policy).Statement) == 2

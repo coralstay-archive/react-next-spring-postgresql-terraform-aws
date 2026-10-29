@@ -14,9 +14,24 @@ resource "aws_iam_role" "this" {
   tags = var.tags
 }
 
-resource "aws_iam_role_policy_attachment" "ssm_core" {
-  role       = aws_iam_role.this.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+# SSM 에이전트 최소 권한(Session Manager = ssmmessages, Run Command = ec2messages). AmazonSSMManagedInstanceCore 는 쓰지 않는다 —
+# ssm:GetParameter* 가 모든 파라미터에 열리기 때문이다. 리소스 수준 권한이 없는 동작이라 Resource 는 *
+resource "aws_iam_role_policy" "ssm_agent" {
+  name = "ssm-agent"
+  role = aws_iam_role.this.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid    = "SsmAgent"
+      Effect = "Allow"
+      Action = [
+        "ssm:UpdateInstanceInformation",
+        "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel", "ssmmessages:OpenControlChannel", "ssmmessages:OpenDataChannel",
+        "ec2messages:AcknowledgeMessage", "ec2messages:DeleteMessage", "ec2messages:FailMessage", "ec2messages:GetEndpoint", "ec2messages:GetMessages", "ec2messages:SendReply",
+      ]
+      Resource = "*"
+    }]
+  })
 }
 
 resource "aws_iam_instance_profile" "this" {

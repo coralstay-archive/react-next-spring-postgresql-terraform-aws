@@ -4,7 +4,7 @@ title: '[AWS] 플랫폼 Terraform 얼개 (infra/platform)'
 status: In Progress
 assignee: []
 created_date: '2026-10-29 01:21'
-updated_date: '2026-10-29 06:21'
+updated_date: '2026-10-29 06:26'
 labels:
   - aws
   - platform
@@ -77,4 +77,6 @@ AC#6: B3 — platform_test.sh 가 infra/platform 과 source 로 부르는 모듈
 AC#7: README '## AWS 실배포 설계 (TASK-65, decision-11)' 절 — 구성도 diagrams/platform-aws.dot → docs/diagrams/platform-aws.svg(build-diagrams.py, Darwin graphviz 16.1.0), 스택 구성, 노드 부팅 순서·board-node-ready, user_data 교체 정책, 비용 표(decision-11), apply 하지 않는 이유, TASK-52 로 넘기는 항목. 구성 표 infra/ 행에 infra/platform
 
 리뷰 반영(AC#3): k3s node-name 고정(node_name 기본 board-node — 교체 후에도 local-path PV nodeAffinity 유지), data-volume.sh 에 SELinux 레이블(/data/k3s = /var/lib/rancher/k3s equivalence, /data/local-path container_file_t, restorecon -R, 재실행 시 규칙 중복 없음; semanage 위해 policycoreutils-python-utils 설치), fstab 추가 후 daemon-reload, xfs_growfs, 데이터 볼륨 기본 30GB, lifecycle prevent_destroy + ignore_changes [snapshot_id](terraform test 정리 단계는 막지 않음 확인), docs/terraform-state.md '데이터 볼륨 복원' 절차
+
+리뷰 반영(AC#2): AmazonSSMManagedInstanceCore 제거(k3s_node·lb_node) → 인라인 ssm-agent 정책(ssm:UpdateInstanceInformation, ssmmessages 4개, ec2messages 6개). kms:Decrypt 는 kms:ViaService=ssm.<region> + StringLike kms:EncryptionContext:PARAMETER_ARN=<…>:parameter/board/* (리뷰는 PSParameterName 을 제안했으나 Parameter Store 문서의 암호화 컨텍스트 키는 PARAMETER_ARN 으로 앎 — 실계정 확인 필요, TASK-52). hop limit 2 유지 이유(External Secrets) 주석
 <!-- SECTION:NOTES:END -->
