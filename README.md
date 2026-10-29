@@ -721,6 +721,8 @@ make cost-diff              # main 대비 차이. make cost-diff COST_BASE=<브�
   샘플 JSON 으로 상한 검사를 오프라인 테스트한다(`scripts/test/cost_test.sh`).
 - 상한 검사: `scripts/cost-guard.sh [--project <이름>] <breakdown·diff JSON> [상한]` — `totalMonthlyCost` 가 상한(인자 > `COST_LIMIT_USD` > 30)을
   넘으면 실패(1), 형식 오류도 실패(2).
+- CI(`.github/workflows/cost.yml`): `infra/**`·비용 설정·스크립트를 바꾼 PR 에서 `scripts/cost.sh diff origin/<기준>` → PR 코멘트(표·차이,
+  다시 돌면 같은 코멘트를 고친다) → 상한 검사. 리포 secret `INFRACOST_API_KEY` 가 필요하고, 없으면(포크 PR 포함) 경고만 내고 건너뛴다.
 
 ## 정리 (terraform destroy)
 

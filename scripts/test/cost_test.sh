@@ -313,5 +313,56 @@ for w in "make cost" "make cost-diff" "infracost configure set api_key" "INFRACO
   check "TASK-66#3 README '비용 추정 (Infracost)' 절에 '$w'" sh -c "$(declare -f readme_cost_section); readme_cost_section | grep -qF -- '$w'"
 done
 
+# ================================================================ TASK-66#5 CI: infra 변경 PR 에 비용 표·차이 코멘트 + cost-guard (secret 없으면 건너뜀)
+W=.github/workflows/cost.yml
+check "TASK-66#5 $W 존재" test -f "$W"
+if need_linter actionlint; then
+  check "TASK-66#5 actionlint $W" actionlint -shellcheck "$(command -v shellcheck || true)" "$W"
+fi
+if need_linter yq; then
+  t_wf_trigger() {
+    local p
+    [ "$(yq -r '.on | keys | join(",")' $W)" = pull_request ] || { echo "트리거는 pull_request 만"; return 1; }
+    for p in 'infra/**' infracost.yml infracost-usage.yml scripts/cost.sh scripts/cost-guard.sh scripts/ci/install-infracost.sh .github/workflows/cost.yml; do
+      yq -e ".on.pull_request.paths[] | select(. == \"$p\")" $W >/dev/null || { echo "paths 에 $p 없음"; return 1; }
+    done
+  }
+  check "TASK-66#5 트리거: infra·비용 설정·스크립트를 바꾼 PR 만(paths)" t_wf_trigger
+  t_wf_perms() {
+    [ "$(yq -r '.permissions.contents' $W)" = read ] && [ "$(yq -r '.permissions["pull-requests"]' $W)" = write ] \
+      && [ "$(yq -r '.permissions | keys | length' $W)" = 2 ] && [ "$(yq -r '[.jobs[] | select(has("permissions"))] | length' $W)" = 0 ]
+  }
+  check "TASK-66#5 권한 최소: contents: read + pull-requests: write 만" t_wf_perms
+  t_wf_secret_skip() {
+    local j='.jobs.cost'
+    [ "$(yq -r "$j.env.INFRACOST_API_KEY" $W)" = '${{ secrets.INFRACOST_API_KEY }}' ] || { echo "job env 에 secret 없음"; return 1; }
+    # 키 확인 단계(id: key)가 맨 앞이고, 나머지 단계는 모두 steps.key.outputs.present == 'true' 일 때만
+    [ "$(yq -r "$j.steps[0].id" $W)" = key ] || { echo "첫 단계가 키 확인이 아니다"; return 1; }
+    yq -r "$j.steps[0].run" $W | grep -q '::warning' || { echo "키가 없을 때 경고가 없다"; return 1; }
+    [ "$(yq -r "[$j.steps[1:][] | select(.if != \"steps.key.outputs.present == 'true'\")] | length" $W)" = 0 ] || { echo "조건 없는 단계가 있다"; return 1; }
+  }
+  check "TASK-66#B2 CI: secret INFRACOST_API_KEY 가 없으면 경고 후 나머지 단계를 건너뛴다" t_wf_secret_skip
+  t_wf_steps() {
+    local runs; runs="$(yq -r '.jobs.cost.steps[] | (.uses // "") + " " + (.run // "")' $W)"
+    grep -q 'actions/checkout@v7' <<<"$runs" && [ "$(yq -r '.jobs.cost.steps[] | select(.uses == "actions/checkout@v7") | .with["fetch-depth"]' $W)" = 0 ] \
+      || { echo "checkout(fetch-depth 0) 없음"; return 1; }
+    grep -q 'scripts/ci/install-infracost.sh "$RUNNER_TEMP/bin"' <<<"$runs" || { echo "고정 설치 스크립트 안 씀"; return 1; }
+    grep -q 'scripts/cost.sh diff "origin/$BASE_REF"' <<<"$runs" || { echo "cost.sh diff origin/\$BASE_REF 없음"; return 1; }
+    if ! grep -q 'infracost comment github --path "$COST_OUT_DIR/diff.json"' <<<"$runs" || ! grep -q -- '--behavior update' <<<"$runs" \
+      || ! grep -q -- '--pull-request "$PR_NUMBER"' <<<"$runs"; then echo "PR 코멘트 없음"; return 1; fi
+    grep -q 'scripts/cost-guard.sh --project platform "$COST_OUT_DIR/diff.json"' <<<"$runs" || { echo "cost-guard 없음"; return 1; }
+    # 코멘트를 먼저 남기고 상한을 검사한다(초과해도 PR 에 표가 남게)
+    [ "$(grep -n 'infracost comment' <<<"$runs" | cut -d: -f1)" -lt "$(grep -n 'cost-guard.sh' <<<"$runs" | cut -d: -f1)" ]
+  }
+  check "TASK-66#5 단계: checkout(전체 이력) → 고정 설치 → cost.sh diff(origin/기준) → PR 코멘트(update) → cost-guard(platform)" t_wf_steps
+fi
+t_wf_no_expr_in_run() { local r; r="$(yq -r '.jobs[].steps[].run // ""' $W)" || return 1; ! grep -nF '${{' <<<"$r"; }
+if command -v yq >/dev/null 2>&1; then
+  check "TASK-66#5 run 에 \${{ }} 를 직접 넣지 않는다(env 로 넘긴다 — 주입 방지)" t_wf_no_expr_in_run
+fi
+for w in ".github/workflows/cost.yml" "secret" "PR 코멘트"; do
+  check "TASK-66#5 README '비용 추정 (Infracost)' 절에 '$w'" sh -c "$(declare -f readme_cost_section); readme_cost_section | grep -qF -- '$w'"
+done
+
 echo "cost tests: ${passes} passed, ${failures} failed"
 [ "$failures" -eq 0 ]

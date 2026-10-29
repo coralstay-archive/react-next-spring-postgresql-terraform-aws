@@ -1,0 +1,75 @@
+# 비용 (TASK-66#5): infra·비용 설정을 바꾼 PR 에 Infracost 월 비용 표·기준 브랜치 대비 차이를 코멘트하고 상한(cost-guard, $30)을 검사한다.
+# 로컬 make cost-diff 와 같은 스크립트(scripts/cost.sh diff)를 쓴다. infracost 는 고정 버전·sha256(scripts/ci/install-infracost.sh).
+# B2 가격 API 키는 리포 secret INFRACOST_API_KEY(Settings → Secrets and variables → Actions). 없으면(포크 PR 포함) 경고 후 건너뛴다.
+# 액션은 ci.yml 과 같은 메이저 버전 태그로 고정한다.
+name: cost
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - infracost.yml
+      - infracost-usage.yml
+      - scripts/cost.sh
+      - scripts/cost-guard.sh
+      - scripts/ci/install-infracost.sh
+      - .github/workflows/cost.yml
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: cost-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cost:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+    steps:
+      # 결과 JSON(base·diff)은 COST_OUT_DIR 에 남긴다(scripts/cost.sh). job env 에서는 runner 컨텍스트를 못 쓴다
+      - name: Check Infracost API key
+        id: key
+        run: |
+          echo "COST_OUT_DIR=$RUNNER_TEMP/cost" >> "$GITHUB_ENV"
+          if [ -n "$INFRACOST_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::secret INFRACOST_API_KEY 가 없다 — 비용 추정을 건너뛴다(README 비용 추정)"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # cost.sh diff 가 기준 브랜치(origin/<base>)를 git archive 로 꺼낸다
+      - uses: actions/checkout@v7
+        if: steps.key.outputs.present == 'true'
+        with:
+          fetch-depth: 0
+
+      - name: Install infracost (pinned)
+        if: steps.key.outputs.present == 'true'
+        run: |
+          scripts/ci/install-infracost.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Cost diff (base branch → PR)
+        if: steps.key.outputs.present == 'true'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: scripts/cost.sh diff "origin/$BASE_REF"
+
+      - name: Comment on PR
+        if: steps.key.outputs.present == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          infracost comment github --path "$COST_OUT_DIR/diff.json" --repo "$GITHUB_REPOSITORY" \
+            --github-token "$GITHUB_TOKEN" --pull-request "$PR_NUMBER" --behavior update
+
+      # 코멘트를 남긴 뒤 검사한다(초과해도 PR 에 표가 남게)
+      - name: Cost guard (platform ≤ $30)
+        if: steps.key.outputs.present == 'true'
+        run: scripts/cost-guard.sh --project platform "$COST_OUT_DIR/diff.json"
