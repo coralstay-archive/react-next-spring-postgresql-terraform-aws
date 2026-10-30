@@ -5,7 +5,7 @@ nodejs lts
 # @oss infra   kubeconform      v0.8.0
 # @oss infra   k3d              v5.9.0
 # @oss infra   infracost        v0.10.47
-# @oss infra   podman           main
+# @oss infra   podman           v6.1.4
 # @oss infra   docker-compose   v5.6.1
 # @oss core    yq               v4.54.1
 # @oss sh      shellcheck       v0.11.0
