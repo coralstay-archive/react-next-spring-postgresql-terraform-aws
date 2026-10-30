@@ -9,7 +9,7 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
 
 ## 오류 응답 (TASK-20)
 
-모든 오류 응답은 `Content-Type: application/json`이고 본문은 `{"status", "error", "message"}`이다. 입력 검증 오류는 `fields`(필드·파라미터 이름 → 메시지)가 더 붙는다. `error`는 snake_case 코드이고, `message`는 화면에 그대로 보여도 되는 한국어 문장이다. 스택트레이스나 내부 예외 메시지는 응답에 넣지 않는다(서버 로그에만 남긴다).
+모든 오류 응답은 `Content-Type: application/json`이고 본문은 `{"status", "error", "message"}`이다. 입력 검증 오류는 `fields`(필드·파라미터 이름 → 메시지)가 더 붙는다. 글 작성·수정의 첨부 연결 오류(`unknown_attachment`·`attachment_not_confirmed`·`attachment_in_use`·`attachment_forbidden`)도 `fields`에 문제 첨부의 본문 경로(`attachmentIds[i]`)를 담는다(TASK-31#4, 아래 첨부). `error`는 snake_case 코드이고, `message`는 화면에 그대로 보여도 되는 한국어 문장이다. 스택트레이스나 내부 예외 메시지는 응답에 넣지 않는다(서버 로그에만 남긴다).
 
 | 상태 · `error` | 언제 |
 |---|---|
@@ -324,6 +324,8 @@ ${PUBLIC_BASE_URL}/api/login/oauth2/code/cognito  # Terraform cognito 모듈이 
 | 400 `unknown_attachment` | 글 연결: 없는 첨부 id |
 | 400 `attachment_not_confirmed` | 글 연결: confirm 전(PENDING) 첨부 |
 | 400 `attachment_in_use` | 글 연결: 이미 다른 글에 붙은 첨부 |
+
+- **글 연결 오류의 `fields`(TASK-31#4)**: 글 연결의 네 오류(`unknown_attachment`·`attachment_not_confirmed`·`attachment_in_use`·`attachment_forbidden`)는 `fields`에 `{"attachmentIds[i]": "<문구>"}` 하나를 담는다. `i`는 요청의 `attachmentIds` 배열에서 그 id가 처음 나온 위치(0부터)이고, 검사는 배열 순서대로라 첫 문제 첨부 하나만 알린다. 예: `{"status":400,"error":"unknown_attachment","message":"없는 첨부입니다: 101","fields":{"attachmentIds[1]":"없는 첨부입니다"}}`. 옛 클라이언트 호환으로 `unknown_attachment`·`attachment_not_confirmed`·`attachment_in_use`의 `message`는 끝에 id를 그대로 붙인다. `attachment_forbidden`은 위치만 알리고 문구는 일반적이다(`본인이 올린 첨부만 쓸 수 있습니다`, id 없음). 글 연결에는 `attachment_expired`가 없다 — 24시간이 지난 미확정 첨부는 `attachment_not_confirmed`, 정리돼 행이 없으면 `unknown_attachment`다.
 
 - **키와 URL**: 키는 `uploads/{userId}/{uuid}.{ext}`다. 확장자는 타입에서 정하고(`jpg`·`png`·`webp`·`gif`), `filename`은 키에 쓰지 않는다(경로 조작 불가). 공개 `url`은 `UPLOADS_PUBLIC_BASE_PATH`에 키의 `uploads/` 뒤를 붙인 값이다. 운영은 `/uploads/7/<uuid>.png`처럼 같은 오리진 상대 경로이고, CloudFront `/uploads/*` 동작이 같은 키로 S3(OAC)를 읽는다(TASK-16).
 - **confirm(AC#2)**: 본인만 할 수 있다. HeadObject로 객체가 있는지, 크기가 presign 때와 같고 5MB 이하인지, Content-Type이 같은지 다시 확인한다. 통과하면 객체 태그를 지우고(DeleteObjectTagging) `CONFIRMED`로 바꾼다. 이미 확정된 첨부를 다시 confirm하면 그대로 200이다. S3 호출 중에는 DB 트랜잭션을 잡지 않는다(presign 서명도 트랜잭션 밖에서 한 뒤 한도 확인·행 저장만 한 트랜잭션으로 한다, TASK-26#3).

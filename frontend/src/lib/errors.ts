@@ -99,6 +99,9 @@ export const ERROR_MESSAGES: Record<string, string> = {
   attachment_in_use: "이미 다른 글에 붙은 첨부입니다.",
   uploads_unavailable: "지금은 이미지를 올릴 수 없습니다(저장소 미설정).",
   upload_failed: "이미지를 저장소에 올리지 못했습니다. 다시 시도하세요.",
+  // TASK-31#5: 클라이언트가 정하는 업로드 중단 코드(서버는 보내지 않는다)
+  upload_stalled: "업로드가 30초 동안 진행되지 않아 멈췄습니다. 네트워크를 확인한 뒤 다시 올려 주세요.",
+  upload_timeout: "업로드가 5분 안에 끝나지 않아 멈췄습니다. 네트워크를 확인한 뒤 다시 올려 주세요.",
   // 첨부(TASK-22·26)
   too_many_pending_attachments: "업로드를 마치지 않은 이미지가 너무 많습니다. 올린 이미지로 글을 등록한 뒤 다시 시도하세요.",
   storage_unavailable: "이미지 저장소에 일시적인 문제가 있습니다. 잠시 후 다시 시도하세요.",

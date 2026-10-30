@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useId, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 
 import { ApiErrorAlert } from "@/components/board/api-error-alert";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDraftAutosave } from "@/hooks/use-draft-autosave";
+import { useLeaveGuard } from "@/hooks/use-leave-guard";
 import { api, isApiError } from "@/lib/api";
 import { useSessionUser } from "@/lib/auth";
 import { useCategories, type Attachment, type PostDetail } from "@/lib/board";
@@ -20,12 +21,21 @@ import { draftKeys, loadDraft } from "@/lib/drafts";
 import { errorMessage } from "@/lib/errors";
 import { queryKeys } from "@/lib/query";
 import { addTag, MAX_TAGS, normalizeTag } from "@/lib/tags";
-import { ALLOWED_IMAGE_TYPES, MAX_ATTACHMENTS, uploadImage, validateImageFile } from "@/lib/uploads";
+import {
+  ALLOWED_IMAGE_TYPES,
+  confirmAttachment,
+  isRetryableConfirmError,
+  isRetryableConfirmFailure,
+  MAX_ATTACHMENTS,
+  uploadImage,
+  validateImageFile,
+} from "@/lib/uploads";
 
 type UploadItem =
   | { key: string; name: string; status: "uploading"; progress: number }
   | { key: string; name: string; status: "done"; attachment: Attachment }
-  | { key: string; name: string; status: "error"; error: string };
+  // confirmId: 올리기는 됐고 confirm 만 다시 하면 되는 첨부(TASK-31#6).
+  | { key: string; name: string; status: "error"; error: string; confirmId?: number };
 
 /**
  * 글 초안(TASK-29#3). 업로드가 끝난 첨부만 담는다(진행 중·실패한 것은 다시 올려야 한다).
@@ -95,7 +105,61 @@ function doneItems(attachments: Attachment[]): UploadItem[] {
   }));
 }
 
-type FieldErrors = Partial<Record<keyof PostInput | "category" | "tags", string>>;
+type FieldErrors = Partial<Record<keyof PostInput | "category" | "tags" | "attachments", string>>;
+
+/** 서버 `fields` 키(본문 경로)의 첫 이름 → 편집기 칸. `tags[1]`·`attachmentIds[0]` 처럼 원소 경로도 그 칸이다. */
+const FIELD_OF: Record<string, keyof FieldErrors> = {
+  title: "title",
+  content: "content",
+  categorySlug: "category",
+  tags: "tags",
+  attachmentIds: "attachments",
+};
+
+/**
+ * 서버 필드 오류를 칸에 붙인다(TASK-31#3, FE-24). 폼에 없는 키(오타 필드 `titel` 등)는 `unmapped` 로 돌려 폼 위 알림에 보인다 —
+ * 아무 안내 없이 저장만 실패하지 않게. `attachmentIds[n]` 이 n 번째로 보낸 첨부(`sentIds[n]`)로 풀리면 그 첨부 id → 메시지로
+ * `attachmentProblems` 에 돌려주고 첨부 칸에는 붙이지 않는다 — 같은 메시지가 칸과 항목에 두 번 보이지 않게(TASK-31#4). 맨 `attachmentIds`
+ * 나 풀리지 않는 n 만 첨부 칸에 붙는다.
+ */
+function mapFieldErrors(fields: Record<string, string>, sentIds: number[] = []) {
+  const mapped: FieldErrors = {};
+  const unmapped: string[] = [];
+  const attachmentProblems: Record<number, string> = {};
+  for (const [key, message] of Object.entries(fields)) {
+    const field = FIELD_OF[key.split(/[[.]/)[0]];
+    if (!field) {
+      unmapped.push(message);
+      continue;
+    }
+    const index = field === "attachments" ? /^attachmentIds\[(\d+)\]/.exec(key)?.[1] : undefined;
+    const attachmentId = index !== undefined ? sentIds[Number(index)] : undefined;
+    if (attachmentId !== undefined) attachmentProblems[attachmentId] ??= message;
+    else mapped[field] ??= message;
+  }
+  return { mapped, unmapped, attachmentProblems };
+}
+
+/** 글 저장 때 첨부 연결이 거절된 코드(TASK-31#4, FE-25). 문제 첨부를 편집기에서 표시하고 그것만 빼고 다시 저장하게 한다. */
+const ATTACHMENT_LINK_ERRORS = [
+  "unknown_attachment",
+  "attachment_not_confirmed",
+  "attachment_in_use",
+  "attachment_expired",
+  "attachment_not_found",
+  "attachment_forbidden",
+];
+
+/**
+ * 첨부 연결 오류의 문제 첨부 id — `fields` 가 없는 옛 응답 모양의 호환 경로. 지금 서버는 `fields` 의 `attachmentIds[i]` 로 알리고
+ * (TASK-31#4, mapFieldErrors 가 먼저 읽는다), 옛 서버는 메시지 끝에 id 를 붙였다(`없는 첨부입니다: 101`) — 보낸 id 중 하나일 때만 믿는다.
+ * 찾지 못하면(옛 attachment_forbidden 등) null.
+ */
+function linkErrorAttachmentId(message: string, sentIds: number[]): number | null {
+  const match = /(\d+)\s*$/.exec(message);
+  const id = match ? Number(match[1]) : NaN;
+  return sentIds.includes(id) ? id : null;
+}
 
 const TEXTAREA =
   "border-input min-h-64 w-full rounded-lg border bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive";
@@ -109,6 +173,9 @@ const SELECT = "border-input h-8 w-full rounded-lg border bg-transparent px-2 te
  * - 초안(TASK-29#3, B1): 입력이 멈추면 sessionStorage 에 저장하고(원래 값과 같으면 지움, useDraftAutosave), 다시 열면 복원한다.
  *   수정 초안은 바탕 글의 updatedAt 을 담고, 복원 때 서버 글이 더 새로우면 경고하고 초안 유지·버리기(최신 글)를 고르게 한다. 세션이 끝나도
  *   편집기는 언마운트되지 않는다(RequireAuth). 저장에 성공하면 초안을 지운다.
+ * - 견고성(TASK-31): 제출은 ref 로 잠그고 성공하면 replace 로 상세에 간다(PRG, 버튼 비활성 유지). 서버 필드 오류 키를 칸에 붙이고 남은 키는
+ *   폼 위에, 첨부 연결 오류는 문제 첨부에 표시하고 빼고 다시 저장. 업로드는 정체 30초·전체 5분·취소·언마운트 abort, confirm 만 다시 시도.
+ *   이탈 경고(useLeaveGuard)와 히스토리 없는 취소의 / 이동. 카테고리 목록 오류 표시와 지금 카테고리 유지.
  */
 export function PostEditor({ post }: { post?: PostDetail }) {
   const ids = useId();
@@ -135,7 +202,21 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   const [tagText, setTagText] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [items, setItems] = useState<UploadItem[]>(() => doneItems(start.attachments));
+  // 진행·대기 중인 업로드의 취소 손잡이(TASK-31#5). '업로드 취소'와 언마운트가 abort 한다.
+  const uploadControllers = useRef(new Map<string, AbortController>());
+  useEffect(() => {
+    const controllers = uploadControllers.current;
+    return () => {
+      for (const controller of controllers.values()) controller.abort();
+      controllers.clear();
+    };
+  }, []);
+  // 저장 때 연결이 거절된 첨부 id → 안내(TASK-31#4).
+  const [problems, setProblems] = useState<Record<number, string>>({});
   const nextKey = useRef(0);
+  // 한 번의 저장 의도 = 요청 하나(TASK-31#2 B1). 상태(isPending)는 다시 그려진 뒤에야 버튼을 막으므로, 같은 틱의 연속 제출(Enter 연타)은
+  // ref 로 막는다. 실패하면 풀고, 성공하면 이동할 때까지 잠근 채 둔다.
+  const submitLock = useRef(false);
 
   // 초안 저장(TASK-29#3). 원래 값(작성: 빈 폼, 수정: 받은 글)과 같으면 지운다.
   const doneAttachments = items.flatMap((item) => (item.status === "done" ? [item.attachment] : []));
@@ -148,6 +229,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     ...(post && baseUpdatedAt ? { baseUpdatedAt } : {}),
   };
   const pristine = sameDraft(draft, initialDraft(post));
+  const uploading = items.some((item) => item.status === "uploading");
   const autosave = useDraftAutosave({ key: draftKey, ownerId: userId, data: draft, empty: pristine });
 
   const discardDraft = () => {
@@ -178,35 +260,91 @@ export function PostEditor({ post }: { post?: PostDetail }) {
         : api<PostDetail>("/posts", { method: "POST", body }),
     onSuccess: (saved) => {
       autosave.discard();
-      client.setQueryData(queryKeys.post(saved.id), saved);
+      // FE-19(TASK-31#1): 작성 응답(조회수 0, 이번 조회 전)으로 상세 캐시를 채우지 않는다 — 상세 화면이 GET 으로 받아 조회수가 맞다.
+      // 수정은 바뀐 내용을 바로 보이게 응답으로 채우되 stale 로 표시해 상세가 열리면 다시 받는다.
+      if (post) {
+        client.setQueryData(queryKeys.post(saved.id), saved);
+        void client.invalidateQueries({ queryKey: queryKeys.post(saved.id), refetchType: "none" });
+      }
       void client.invalidateQueries({ queryKey: queryKeys.postLists });
       void client.invalidateQueries({ queryKey: ["tags"] });
-      router.push(`/posts/view/?id=${saved.id}`);
+      // 결과 페이지 이동은 여기서 하지 않는다 — 훅 단계 onSuccess 는 편집기가 사라진 뒤에도 불려, 저장 중 떠난 사용자를 상세로 끌고 간다.
+      // 이동은 mutate 호출 단계 onSuccess(편집기가 마운트돼 있을 때만 불린다)에서 한다(submitWith).
     },
-    onError: (error) => {
+    onError: (error, body) => {
+      submitLock.current = false;
       if (!isApiError(error)) return;
-      if (error.fields) setFieldErrors(error.fields as FieldErrors);
-      else if (error.code === "invalid_tag" || error.code === "too_many_tags") setFieldErrors({ tags: errorMessage(error) });
+      const sentIds = Array.isArray(body.attachmentIds) ? (body.attachmentIds as number[]) : [];
+      // 그사이 삭제됐거나(404) 권한이 바뀐(403) 글: 상세 캐시를 다시 받게 한다(FE-21).
+      if (post && (error.status === 404 || error.status === 403)) {
+        void client.invalidateQueries({ queryKey: queryKeys.post(post.id) });
+      }
+      if (error.fields) {
+        const { mapped, attachmentProblems } = mapFieldErrors(error.fields, sentIds);
+        setFieldErrors(mapped);
+        setProblems(attachmentProblems);
+      } else if (ATTACHMENT_LINK_ERRORS.includes(error.code)) {
+        const id = linkErrorAttachmentId(error.message, sentIds);
+        if (id !== null) setProblems({ [id]: errorMessage(error) });
+        else setFieldErrors({ attachments: errorMessage(error) });
+      } else if (error.code === "invalid_tag" || error.code === "too_many_tags") setFieldErrors({ tags: errorMessage(error) });
       else if (error.code === "unknown_category" || error.code === "category_admin_only")
         setFieldErrors({ category: errorMessage(error) });
     },
   });
-  // 칸에 붙인 오류는 폼 위 알림으로 한 번 더 보이지 않는다.
+  // 칸에 붙인 오류는 폼 위 알림으로 한 번 더 보이지 않는다. 폼에 없는 필드 키만 남았으면 그 메시지를 폼 위에 보인다(TASK-31#3).
+  const unmappedFields =
+    save.isError && isApiError(save.error) && save.error.fields ? mapFieldErrors(save.error.fields).unmapped : [];
   const formError =
     save.isError &&
     !(
       isApiError(save.error) &&
       (save.error.fields ||
-        ["invalid_tag", "too_many_tags", "unknown_category", "category_admin_only"].includes(save.error.code))
+        ["invalid_tag", "too_many_tags", "unknown_category", "category_admin_only", ...ATTACHMENT_LINK_ERRORS].includes(
+          save.error.code,
+        ))
     )
       ? save.error
       : null;
 
-  const visibleCategories = (categories.data ?? []).filter(
+  // 이탈 경고(TASK-31#7, B2: 저장하지 않은 입력이 경고 없이 버려지지 않는다). 저장에 성공해 이동하는 중에는 묻지 않는다.
+  // - 탭 닫기·새로고침: 입력이 있거나 업로드·저장 중이면 경고(탭을 닫으면 sessionStorage 초안도 사라진다).
+  // - 앱 안 이동·취소: 글자 입력은 초안(TASK-29)에 남아 다시 열면 복원되므로 묻지 않는다. 업로드 중(떠나면 끊김)·저장 중(결과를 못 봄)·
+  //   초안 저장 실패(저장 공간)일 때만 묻는다. 저장 중 떠나면 요청은 그대로 끝나고(성공하면 초안을 지운다) 상세로 이동하지 않는다.
+  const leaving = useLeaveGuard({
+    unload: !save.isSuccess && (!pristine || uploading || save.isPending),
+    inAppMessage: () => {
+      if (save.isSuccess) return null;
+      if (uploading) return "이미지를 올리는 중입니다. 이 페이지를 떠나면 업로드가 취소됩니다. 떠날까요?";
+      if (save.isPending) return "저장하는 중입니다. 떠나도 저장 요청은 계속되지만 결과 페이지로 이동하지 않습니다(저장됐는지는 목록에서 확인하세요). 떠날까요?";
+      if (!pristine && autosave.saveFailed()) {
+        return "입력한 내용을 임시 저장하지 못했습니다. 이 페이지를 떠나면 입력이 사라집니다. 떠날까요?";
+      }
+      return null;
+    },
+  });
+
+  /** 취소: 확인을 거쳐 뒤로. 새 탭으로 바로 열어 돌아갈 곳이 없으면 목록(/)으로(TASK-31#7, FE-28). */
+  const cancel = () => {
+    if (!leaving.confirmLeave()) return;
+    if (window.history.length > 1) router.back();
+    else router.replace("/");
+  };
+
+  const listedCategories = (categories.data ?? []).filter(
     (category) => !category.adminOnly || isAdmin || category.slug === post?.category?.slug,
   );
-  const uploading = items.some((item) => item.status === "uploading");
-  const attached = items.filter((item) => item.status !== "error").length;
+  // 지금 값(글의 카테고리·복원한 초안)이 목록에 없어도(목록 실패·로딩 중·그사이 삭제) 선택지로 둔다 — 없으면 select 가 "카테고리 없음"을
+  // 보이면서 실제로는 그 값을 보내 표시와 전송값이 어긋났다(TASK-31#8, FE-30). 없는 카테고리면 저장 때 서버가 unknown_category 로 알린다.
+  const visibleCategories =
+    categorySlug && !listedCategories.some((category) => category.slug === categorySlug)
+      ? [
+          ...listedCategories,
+          { slug: categorySlug, name: post?.category?.slug === categorySlug ? post.category.name : categorySlug },
+        ]
+      : listedCategories;
+  // confirm 만 남은 실패(TASK-31#6)도 자리를 차지한다(다시 시도하면 붙는다).
+  const attached = items.filter((item) => item.status !== "error" || item.confirmId !== undefined).length;
 
   // --- 태그 ---
   const commitTag = (raw: string) => {
@@ -270,24 +408,76 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     }
     setItems((current) => [...current, ...added]);
 
-    // 하나씩 올린다(진행률을 파일별로 보이고 presign URL 5분 만료 안에 끝내려고).
+    for (const { key } of queue) uploadControllers.current.set(key, new AbortController());
+
+    // 하나씩 올린다(진행률을 파일별로 보이고 presign URL 5분 만료 안에 끝내려고). 취소된 것(대기 중 취소·언마운트)은 건너뛴다.
     for (const { key, file } of queue) {
+      const controller = uploadControllers.current.get(key);
+      if (!controller || controller.signal.aborted) continue;
       try {
-        const attachment = await uploadImage(file, (progress) =>
-          updateItem(key, { key, name: file.name, status: "uploading", progress }),
-        );
+        const attachment = await uploadImage(file, {
+          signal: controller.signal,
+          onProgress: (progress) => updateItem(key, { key, name: file.name, status: "uploading", progress }),
+        });
         updateItem(key, { key, name: file.name, status: "done", attachment });
       } catch (error) {
-        updateItem(key, { key, name: file.name, status: "error", error: errorMessage(error) });
+        // 취소는 항목을 이미 뺐다.
+        if (!controller.signal.aborted) {
+          updateItem(key, {
+            key,
+            name: file.name,
+            status: "error",
+            error: errorMessage(error),
+            confirmId: isRetryableConfirmError(error) ? error.attachmentId : undefined,
+          });
+        }
+      } finally {
+        uploadControllers.current.delete(key);
       }
     }
   };
 
-  const removeItem = (key: string) => setItems((current) => current.filter((item) => item.key !== key));
+  /** confirm 만 다시(TASK-31#6). 다시 올리지 않는다 — 같은 URL 재PUT 은 412 고, 새로 올리면 지금 객체가 고아가 된다. */
+  const retryConfirm = async (key: string, name: string, attachmentId: number) => {
+    const controller = new AbortController();
+    uploadControllers.current.set(key, controller);
+    updateItem(key, { key, name, status: "uploading", progress: 100 });
+    try {
+      const attachment = await confirmAttachment(attachmentId, controller.signal);
+      updateItem(key, { key, name, status: "done", attachment });
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        const confirmId = isRetryableConfirmFailure(error) ? attachmentId : undefined;
+        updateItem(key, { key, name, status: "error", error: errorMessage(error), confirmId });
+      }
+    } finally {
+      uploadControllers.current.delete(key);
+    }
+  };
+
+  /** 항목 빼기. 올리는 중이거나 차례를 기다리는 것이면 업로드도 끊는다(TASK-31#5). */
+  const removeItem = (key: string) => {
+    uploadControllers.current.get(key)?.abort();
+    uploadControllers.current.delete(key);
+    setItems((current) => current.filter((item) => item.key !== key));
+  };
+  const problemOf = (item: UploadItem) => (item.status === "done" ? problems[item.attachment.id] : undefined);
+  const hasProblems = items.some((item) => problemOf(item));
 
   // --- 제출 ---
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    submitWith(items);
+  };
+
+  /** 문제 첨부만 빼고 다시 저장(TASK-31#4). 칸에서 빼고, 같은 목록으로 바로 보낸다(상태 반영을 기다리지 않는다). */
+  const saveWithoutProblems = () => {
+    const remaining = items.filter((item) => !problemOf(item));
+    setItems(remaining);
+    submitWith(remaining);
+  };
+
+  const submitWith = (current: UploadItem[]) => {
     const errors: FieldErrors = validatePost({ title, content });
     let finalTags = tags;
     if (tagText.trim()) {
@@ -300,9 +490,11 @@ export function PostEditor({ post }: { post?: PostDetail }) {
       }
     }
     setFieldErrors(errors);
+    if (submitLock.current) return;
     if (Object.values(errors).some(Boolean) || uploading) return;
 
-    const attachmentIds = items.flatMap((item) => (item.status === "done" ? [item.attachment.id] : []));
+    setProblems({});
+    const attachmentIds = current.flatMap((item) => (item.status === "done" ? [item.attachment.id] : []));
     const body: Record<string, unknown> = { title, content };
     // 작성: 카테고리 없음이면 생략. 수정: "" 는 카테고리를 뺀다(PATCH 규약).
     if (post) body.categorySlug = categorySlug;
@@ -311,7 +503,13 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     body.attachmentIds = attachmentIds;
     // 요청 중 세션이 끝나도 마지막 입력이 초안에 있게 기다리지 않고 저장한다.
     autosave.flush();
-    save.mutate(body);
+    submitLock.current = true;
+    save.mutate(body, {
+      // PRG(TASK-31#2): 결과 페이지로 replace — 편집기가 히스토리에서 빠져 뒤로가기·새로고침으로 다시 제출되지 않는다.
+      // 잠금(submitLock)은 풀지 않고 버튼도 비활성으로 둔다(이동이 끝나기 전 재클릭으로 두 번째 글이 생기지 않게, B1).
+      // 저장 중 떠나기를 확인해 편집기가 언마운트됐으면 TanStack 이 이 콜백을 부르지 않아, 떠난 페이지에 머문다(TASK-31#7).
+      onSuccess: (saved) => router.replace(`/posts/view/?id=${saved.id}`),
+    });
   };
 
   return (
@@ -356,7 +554,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           onChange={(e) => setTitle(e.target.value)}
           aria-invalid={fieldErrors.title ? true : undefined}
         />
-        <FieldError message={fieldErrors.title} />
+        <FieldError message={fieldErrors.title} testId="editor-title-error" />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -375,7 +573,21 @@ export function PostEditor({ post }: { post?: PostDetail }) {
             </option>
           ))}
         </select>
-        <FieldError message={fieldErrors.category} />
+        <FieldError message={fieldErrors.category} testId="editor-category-error" />
+        {categories.isError && (
+          <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="editor-categories-error">
+            <span className="text-destructive">카테고리 목록을 불러오지 못했습니다. {errorMessage(categories.error)}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              disabled={categories.isFetching}
+              onClick={() => void categories.refetch()}
+            >
+              다시 시도
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -389,7 +601,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           onChange={(e) => setContent(e.target.value)}
           aria-invalid={fieldErrors.content ? true : undefined}
         />
-        <FieldError message={fieldErrors.content} />
+        <FieldError message={fieldErrors.content} testId="editor-content-error" />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -428,7 +640,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           </p>
         )}
         {/* 입력 중인 값의 오류는 미리보기 줄이 이미 보여 준다. */}
-        {!preview?.error && <FieldError message={fieldErrors.tags} />}
+        {!preview?.error && <FieldError message={fieldErrors.tags} testId="editor-tags-error" />}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -459,28 +671,61 @@ export function PostEditor({ post }: { post?: PostDetail }) {
                   className="w-full"
                 />
               )}
+              {problemOf(item) && (
+                <p className="text-destructive" role="alert" data-testid="editor-attachment-problem">
+                  첨부 이미지 {index + 1}: {problemOf(item)}
+                </p>
+              )}
               {item.status === "error" && (
                 <p className="text-destructive" role="alert">
                   {item.name}: {item.error}
                 </p>
               )}
-              {item.status !== "uploading" && (
-                <Button type="button" variant="ghost" size="xs" onClick={() => removeItem(item.key)}>
-                  첨부 이미지 {index + 1} 빼기
+              {item.status === "error" && item.confirmId !== undefined && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={() => void retryConfirm(item.key, item.name, item.confirmId!)}
+                >
+                  첨부 이미지 {index + 1} 확인 다시 시도
                 </Button>
               )}
+              <Button type="button" variant="ghost" size="xs" onClick={() => removeItem(item.key)}>
+                첨부 이미지 {index + 1} {item.status === "uploading" ? "업로드 취소" : "빼기"}
+              </Button>
             </li>
           ))}
         </ul>
+        <FieldError message={fieldErrors.attachments} testId="editor-attachments-error" />
+        {hasProblems && (
+          <div>
+            <Button type="button" variant="outline" size="sm" disabled={save.isPending} onClick={saveWithoutProblems}>
+              문제 이미지 빼고 다시 저장
+            </Button>
+          </div>
+        )}
       </div>
 
       {formError && <ApiErrorAlert error={formError} testId="editor-error" />}
+      {unmappedFields.length > 0 && (
+        <Alert variant="destructive" data-testid="editor-error">
+          <AlertDescription>
+            <p>{errorMessage(save.error)}</p>
+            <ul className="list-disc pl-5">
+              {unmappedFields.map((message, index) => (
+                <li key={index}>{message}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex gap-2">
-        <Button type="submit" data-testid="editor-submit" disabled={save.isPending || uploading}>
+        <Button type="submit" data-testid="editor-submit" disabled={save.isPending || save.isSuccess || uploading}>
           {post ? "저장" : "등록"}
         </Button>
-        <Button type="button" variant="outline" onClick={() => router.back()}>
+        <Button type="button" variant="outline" onClick={cancel}>
           취소
         </Button>
       </div>
@@ -488,7 +733,11 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   );
 }
 
-function FieldError({ message }: { message?: string }) {
+function FieldError({ message, testId }: { message?: string; testId?: string }) {
   if (!message) return null;
-  return <p className="text-destructive text-sm">{message}</p>;
+  return (
+    <p className="text-destructive text-sm" data-testid={testId}>
+      {message}
+    </p>
+  );
 }

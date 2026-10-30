@@ -117,7 +117,7 @@ describe("TASK-14#3 글쓰기 /posts/new/", () => {
     await userEvent.type(screen.getByTestId("editor-tag-input"), "Java{Enter}");
     await userEvent.click(screen.getByTestId("editor-submit"));
 
-    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/posts/view/?id=55"));
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/posts/view/?id=55"));
     expect(bodies).toEqual([
       {
         title: "새 글",
@@ -244,7 +244,7 @@ describe("TASK-14#3 글 수정 /posts/edit/?id=", () => {
     await userEvent.click(screen.getByRole("button", { name: "첨부 이미지 1 빼기" }));
     await userEvent.click(screen.getByTestId("editor-submit"));
 
-    await waitFor(() => expect(navigation.push).toHaveBeenCalledWith("/posts/view/?id=3"));
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/posts/view/?id=3"));
     expect(body).toEqual({
       title: "새 제목",
       content: "원래 본문",

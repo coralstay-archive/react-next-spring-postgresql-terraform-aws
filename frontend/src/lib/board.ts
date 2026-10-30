@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api } from "@/lib/api";
+import { api, isApiError } from "@/lib/api";
 import { listApiQuery, type ListFilters } from "@/lib/board-query";
 import { queryKeys } from "@/lib/query";
 
@@ -171,6 +171,7 @@ export function useToggleLike(id: number) {
 
 /**
  * 글 삭제(soft). 성공하면 목록을 다시 받게 하고 상세는 stale 로만 표시한다(지금 다시 받으면 404 화면이 잠깐 보인다 — 호출자가 목록으로 이동).
+ * 404·403 실패는 상세를 바로 다시 받는다.
  */
 export function useDeletePost(id: number) {
   const client = useQueryClient();
@@ -179,6 +180,12 @@ export function useDeletePost(id: number) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.post(id), refetchType: "none" });
       void client.invalidateQueries({ queryKey: queryKeys.postLists });
+    },
+    // 그사이 삭제됐거나(404) 권한이 바뀐(403) 글이면 상세를 지금 다시 받는다 — 없는 글 안내나 editable=false(버튼 숨김)로 맞춘다(TASK-31#2, FE-21).
+    onError: (error) => {
+      if (isApiError(error) && (error.status === 404 || error.status === 403)) {
+        void client.invalidateQueries({ queryKey: queryKeys.post(id) });
+      }
     },
   });
 }
