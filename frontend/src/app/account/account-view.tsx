@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useId, useState, type FormEvent } from "react";
 
+import { ConfirmDialog } from "@/components/admin/confirm-dialog";
 import { FormError } from "@/components/auth/form-error";
 import { PhoneOtpForm } from "@/components/auth/phone-otp-form";
 import { RefetchErrorAlert } from "@/components/board/api-error-alert";
@@ -77,13 +78,10 @@ export function AccountView() {
       <FormError message={error} />
       {me.stepUpRequired && <StepUpSection me={me} />}
       <IdentitiesSection
+        restricted={me.stepUpRequired}
         onNotice={(message) => {
           setError(null);
           setNotice(message);
-        }}
-        onError={(message) => {
-          setNotice(null);
-          setError(message);
         }}
       />
       <LinkSection
@@ -97,30 +95,49 @@ export function AccountView() {
   );
 }
 
+/**
+ * 로그인 수단 목록·해제(TASK-32#1, FE-16). 해제는 확인 다이얼로그를 거친다(B1: 사용자 확인 없이 해제하지 않는다). LOCAL 해제는
+ * 서버가 비밀번호(local_credentials)도 지우므로 따로 경고한다. 제한 세션은 서버가 해제를 막으므로(403 step_up_required) 버튼을 미리 막고
+ * 이유를 붙인다. 오류(409 last_identity 등)는 다이얼로그 안에 보이고, 성공하면 닫고 알린다.
+ */
 function IdentitiesSection({
+  restricted,
   onNotice,
-  onError,
 }: {
+  restricted: boolean;
   onNotice: (message: string) => void;
-  onError: (message: string) => void;
 }) {
+  const ids = useId();
   const identities = useIdentities();
   const unlink = useUnlinkIdentity();
+  const [target, setTarget] = useState<Identity | null>(null);
+  // 열 때마다 다이얼로그를 새로 그린다(지난 오류가 남지 않게).
+  const [dialogKey, setDialogKey] = useState(0);
+
+  const ask = (identity: Identity) => {
+    unlink.reset();
+    setDialogKey((key) => key + 1);
+    setTarget(identity);
+  };
 
   const remove = (identity: Identity) => {
     unlink.mutate(identity, {
-      onSuccess: () => onNotice(`${PROVIDER_LABELS[identity.provider]} 연결을 해제했습니다.`),
-      onError: (e) => onError(errorMessage(e)),
+      onSuccess: () => {
+        setTarget(null);
+        onNotice(`${PROVIDER_LABELS[identity.provider]} 연결을 해제했습니다.`);
+      },
     });
   };
-
   return (
     <Card>
       <CardHeader>
         <CardTitle>
           <h2 className="text-lg font-semibold">로그인 수단</h2>
         </CardTitle>
-        <CardDescription>이 계정에 로그인할 수 있는 방법입니다. 마지막 하나는 해제할 수 없습니다.</CardDescription>
+        <CardDescription>
+          이 계정에 로그인할 수 있는 방법입니다. 마지막 하나는 해제할 수 없습니다.
+          {restricted && <span id={`${ids}-restricted`}> 지금은 읽기만 되는 세션이라 다시 인증한 뒤에 해제할 수 있습니다.</span>}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {identities.isPending ? (
@@ -154,8 +171,9 @@ function IdentitiesSection({
                       variant="outline"
                       size="sm"
                       aria-label={`${label} 연결 해제`}
-                      disabled={unlink.isPending}
-                      onClick={() => remove(identity)}
+                      aria-describedby={restricted ? `${ids}-restricted` : undefined}
+                      disabled={restricted || unlink.isPending}
+                      onClick={() => ask(identity)}
                     >
                       해제
                     </Button>
@@ -166,7 +184,33 @@ function IdentitiesSection({
           </>
         )}
       </CardContent>
+      <ConfirmDialog
+        key={dialogKey}
+        open={target !== null}
+        onOpenChange={(open) => !open && setTarget(null)}
+        title={target ? `${PROVIDER_LABELS[target.provider]} 연결을 해제할까요?` : ""}
+        description={target ? <UnlinkWarning identity={target} /> : null}
+        confirmLabel="해제"
+        destructive
+        pending={unlink.isPending}
+        error={unlink.error}
+        onConfirm={() => target && remove(target)}
+      />
     </Card>
+  );
+}
+
+function UnlinkWarning({ identity }: { identity: Identity }) {
+  const label = PROVIDER_LABELS[identity.provider];
+  return (
+    <>
+      해제하면 {label}(으)로 이 계정에 로그인할 수 없습니다.
+      {identity.provider === "LOCAL" && (
+        <strong className="text-destructive mt-2 block font-medium">
+          저장된 비밀번호도 함께 삭제되어 되돌릴 수 없습니다. 이후에는 이메일·비밀번호로 로그인할 수 없습니다.
+        </strong>
+      )}
+    </>
   );
 }
 

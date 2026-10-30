@@ -52,6 +52,8 @@ describe("TASK-13#5 내 계정 /account/: 목록·해제", () => {
     renderWithQuery(<AccountView />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Google 연결 해제" }));
+    // TASK-32#1: 확인 다이얼로그를 거친다.
+    await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "해제" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Google 연결 해제" })).not.toBeInTheDocument());
     expect(header).toBe("tok");
     expect(await screen.findByText("Google 연결을 해제했습니다.")).toBeInTheDocument();
@@ -67,7 +69,12 @@ describe("TASK-13#5 내 계정 /account/: 목록·해제", () => {
     renderWithQuery(<AccountView />);
 
     await userEvent.click(await screen.findByRole("button", { name: "이메일·비밀번호 연결 해제" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("마지막 로그인 수단은 해제할 수 없습니다");
+    // TASK-32#1: 오류는 확인 다이얼로그 안에 보이고, 닫으면 목록은 그대로다.
+    const dialog = await screen.findByRole("alertdialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: "해제" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("마지막 로그인 수단은 해제할 수 없습니다");
+    await userEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "이메일·비밀번호 연결 해제" })).toBeInTheDocument();
   });
 });
@@ -316,5 +323,97 @@ describe("TASK-30#4 내 계정: 로그인 수단 재조회 실패", () => {
 
     expect(await screen.findByTestId("identities-refetch-error")).toHaveTextContent("최신 내용을 불러오지 못했습니다");
     expect(screen.getByRole("button", { name: "Google 연결 해제" })).toBeInTheDocument();
+  });
+});
+
+// TASK-32#1 FE-16: 로그인 수단 해제는 확인 다이얼로그를 거치고(LOCAL 이면 비밀번호 삭제 경고), 제한 세션에서는 막혀 있다.
+describe("TASK-32#1 로그인 수단 해제 확인", () => {
+  beforeEach(() => {
+    navigation.reset("/account/");
+  });
+
+  /** DELETE 요청을 센다(취소 경로에서 0 인지 보려고). */
+  function deleteRecorder() {
+    const calls: string[] = [];
+    const handler = http.delete("*/api/me/identities/:id", ({ params }) => {
+      calls.push(String(params.id));
+      return new HttpResponse(null, { status: 204 });
+    });
+    return { calls, handler };
+  }
+
+  it("TASK-32#1 TASK-32#B1 해제를 누르면 확인 다이얼로그가 뜨고, 취소·Esc 로 닫으면 DELETE 하지 않는다", async () => {
+    const rec = deleteRecorder();
+    server.use(
+      meHandler(makeMe({ providers: ["GOOGLE", "LOCAL"] })),
+      csrfHandler(),
+      identitiesHandler(() => [LOCAL, GOOGLE]),
+      rec.handler,
+    );
+    renderWithQuery(<AccountView />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Google 연결 해제" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Google");
+    await userEvent.click(within(dialog).getByRole("button", { name: "취소" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Google 연결 해제" }));
+    await screen.findByRole("alertdialog");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+
+    expect(rec.calls).toEqual([]);
+    expect(screen.getByRole("button", { name: "Google 연결 해제" })).toBeInTheDocument();
+  });
+
+  it("TASK-32#1 TASK-32#B1 LOCAL 해제는 비밀번호가 함께 삭제된다고 경고하고, 확인해야만 DELETE 한다", async () => {
+    const rec = deleteRecorder();
+    server.use(
+      meHandler(makeMe({ providers: ["GOOGLE", "LOCAL"] })),
+      csrfHandler(),
+      identitiesHandler(() => [LOCAL, GOOGLE]),
+      rec.handler,
+    );
+    renderWithQuery(<AccountView />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "이메일·비밀번호 연결 해제" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("비밀번호도 함께 삭제");
+    expect(rec.calls).toEqual([]);
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "해제" }));
+    await waitFor(() => expect(rec.calls).toEqual(["1"]));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(await screen.findByText("이메일·비밀번호 연결을 해제했습니다.")).toBeInTheDocument();
+  });
+
+  it("TASK-32#1 소셜 수단 해제 확인에는 비밀번호 삭제 경고가 없다", async () => {
+    server.use(
+      meHandler(makeMe({ providers: ["GOOGLE", "LOCAL"] })),
+      identitiesHandler(() => [LOCAL, GOOGLE]),
+    );
+    renderWithQuery(<AccountView />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Google 연결 해제" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).not.toHaveTextContent("비밀번호");
+  });
+
+  it("TASK-32#1 제한 세션(stepUpRequired)이면 해제 버튼이 비활성이고 이유를 설명한다", async () => {
+    server.use(
+      meHandler(
+        makeMe({ providers: ["GOOGLE", "LOCAL", "PHONE"], stepUpRequired: true, stepUpProviders: ["GOOGLE", "LOCAL"] }),
+      ),
+      identitiesHandler(() => [LOCAL, GOOGLE, PHONE]),
+    );
+    renderWithQuery(<AccountView />);
+
+    const button = await screen.findByRole("button", { name: "Google 연결 해제" });
+    await waitFor(() => expect(button).toBeDisabled());
+    expect(button).toHaveAccessibleDescription(/다시 인증한 뒤에 해제할 수 있습니다/);
+    expect(screen.getByRole("button", { name: "이메일·비밀번호 연결 해제" })).toBeDisabled();
+    await userEvent.click(button);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });

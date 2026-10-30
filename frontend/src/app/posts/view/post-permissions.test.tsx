@@ -102,10 +102,11 @@ describe("TASK-14#4 삭제", () => {
     expect(navigation.push).not.toHaveBeenCalled();
   });
 
-  it("TASK-14#4 제한 세션(step_up_required)이면 다시 인증 링크", async () => {
+  // 화면이 아는 제한 세션은 확인 창 전에 막는다(TASK-32#3, step-up.test). 여기서는 화면이 아직 모르는(me 가 늦은) 채 서버가 403 을 준 경우.
+  it("TASK-14#4 서버가 step_up_required 로 막으면 다시 인증 링크", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     server.use(
-      meHandler(makeMe({ stepUpRequired: true })),
+      meHandler(makeMe()),
       csrfHandler(),
       postHandler(makePost({ editable: true })),
       commentsHandler(1, () => []),

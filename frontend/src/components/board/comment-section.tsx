@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 
 import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
+import { StepUpNotice } from "@/components/step-up-notice";
 import { Button } from "@/components/ui/button";
 import { useCurrentPath } from "@/hooks/use-current-path";
 import { useDraftAutosave } from "@/hooks/use-draft-autosave";
-import { loginHref, useSessionUser, type Me } from "@/lib/auth";
+import { loginHref, useMe, useSessionUser, type Me } from "@/lib/auth";
 import {
   COMMENT_PAGE_SIZE,
   formatDate,
@@ -27,10 +28,17 @@ export function CommentSection({ postId }: { postId: number }) {
   const [page, setPage] = useState(0);
   const comments = useComments(postId, page);
   const remove = useDeleteComment(postId);
+  const { data: me } = useMe();
+  // 제한 세션에서 삭제를 누르면 확인 창 대신 본인 확인 안내를 보인다(TASK-32#3). 서버도 403 step_up_required 로 막는다.
+  const [stepUpShown, setStepUpShown] = useState(false);
   const total = comments.data?.totalElements ?? 0;
   const totalPages = comments.data?.totalPages ?? 0;
 
   const onDelete = (comment: Comment) => {
+    if (me?.stepUpRequired) {
+      setStepUpShown(true);
+      return;
+    }
     if (!window.confirm("댓글을 삭제할까요?")) return;
     remove.mutate(comment.id);
   };
@@ -70,6 +78,9 @@ export function CommentSection({ postId }: { postId: number }) {
         </ul>
       )}
 
+      {stepUpShown && me?.stepUpRequired && (
+        <StepUpNotice testId="comment-delete-step-up">다시 인증한 뒤에 댓글을 삭제할 수 있습니다.</StepUpNotice>
+      )}
       {remove.isError && <ApiErrorAlert error={remove.error} testId="comment-error" />}
 
       {totalPages > 1 && (
@@ -162,9 +173,12 @@ function CommentEditor({ postId, user, onCreated }: { postId: number; user: Me; 
   // 초안(TASK-29#3·#4, B1): 입력이 있으면 (멈춘 뒤) 저장, 비면 지운다.
   const autosave = useDraftAutosave({ key: draftKey, ownerId: user.id, data: { content }, empty: !content });
 
+  // 제한 세션(TASK-32#3): 서버가 403 step_up_required 로 막으므로 등록을 미리 막는다. 입력은 그대로 되고 초안으로 남는다.
+  const restricted = user.stepUpRequired;
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (submitting.current) return;
+    if (submitting.current || restricted) return;
     const invalid = validateComment(content);
     setError(invalid);
     if (invalid) return;
@@ -194,8 +208,13 @@ function CommentEditor({ postId, user, onCreated }: { postId: number; user: Me; 
       />
       {error && <p className="text-destructive text-sm">{error}</p>}
       {create.isError && <ApiErrorAlert error={create.error} testId="comment-create-error" />}
+      {restricted && (
+        <StepUpNotice inline testId="comment-step-up">
+          등록하려면 본인 확인이 필요합니다 · 작성 내용은 임시 저장됩니다
+        </StepUpNotice>
+      )}
       <div>
-        <Button type="submit" data-testid="comment-submit" disabled={create.isPending}>
+        <Button type="submit" data-testid="comment-submit" disabled={create.isPending || restricted}>
           댓글 등록
         </Button>
       </div>
