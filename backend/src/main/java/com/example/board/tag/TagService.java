@@ -49,17 +49,36 @@ public class TagService {
 		return new ArrayList<>(names);
 	}
 
-	/** 정규화·검증 후 태그 엔티티들(없던 것은 만든다). 호출자의 트랜잭션 안에서 돈다. */
+	/**
+	 * 정규화·검증 후 태그 엔티티들(없던 것은 만든다). 호출자의 트랜잭션 안에서 돈다.
+	 *
+	 * <p>미사용 태그 정리와의 경쟁 (TASK-27#1): upsert 뒤 태그 행을 {@code FOR KEY SHARE} 로 잠가 커밋 때까지 쥔다 — 정리는
+	 * {@code FOR UPDATE SKIP LOCKED} 로 고르므로 저장 중인 글의 태그를 건너뛴다. KEY SHARE 끼리는 충돌하지 않아 같은 태그를 쓰는 글 저장끼리는
+	 * 기다리지 않는다. 정리가 먼저 잠근 태그는 그 삭제가 끝날 때까지 기다리고, 지워졌으면(잠금 결과에 없으면) 다시 upsert 한다.
+	 */
 	@Transactional(propagation = Propagation.MANDATORY)
 	public List<Tag> resolve(Collection<String> raw) {
 		List<String> names = normalizeAll(raw);
 		if (names.isEmpty()) {
 			return List.of();
 		}
-		for (String name : names) {
-			jdbc.update("insert into tags (name) values (?) on conflict (name) do nothing", name);
+		List<String> missing = names;
+		for (int attempt = 0; attempt < MAX_RESOLVE_ATTEMPTS && !missing.isEmpty(); attempt++) {
+			for (String name : missing) {
+				jdbc.update("insert into tags (name) values (?) on conflict (name) do nothing", name);
+			}
+			List<String> held = jdbc.queryForList(
+					"select name from tags where name = any(?) order by name for key share", String.class,
+					(Object) names.toArray(String[]::new));
+			missing = names.stream().filter(name -> !held.contains(name)).toList();
+		}
+		if (!missing.isEmpty()) {
+			throw new IllegalStateException("태그를 잡지 못했다(정리 작업과 계속 겹침): " + missing.size() + "개");
 		}
 		return tags.findByNameIn(names);
 	}
+
+	/** 정리 작업이 같은 태그를 거듭 지우는 경우의 재시도 상한. 정리는 한 번 실행에 한 번만 지나가므로 보통 두 번째에 끝난다. */
+	static final int MAX_RESOLVE_ATTEMPTS = 3;
 
 }

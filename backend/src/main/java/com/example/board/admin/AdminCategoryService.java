@@ -68,9 +68,18 @@ public class AdminCategoryService {
 		audit.record(admin.id(), AdminAction.Type.CATEGORY_DELETE, id, "slug=" + category.getSlug());
 	}
 
+	/**
+	 * 맨 뒤 = 현재 최대 + 1. 상한({@link AdminCategoryRequests#MAX_SORT_ORDER})을 넘지 않는다(TASK-27#4, BE-40) — 상한에 닿으면 같은 값이
+	 * 여럿일 수 있다(유일 제약이 없고 목록은 sort_order 다음 id 순). 검증 전에 들어간 범위 밖 값(int 최댓값 등)이 있어도 long 으로 더해서
+	 * 오버플로(음수)가 나지 않는다.
+	 */
 	private int nextSortOrder() {
 		Integer max = categories.findMaxSortOrder();
-		return max == null ? 0 : max + 1;
+		if (max == null) {
+			return AdminCategoryRequests.MIN_SORT_ORDER;
+		}
+		long next = Math.max((long) max + 1, AdminCategoryRequests.MIN_SORT_ORDER);
+		return (int) Math.min(next, AdminCategoryRequests.MAX_SORT_ORDER);
 	}
 
 	private Category save(Category category) {

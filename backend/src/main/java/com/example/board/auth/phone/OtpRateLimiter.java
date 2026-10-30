@@ -58,6 +58,15 @@ public class OtpRateLimiter {
 		}
 	}
 
+	/**
+	 * 발송 한도가 보는 가장 긴 창 (TASK-27#1): 24시간·1시간·phone-cooldown 중 가장 긴 것. otp_challenges 에서 created_at 이 이보다 오래된
+	 * 행은 어느 한도에도 세이지 않으므로 지워도 한도가 풀리지 않는다(TASK-27 B1).
+	 */
+	public static Duration longestWindow(OtpProperties properties) {
+		Duration longest = DAY.compareTo(HOUR) >= 0 ? DAY : HOUR;
+		return properties.phoneCooldown().compareTo(longest) > 0 ? properties.phoneCooldown() : longest;
+	}
+
 	private void lock(String key) {
 		jdbc.queryForList("select 1 from pg_advisory_xact_lock(hashtext(?))", Integer.class, key);
 	}

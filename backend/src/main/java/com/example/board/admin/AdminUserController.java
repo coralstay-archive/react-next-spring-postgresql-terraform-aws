@@ -41,7 +41,7 @@ public class AdminUserController {
 	}
 
 	@PostMapping("/admin/users/{id}/suspend")
-	public AdminUserResponse suspend(@PathVariable Long id, @Valid @RequestBody(required = false) ReasonRequest body,
+	public AdminUserService.SuspendResponse suspend(@PathVariable Long id, @Valid @RequestBody(required = false) ReasonRequest body,
 			@AuthenticationPrincipal AuthUser admin) {
 		return service.suspend(admin, id, ReasonRequest.of(body));
 	}
