@@ -6,6 +6,9 @@
  * - 상태를 바꾸는 메서드(POST/PUT/PATCH/DELETE)는 `XSRF-TOKEN` 쿠키 값을 `X-XSRF-TOKEN` 헤더로 보낸다. 쿠키가 없으면
  *   `GET /api/auth/csrf` 로 먼저 받는다. 토큰은 로그인·OTP 검증·step-up·OAuth 콜백 뒤 회전하고 로그아웃 뒤 지워지므로
  *   **요청마다 쿠키를 다시 읽는다**(캐시하지 않는다). 그래도 403 `csrf` 가 오면 토큰을 다시 받아 한 번만 재시도한다.
+ * - CSRF 토큰을 받은 뒤에도 쿠키가 없으면(쿠키 차단) 보내지 않고 `cookies_blocked`(TASK-30#2).
+ * - 쓰기 메서드는 호출 전체(403 `csrf` 재시도 포함)에 35초 타임아웃({@link MUTATION_TIMEOUT_MS}), 지나면 `timeout`(TASK-30#3).
+ *   CSRF 토큰 GET 은 따로 10초({@link CSRF_TOKEN_TIMEOUT_MS}). 호출자 취소는 AbortError 그대로.
  * - 오류 응답 `{status, error, message, fields?}` 는 {@link ApiError} 로 바꾼다. 429 는 `Retry-After`(초)를 담는다.
  *   `error` 가 계약 형식(`^[a-z0-9_]+$`)이 아니거나 본문이 JSON 이 아니면(프록시 HTML, Spring 기본 오류) 코드는 `http_<상태>`,
  *   문장은 상태 범위별 한국어다 — 영어 `statusText`·HTML 원문을 화면에 올리지 않는다(TASK-28#2).
@@ -42,7 +45,8 @@ export class ApiError extends Error {
   readonly status: number;
   /**
    * 백엔드 `error` 코드(예: `email_taken`). 오류 본문이 JSON·계약 형식이 아니면 `http_<status>`, 네트워크 오류는 `network`,
-   * 2xx 인데 본문이 JSON 이 아니면 `bad_response`.
+   * 2xx 인데 본문이 JSON 이 아니면 `bad_response`, CSRF 쿠키가 저장되지 않으면 `cookies_blocked`,
+   * 쓰기 요청이 시간 초과면 `timeout`.
    */
   readonly code: string;
   readonly fields?: Record<string, string>;
@@ -118,30 +122,74 @@ export interface ApiOptions {
   body?: unknown;
   query?: Query;
   signal?: AbortSignal;
+  /** 쓰기 메서드의 요청 타임아웃(ms). 기본 {@link MUTATION_TIMEOUT_MS}. 조회(GET)에는 걸지 않는다. */
+  timeoutMs?: number;
 }
+
+/**
+ * 쓰기 요청 타임아웃(TASK-30#3, FE-8, 유저 결정 35초). 백엔드 요청 예산(30초)보다 길게 잡아, 서버가 끝까지 처리하고 답한
+ * 경우를 우리가 먼저 끊지 않는다. 이 시간이 지나도 답이 없으면 서버가 처리했는지 알 수 없으므로 `timeout` 으로 끝내고
+ * "처리됐는지 확인한 뒤 다시 시도"를 안내한다(자동 재시도는 하지 않는다 — 두 번 저장될 수 있다).
+ */
+export const MUTATION_TIMEOUT_MS = 35_000;
+
+export const TIMEOUT_MESSAGE =
+  "응답이 너무 늦어 요청이 처리됐는지 확인하지 못했습니다. 저장·변경됐는지 확인한 뒤 다시 시도하세요.";
+
+/**
+ * CSRF 토큰 GET 의 제한 시간(TASK-30#3, 유저 결정 10초). 여러 쓰기가 공유하는 요청이라 멈추면 모두가 기다리므로 따로 끊는다.
+ * 시간이 지나면 ApiError `network` — 쓰기 요청은 아직 보내지 않았으므로 '처리됐는지 확인' 이 아니라 연결 오류 안내다.
+ */
+export const CSRF_TOKEN_TIMEOUT_MS = 10_000;
 
 let csrfInFlight: Promise<void> | null = null;
 
-/** XSRF-TOKEN 쿠키를 받는다(동시에 여러 번 불려도 요청은 하나). */
+/**
+ * XSRF-TOKEN 쿠키를 받는다(동시에 여러 번 불려도 요청은 하나). {@link CSRF_TOKEN_TIMEOUT_MS} 가 지나면 요청을 끊고
+ * `network` 로 실패한다. 성공·실패 모두 끝나면 공유 요청을 비워 다음 호출이 새로 받는다.
+ */
 export function fetchCsrfToken(): Promise<void> {
   if (!csrfInFlight) {
-    csrfInFlight = send(apiUrl("/auth/csrf"), { method: "GET", credentials: "include" })
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new ApiError(0, "network", statusMessage(0))), CSRF_TOKEN_TIMEOUT_MS);
+    csrfInFlight = send(apiUrl("/auth/csrf"), { method: "GET", credentials: "include", signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw await toApiError(response);
       })
       .finally(() => {
+        clearTimeout(timer);
         csrfInFlight = null;
       });
   }
   return csrfInFlight;
 }
 
-async function csrfToken(): Promise<string | null> {
-  let token = readCookie(CSRF_COOKIE);
+/** promise 를 기다리되 signal 이 취소되면 그 사유로 바로 끝낸다(공유 토큰 요청 자체는 끊지 않는다). */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/** 쿠키가 막힌 브라우저(TASK-30#2, FE-7): CSRF 토큰을 받아도 쿠키가 저장되지 않는다. */
+export const COOKIES_BLOCKED_MESSAGE =
+  "브라우저가 쿠키를 막고 있어 요청을 보낼 수 없습니다. 이 사이트의 쿠키를 허용한 뒤 다시 시도하세요.";
+
+/**
+ * 쓰기 요청의 CSRF 토큰. 쿠키가 없으면(또는 `refresh` 면 — 403 `csrf` 재시도) 한 번 받고, 받은 뒤에도 없으면 쿠키가 막힌 것이다 — 토큰 없이 보내면 403 `csrf` 가 되고
+ * 다시 받아도 또 없어 "보안 토큰이 만료" 안내만 되풀이되므로, 보내지 않고 ApiError 403 `cookies_blocked` 로 끝낸다.
+ */
+async function csrfToken(signal: AbortSignal | undefined, refresh: boolean): Promise<string> {
+  let token = refresh ? null : readCookie(CSRF_COOKIE);
   if (!token) {
-    await fetchCsrfToken();
+    await untilAborted(fetchCsrfToken(), signal);
     token = readCookie(CSRF_COOKIE);
   }
+  if (!token) throw new ApiError(403, "cookies_blocked", COOKIES_BLOCKED_MESSAGE);
   return token;
 }
 
@@ -149,40 +197,69 @@ export async function api<T = unknown>(path: string, options: ApiOptions = {}): 
   const method = options.method ?? "GET";
   const unsafe = UNSAFE_METHODS.has(method);
 
-  const attempt = async (): Promise<Response> => {
+  /** 한 번 보내고 본문까지 읽는다. 실패는 ApiError(호출자 취소는 그 abort 사유 그대로). */
+  const request = async (signal: AbortSignal | undefined, refreshToken: boolean): Promise<T> => {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (options.body !== undefined) headers["Content-Type"] = "application/json";
-    if (unsafe) {
-      const token = await csrfToken();
-      if (token) headers[CSRF_HEADER] = token;
-    }
-    return send(apiUrl(path, options.query), {
+    if (unsafe) headers[CSRF_HEADER] = await csrfToken(signal, refreshToken);
+    signal?.throwIfAborted();
+    const response = await send(apiUrl(path, options.query), {
       method,
       headers,
       credentials: "include",
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: options.signal,
+      signal,
     });
+    if (!response.ok) throw await toApiError(response);
+    return parseBody<T>(response);
   };
 
-  let response = await attempt();
-  if (!response.ok) {
-    let error = await toApiError(response);
-    if (unsafe && error.status === 403 && error.code === "csrf") {
-      await fetchCsrfToken();
-      response = await attempt();
-      if (response.ok) return parseBody<T>(response);
-      error = await toApiError(response);
+  if (!unsafe) return request(options.signal, false);
+
+  /** 첫 시도 → 403 `csrf` 면 토큰을 다시 받아 한 번만 재시도. 타임아웃은 이 전체에 하나다(남은 시간이 재시도 몫). */
+  const attempt = async (signal: AbortSignal): Promise<T> => {
+    try {
+      return await request(signal, false);
+    } catch (error) {
+      if (isApiError(error) && error.status === 403 && error.code === "csrf") return request(signal, true);
+      throw error;
     }
-    throw error;
-  }
-  return parseBody<T>(response);
+  };
+  return withTimeout(options.timeoutMs ?? MUTATION_TIMEOUT_MS, options.signal, attempt);
 }
 
+/**
+ * 쓰기 호출 전체의 타임아웃(TASK-30#3, 403 `csrf` 재시도·토큰 재발급 포함). 내부 AbortController 하나로 fetch 를 끊는다: 시간이 지나면 ApiError `timeout` 으로 끝내고,
+ * 호출자 signal 이 취소되면 그 사유(AbortError)를 그대로 전달한다 — 둘을 구분한다. `AbortSignal.any`·`AbortSignal.timeout` 대신
+ * 리스너와 setTimeout 을 쓰는 한 경로라 브라우저 지원 차이가 없다. 시간이 지나면 fetch 가 끊기기를 기다리지 않고 바로 끝낸다
+ * (공유 CSRF 토큰 요청을 기다리는 중이어도 걸리지 않게).
+ */
+function withTimeout<T>(ms: number, caller: AbortSignal | undefined, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  if (caller?.aborted) return Promise.reject(caller.reason);
+  const controller = new AbortController();
+  return new Promise<T>((resolve, reject) => {
+    const onCallerAbort = () => controller.abort(caller?.reason);
+    caller?.addEventListener("abort", onCallerAbort, { once: true });
+    const timer = setTimeout(() => {
+      const error = new ApiError(0, "timeout", TIMEOUT_MESSAGE);
+      controller.abort(error);
+      reject(error);
+    }, ms);
+    run(controller.signal)
+      .then(resolve, reject)
+      .finally(() => {
+        clearTimeout(timer);
+        caller?.removeEventListener("abort", onCallerAbort);
+      });
+  });
+}
+
+/** fetch. 네트워크 실패는 ApiError `network`, 취소(signal)는 그 abort 사유를 그대로 던진다. */
 async function send(url: string, init: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init);
   } catch (cause) {
+    if (init.signal?.aborted) throw init.signal.reason;
     if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
     throw new ApiError(0, "network", statusMessage(0));
   }

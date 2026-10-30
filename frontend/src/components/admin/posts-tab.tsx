@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
 import { Pager } from "@/components/admin/pager";
-import { ApiErrorAlert } from "@/components/board/api-error-alert";
+import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
 import { PostFlags } from "@/components/board/post-flags";
 import { Button } from "@/components/ui/button";
 import { usePostModeration, type PostModeration } from "@/lib/admin";
@@ -54,7 +54,15 @@ export function PostsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      {list.isError ? (
+      {list.isError && list.data && (
+        <RefetchErrorAlert
+          error={list.error}
+          retrying={list.isFetching}
+          onRetry={() => void list.refetch()}
+          testId="admin-posts-refetch-error"
+        />
+      )}
+      {list.isError && !list.data ? (
         <ApiErrorAlert error={list.error} testId="admin-posts-error" />
       ) : list.isPending ? (
         <p role="status" className="text-muted-foreground text-sm">

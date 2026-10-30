@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 
+import { OfflineBanner } from "@/components/offline-banner";
 import { Providers } from "@/components/providers";
 import { SessionExpiredBanner } from "@/components/session-expired-banner";
 import { SiteHeader } from "@/components/site-header";
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col">
         <Providers>
           <SiteHeader />
+          <OfflineBanner />
           <StepUpBanner />
           <Suspense fallback={null}>
             <SessionExpiredBanner />

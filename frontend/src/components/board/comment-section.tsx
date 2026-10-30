@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRef, useState, type FormEvent } from "react";
 
-import { ApiErrorAlert } from "@/components/board/api-error-alert";
+import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
 import { Button } from "@/components/ui/button";
 import { useCurrentPath } from "@/hooks/use-current-path";
 import { useDraftAutosave } from "@/hooks/use-draft-autosave";
@@ -41,7 +41,15 @@ export function CommentSection({ postId }: { postId: number }) {
         댓글 {comments.data ? <span className="text-muted-foreground">{total}</span> : null}
       </h2>
 
-      {comments.isError ? (
+      {comments.isError && comments.data && (
+        <RefetchErrorAlert
+          error={comments.error}
+          retrying={comments.isFetching}
+          onRetry={() => void comments.refetch()}
+          testId="comments-refetch-error"
+        />
+      )}
+      {comments.isError && !comments.data ? (
         <ApiErrorAlert error={comments.error} testId="comments-error" />
       ) : comments.isPending ? (
         <p role="status" className="text-muted-foreground text-sm">

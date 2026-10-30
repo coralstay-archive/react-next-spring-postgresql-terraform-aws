@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { useSessionLostNoticeShown } from "@/components/guards";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { useCurrentPath } from "@/hooks/use-current-path";
 import { isApiError } from "@/lib/api";
 import { loginHref } from "@/lib/auth";
@@ -31,6 +32,34 @@ export function ApiErrorAlert({ error, testId }: { error: unknown; testId?: stri
             로그인하기
           </Link>
         )}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/**
+ * 재조회 실패 배너(TASK-30#4, FE-23). 이미 받은 데이터가 있을 때 백그라운드 재조회가 실패하면 화면을 오류로 바꾸지 않고
+ * 기존 데이터 위에 이 작은 안내와 "다시 시도"만 붙인다(목록·상세·댓글·수정·관리자 탭·로그인 수단). 데이터가 없을 때만
+ * {@link ApiErrorAlert} 오류 화면이다.
+ */
+export function RefetchErrorAlert({
+  error,
+  onRetry,
+  retrying = false,
+  testId,
+}: {
+  error: unknown;
+  onRetry: () => void;
+  retrying?: boolean;
+  testId?: string;
+}) {
+  return (
+    <Alert data-testid={testId}>
+      <AlertDescription>
+        <p>최신 내용을 불러오지 못했습니다. 이전에 받은 내용을 보여 줍니다. {errorMessage(error)}</p>
+        <Button variant="outline" size="xs" disabled={retrying} onClick={onRetry}>
+          다시 시도
+        </Button>
       </AlertDescription>
     </Alert>
   );

@@ -3,7 +3,7 @@
 import { useId, useState, type FormEvent } from "react";
 
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
-import { ApiErrorAlert } from "@/components/board/api-error-alert";
+import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,7 +71,15 @@ export function CategoriesTab() {
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
       <div className="flex flex-col gap-3">
-        {categories.isError ? (
+        {categories.isError && categories.data && (
+          <RefetchErrorAlert
+            error={categories.error}
+            retrying={categories.isFetching}
+            onRetry={() => void categories.refetch()}
+            testId="admin-categories-refetch-error"
+          />
+        )}
+        {categories.isError && !categories.data ? (
           <ApiErrorAlert error={categories.error} testId="admin-categories-error" />
         ) : categories.isPending ? (
           <p role="status" className="text-muted-foreground text-sm">

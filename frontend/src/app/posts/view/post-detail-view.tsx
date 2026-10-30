@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
-import { ApiErrorAlert } from "@/components/board/api-error-alert";
+import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
 import { CommentSection } from "@/components/board/comment-section";
 import { PostActions } from "@/components/board/post-actions";
 import { PostFlags } from "@/components/board/post-flags";
@@ -38,23 +38,33 @@ export function PostNotFound() {
 function PostDetailById({ id }: { id: number }) {
   const post = usePost(id);
   // 세션 만료 리셋(TASK-29#1)으로 데이터가 비고 다시 받는 동안에도 글을 그대로 두어 댓글 폼(입력·오류)이 언마운트되지 않게 한다
-  // (TASK-29#4). 그동안은 익명으로 보고 수정·삭제·좋아요 상태를 끈다(B2).
+  // (TASK-29#4). 그동안은 익명으로 보고 수정·삭제·좋아요 상태를 끈다(B2). 리셋 뒤 다시 받기가 실패해도 마찬가지다(TASK-30#4).
   const [last, setLast] = useState<PostDetail | null>(null);
   if (post.data && post.data !== last) setLast(post.data);
-  const shown = post.data ?? (post.isPending && last ? { ...last, editable: false, likedByMe: false } : undefined);
+  // 그사이 삭제되었거나 볼 수 없게 된 글(404)은 받은 내용이 있어도 없는 글 안내로 바꾼다.
+  if (post.isError && isApiError(post.error) && post.error.status === 404) return <PostNotFound />;
+  const shown =
+    post.data ??
+    ((post.isPending || post.isError) && last ? { ...last, editable: false, likedByMe: false } : undefined);
 
   if (shown) {
+    // 재조회 실패(TASK-30#4, FE-23): 받은 글·댓글 폼을 그대로 두고 작은 배너만 붙인다.
     return (
       <article className="flex w-full flex-col gap-6">
+        {post.isError && (
+          <RefetchErrorAlert
+            error={post.error}
+            retrying={post.isFetching}
+            onRetry={() => void post.refetch()}
+            testId="post-refetch-error"
+          />
+        )}
         <PostBody post={shown} />
         <CommentSection postId={id} />
       </article>
     );
   }
-  if (post.isError) {
-    if (isApiError(post.error) && post.error.status === 404) return <PostNotFound />;
-    return <ApiErrorAlert error={post.error} testId="post-error" />;
-  }
+  if (post.isError) return <ApiErrorAlert error={post.error} testId="post-error" />;
   return (
     <p role="status" className="text-muted-foreground text-sm">
       불러오는 중…

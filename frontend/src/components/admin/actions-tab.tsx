@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { Pager } from "@/components/admin/pager";
-import { ApiErrorAlert } from "@/components/board/api-error-alert";
+import { ApiErrorAlert, RefetchErrorAlert } from "@/components/board/api-error-alert";
 import { ACTION_LABELS, TARGET_LABELS, useAdminActions } from "@/lib/admin";
 import { formatDate } from "@/lib/board";
 
@@ -14,7 +14,15 @@ export function ActionsTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      {list.isError ? (
+      {list.isError && list.data && (
+        <RefetchErrorAlert
+          error={list.error}
+          retrying={list.isFetching}
+          onRetry={() => void list.refetch()}
+          testId="admin-actions-refetch-error"
+        />
+      )}
+      {list.isError && !list.data ? (
         <ApiErrorAlert error={list.error} testId="admin-actions-error" />
       ) : list.isPending ? (
         <p role="status" className="text-muted-foreground text-sm">
