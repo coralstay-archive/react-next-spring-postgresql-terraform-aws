@@ -110,12 +110,23 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 
 - **라우트**: 정적 export는 동적 세그먼트(`/posts/[id]`)를 미리 만들 수 없으므로 id를 쿼리 파라미터로 받는다. 뷰는 `<Suspense>` 안에서 `useSearchParams`로 읽는다. 잘못된 id는 요청 없이, 404는 응답을 보고 "없는 글"로 안내한다.
 - **검색어**: 서버(`PostController.searchTerm`)와 같이 Java `strip()` 뒤 2~100자(코드 포인트). 비면 검색하지 않고, 1자는 요청하지 않고 안내한다.
+  URL의 `q`가 이 범위 밖이면(직접 고친 링크 등) `q` 없이 요청하고 "검색어 무시: 검색어는 2~100자여야 합니다 검색어 없이 목록을 보여 줍니다."(`search-error`)를 보인다(TASK-33#2, FE-22).
+- **목록 page** (TASK-33#2·#4, FE-22): URL `page`는 1 이상의 정수 문자열만 받고(음수·소수·`1e3`·문자는 1쪽) 서버 OFFSET 상한(`page × size ≤ 10,000`, TASK-23#5 —
+  20개씩이면 API page 0~500 = 1~501쪽, `MAX_LIST_PAGE`)을 넘으면(자릿수가 넘쳐도) 501쪽으로 잘라 요청하고 `page-cap-notice`로 이유와 "검색·카테고리·태그로 좁혀 보라"를 알린다.
+  응답의 `totalPages`보다 큰 쪽이면 `router.replace`로 마지막 쪽(0건이면 1쪽)으로 URL을 바로잡는다. "다음"은 `min(totalPages, 501)`까지만 있고, 501쪽인데 더 있으면
+  `pagination-cap` 안내를 보인다. 목록 오류(받은 데이터 없음)에는 필터를 모두 뺀 `/`로 가는 "첫 페이지로"(`post-list-first-page`, 이미 `/`면 없음)를 붙인다.
+  필터까지 빼는 것은 결정이다(TASK-33 리뷰): 오류의 원인이 필터 값(잘못된 카테고리·태그 등)일 수 있어 필터를 남긴 1쪽은 같은 오류를 되풀이할 수 있다.
+- **카테고리 탭·인기 태그 오류** (TASK-33#2): 받은 데이터가 없이 실패하면 그 자리에 "카테고리를 불러오지 못했습니다."(`category-tabs-error`, "전체" 탭은 그대로)·
+  "인기 태그를 불러오지 못했습니다."(`tag-chips-error`) + 다시 시도를 조용한 안내(alert 아님)로 보인다.
+- **좋아요 롤백** (TASK-33#1, FE-20): 실패하면 최신 상세 캐시에 함수형 업데이트로 `likedByMe`·`likeCount`만 누르기 전 값으로 돌린다 — 요청 중 다시 받은 제목·본문·조회수는
+  덮지 않는다(예전에는 누르기 전 스냅숏 전체로 되돌렸다). 단 캐시가 아직 낙관적 값(`likedByMe`·`likeCount` 모두)일 때만 되돌린다 — 그사이 재조회가 서버 값을
+  넣었으면 옛 값으로 덮지 않고 상세를 다시 받는다. 404(그사이 삭제·숨김)면 상세를 다시 받아 없는 글 안내로 바꾼다.
 - **태그 입력**: `src/lib/tags.ts`가 서버 `TagNames`와 같은 순서로 정규화한다(NFC → Java `strip` → ASCII 공백 축약 → 소문자 → 30자). 입력 중 "저장될 이름"을 미리 보여 주고, Enter·쉼표로 추가하며, 중복은 합치고 5개까지 받는다. 입력칸에 남은 값도 등록할 때 붙인다.
 - **카테고리**: `adminOnly`(공지)는 ADMIN에게만 보인다. 서버도 403 `category_admin_only`로 막는다. 목록을 못 받으면 칸 아래에 "카테고리 목록을 불러오지 못했습니다" + 다시 시도(`editor-categories-error`)를 보인다. 지금 값(수정 중인 글의 카테고리·복원한 초안)이 목록에 없어도(실패·로딩 중·그사이 삭제) 선택지로 남겨 표시와 전송값이 같다(TASK-31#8, FE-30).
 - **이미지 업로드** `src/lib/uploads.ts`: 타입(png·jpeg·webp·gif)·크기(5MB)·개수(10)를 먼저 확인한 뒤 presign → `uploadUrl`로 XHR `PUT`(받은 `headers`를 그대로 보내고, 쿠키·CSRF는 보내지 않는다. 진행률은 `upload.onprogress`) → confirm 순서로 진행한다. 확정된 id를 `attachmentIds`로 보낸다. 파일은 하나씩 올리고, 올리는 동안에는 등록 버튼을 막는다. S3 PUT 실패는 `upload_failed`다. 정체·취소·confirm 재시도는 아래 "편집기 견고성".
 - **권한 UI**: 수정·삭제는 서버가 준 `editable`만 보고, 화면에서 역할이나 작성자를 다시 계산하지 않는다. 403 `forbidden`, 404 `post_not_found`·`comment_not_found`, 403 `step_up_required`(`StepUpNotice`, `/account/#step-up` 링크), 401(로그인 링크)은 `ApiErrorAlert`가 그 자리에 보여 준다. `RequireAuth`의 `next`에는 쿼리도 들어간다(`/posts/edit/?id=3`).
 - **캐시**: 쿼리 키 `["posts", "list"|"detail"|"comments", …]`, `["categories"]`, `["tags", q]`. 좋아요를 누르면 상세 캐시만 바꾸고 목록은 stale로 표시한다. 작성에 성공하면 상세 캐시를 채우지 않고(생성 응답의 조회수는 이번 조회 전 값 0이라, 채우면 상세가 0을 보였다 — TASK-18 이슈, FE-19) 상세 화면이 다시 받는다. 수정 성공은 응답으로 채우되 stale로 표시해 상세가 열리면 다시 받는다. 둘 다 목록·태그를 다시 받는다. 수정 화면도 상세 API를 읽으므로 조회수 규칙(30분에 1회)을 따른다.
-- **E2E용 `data-testid`**: 목록 `post-list`·`post-item`·`post-item-link`·`category-tab`·`tag-chip`·`search-input`·`search-submit`·`sort-select`·`pagination-prev`/`next`·`new-post-link`. 상세 `post-title`·`post-content`·`post-attachments`·`view-count`·`like-button`·`like-count`·`post-edit-link`·`post-delete-button`·`comment-list`·`comment-item`·`comment-input`·`comment-submit`·`comment-delete`·`post-not-found`. 편집기 `post-editor`·`editor-title`·`editor-content`·`editor-category`·`editor-tag-input`·`editor-tag-preview`·`editor-tags`·`editor-file-input`·`editor-attachments`·`editor-upload-progress`·`editor-submit`, 오류 `editor-error`(폼 위)·`editor-title-error`·`editor-content-error`·`editor-category-error`·`editor-tags-error`·`editor-attachments-error`·`editor-attachment-problem`·`editor-categories-error`.
+- **E2E용 `data-testid`**: 목록 `post-list`·`post-item`·`post-item-link`·`category-tab`·`tag-chip`·`search-input`·`search-submit`·`sort-select`·`pagination-prev`/`next`·`pagination-cap`·`page-cap-notice`·`search-error`·`post-list-error`·`post-list-first-page`·`category-tabs-error`·`tag-chips-error`·`new-post-link`. 상세 `post-title`·`post-content`·`post-attachments`·`view-count`·`like-button`·`like-count`·`post-edit-link`·`post-delete-button`·`comment-list`·`comment-item`·`comment-input`·`comment-submit`·`comment-delete`·`post-not-found`. 편집기 `post-editor`·`editor-title`·`editor-content`·`editor-category`·`editor-tag-input`·`editor-tag-preview`·`editor-tags`·`editor-file-input`·`editor-attachments`·`editor-upload-progress`·`editor-submit`, 오류 `editor-error`(폼 위)·`editor-title-error`·`editor-content-error`·`editor-category-error`·`editor-tags-error`·`editor-attachments-error`·`editor-attachment-problem`·`editor-categories-error`.
 - **편집기 견고성 (TASK-31)**:
   - **PRG·이중 제출** (FE-29, B1 한 번의 저장 의도 = 글 하나): 제출은 ref로 잠근다(`isPending`은 다시 그려진 뒤에야 버튼을 막아, 같은 틱의 Enter 연타가 요청 여러 개가 됐다). 실패하면 풀고, 성공하면 잠금과 버튼 비활성을 둔 채 `router.replace`로 상세에 간다 — 편집기가 히스토리에서 빠져 뒤로 가기로 돌아와 다시 제출하지 않는다. 초안은 성공 때 지운다. 삭제도 성공하면 `replace("/")`와 버튼 비활성(FE-21).
   - **404·403**: 수정 저장·삭제가 404·403이면 상세 캐시를 무효화해 다시 받는다(삭제 404 → 없는 글 안내, 403 → 수정·삭제 버튼이 사라짐).
@@ -137,16 +148,25 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 
 | 경로 | 내용 |
 |---|---|
-| `/admin/?tab=users` | 사용자 목록(최근 가입순, 20개씩). 검색(닉네임·이메일·전화), 상태 필터(활성·정지), 로그인 수단·상태 배지. 정지·정지 해제는 확인 다이얼로그에서 선택 사유(500자 이하)와 함께 보낸다. 409 `cannot_suspend_self`·`cannot_suspend_admin`은 다이얼로그에 한국어로 안내한다 |
+| `/admin/?tab=users` | 사용자 목록(최근 가입순, 20개씩). 검색(닉네임·이메일·전화), 상태 필터(활성·정지), 로그인 수단·상태 배지. 정지·정지 해제는 확인 다이얼로그에서 선택 사유(500자 이하)와 함께 보낸다. 409 `cannot_suspend_self`·`cannot_suspend_admin`은 다이얼로그에 한국어로 안내한다. 정지 응답의 `warnings`는 아래 "정지 경고" |
 | `/admin/?tab=posts` | `GET /api/posts?includeHidden=true`(게시판 목록 훅 재사용). 숨김·삭제 배지, 상세 링크, 숨김·숨김 해제·삭제 복구(사유 포함) |
-| `/admin/?tab=categories` | 공개 `/api/categories` 목록 + 생성·수정·삭제. 폼은 서버 규칙과 같다(slug `^[a-z0-9-]{2,30}$`, 이름은 앞뒤 공백을 자르고 1~50자, 순서는 정수이며 생성 시 비우면 맨 뒤). 수정은 바뀐 필드만 `PATCH`. 409 `slug_taken` 안내 |
+| `/admin/?tab=categories` | 공개 `/api/categories` 목록 + 생성·수정·삭제. 폼은 서버 규칙과 같다(slug `^[a-z0-9-]{2,30}$`, 이름은 앞뒤 공백을 자르고 1~50자, 순서는 0~10000 정수이며 생성 시 비우면 맨 뒤 — TASK-33#6, TASK-27#4. 수정에서 순서를 바꾸지 않으면(숫자로 비교 — `020000`은 20000과 같다) PATCH에 빠지므로 범위 밖 옛 값도 막지 않는다). 수정은 바뀐 필드만 `PATCH`. 409 `slug_taken` 안내 |
 | `/admin/?tab=actions` | 감사 로그(`GET /api/admin/actions`) 최근순 표, 이전·다음 페이지 |
 
 - **가드**: `page.tsx`가 `<Suspense>` + `RequireAdmin`으로 감싼다. 익명은 `/login/?next=/admin/?tab=…`로, `USER`는 403 안내(`admin-forbidden`)만 보고 관리 API는 부르지 않는다. 실제 차단은 서버가 한다.
 - **탭**: `?tab=`(기본 `users`, 모르는 값도 `users`). 탭을 누르면 `router.replace`로 URL을 바꾼다. 선택된 탭만 그리므로 그 탭의 API만 호출한다. 탭 안의 검색·필터·페이지는 화면 상태다(URL에 넣지 않는다).
+- **페이저 범위** (TASK-33#3·#4, FE-33): 처리·재조회로 결과가 줄어 지금 쪽이 `totalPages` 밖이 되면 마지막 쪽(0건이면 첫 쪽)으로 옮긴다(`keepPreviousData`로 이전 쪽
+  데이터를 보여 주는 동안은 그 totalPages가 지금 쪽 것이 아니라 옮기지 않는다). 관리자 목록도 서버 OFFSET 상한이 있어(관리자라고 상한을 풀지 않는 것은 결정 — TASK-33 리뷰) "다음"은 501쪽(20개씩)까지만 열리고, 거기서 더 있으면
+  `<testId>-cap` 안내("검색·필터로 좁혀 보세요")를 보인다.
+- **정지 경고** (TASK-33#5, TASK-27#3): 정지 응답 `warnings`에 `session_revoke_failed`가 있으면 다이얼로그를 닫은 뒤 목록 위에 `admin-suspend-warning`을 띄운다 — 정지는 적용됐지만
+  로그인 세션을 모두 끊지 못했을 수 있고(남은 세션도 쓰기는 403 `suspended`, 읽기는 세션이 끝날 때까지 될 수 있다), 다시 시도하면 정지 상태는 그대로 두고 세션만 다시 끊는다는 안내.
+  "세션 끊기 다시 시도"(`admin-suspend-retry`, `session_revoke_failed`가 있을 때만)는 정지를 다시 보내지 않고 세션 끊기 전용 API `POST /api/admin/users/{id}/sessions/revoke`
+  (같은 사유, 멱등, 감사 로그 `USER_SESSIONS_REVOKE` — `docs/api.md`)를 부른다(결정 — TASK-33 리뷰: 정지 재전송은 감사 로그에 정지가 한 번 더 남고, 그사이 해제된 사용자를 다시 정지할 수 있다).
+  최신 목록에서 그 사용자가 더는 정지 상태가 아니면 부르지 않고 안내를 닫는다. 응답 `warnings`가 비면 닫히고, 또 실패면 안내가 남는다.
+  모르는 경고 코드는 코드 없이 "서버가 확인이 필요한 경고를 보냈습니다" 문장만 보이고 코드는 `console.warn`으로 남긴다. "닫기"(`admin-suspend-warning-close`).
 - **확인 다이얼로그**: `window.confirm` 대신 shadcn `alert-dialog`(Base UI, `role="alertdialog"`)를 쓴다. 실패하면 다이얼로그를 연 채로 오류를 보이고, 성공하면 닫는다. 빈 사유는 `{}` 본문으로 보낸다.
 - **캐시**: 쿼리 키 `["admin", "users", query]`, `["admin", "actions", page]`. 관리 쓰기 뒤에는 `["admin", "actions"]`를 무효화한다. 정지·해제 뒤에는 `["admin", "users"]`, 글 처리 뒤에는 `["posts"]`, 카테고리 변경 뒤에는 `["categories"]`와 `["posts"]`(글의 카테고리 이름·slug가 바뀐다)도 무효화한다.
-- **E2E용 `data-testid`**: `admin-view`·`admin-tab-{users|posts|categories|actions}`·`admin-forbidden`. 사용자 `admin-user-search-input`·`admin-user-search-submit`·`admin-user-status-filter`·`admin-user-row`·`admin-user-status`·`admin-user-provider`·`admin-user-role`·`admin-user-suspend`·`admin-user-unsuspend`·`admin-users-prev`/`next`. 글 `admin-post-row`·`admin-post-link`·`admin-post-hide`·`admin-post-unhide`·`admin-post-restore`. 카테고리 `admin-category-row`·`admin-category-admin-only-badge`·`admin-category-edit`·`admin-category-delete`·`admin-category-form`·`admin-category-slug`·`admin-category-name`·`admin-category-sort-order`·`admin-category-admin-only`·`admin-category-submit`·`admin-category-cancel`·`admin-category-{slug|name|sort-order}-error`·`admin-category-error`. 감사 로그 `admin-action-row`·`admin-actions-prev`/`next`. 다이얼로그 `admin-confirm-dialog`·`admin-reason-input`·`admin-confirm-submit`·`admin-confirm-cancel`·`admin-confirm-error`.
+- **E2E용 `data-testid`**: `admin-view`·`admin-tab-{users|posts|categories|actions}`·`admin-forbidden`. 사용자 `admin-user-search-input`·`admin-user-search-submit`·`admin-user-status-filter`·`admin-user-row`·`admin-user-status`·`admin-user-provider`·`admin-user-role`·`admin-user-suspend`·`admin-user-unsuspend`·`admin-users-prev`/`next`·`admin-users-cap`·`admin-suspend-warning`·`admin-suspend-retry`·`admin-suspend-warning-close`. 글 `admin-post-row`·`admin-post-link`·`admin-post-hide`·`admin-post-unhide`·`admin-post-restore`·`admin-posts-prev`/`next`·`admin-posts-cap`. 카테고리 `admin-category-row`·`admin-category-admin-only-badge`·`admin-category-edit`·`admin-category-delete`·`admin-category-form`·`admin-category-slug`·`admin-category-name`·`admin-category-sort-order`·`admin-category-admin-only`·`admin-category-submit`·`admin-category-cancel`·`admin-category-{slug|name|sort-order}-error`·`admin-category-error`. 감사 로그 `admin-action-row`·`admin-actions-prev`/`next`·`admin-actions-cap`. 다이얼로그 `admin-confirm-dialog`·`admin-reason-input`·`admin-confirm-submit`·`admin-confirm-cancel`·`admin-confirm-error`.
 
 ### 제한 세션(step-up)·로그인 수단 해제·OTP 잠금 (TASK-32)
 

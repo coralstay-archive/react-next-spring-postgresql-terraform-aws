@@ -59,6 +59,10 @@ public class AdminUserService {
 
 	public static final String CANNOT_SUSPEND_ADMIN = "cannot_suspend_admin";
 
+	public static final String CANNOT_REVOKE_SELF = "cannot_revoke_self";
+
+	public static final String CANNOT_REVOKE_ADMIN = "cannot_revoke_admin";
+
 	private static final char LIKE_ESCAPE = '\\';
 
 	private static final Log log = LogFactory.getLog(AdminUserService.class);
@@ -176,7 +180,7 @@ public class AdminUserService {
 	 * 정지(멱등). 커밋 뒤 세션 삭제까지 마치고 돌려준다.
 	 *
 	 * <p>세션 삭제 실패 (TASK-27#3, BE-38): 정지는 이미 커밋됐으므로 되돌리지 않고 WARN 로그(사용자 id·예외 종류)를 남긴 뒤 200 +
-	 * {@code warnings: ["session_revoke_failed"]} 로 알린다(관리자는 다시 정지를 눌러 삭제를 재시도할 수 있다 — 멱등). 남은 세션은 요청마다 DB
+	 * {@code warnings: ["session_revoke_failed"]} 로 알린다(관리자는 다시 정지하거나(멱등) 정지를 건드리지 않는 {@link #revokeSessions} 로 삭제를 재시도할 수 있다). 남은 세션은 요청마다 DB
 	 * 의 status 를 보는 필터(TASK-24: CurrentUserFilter·SuspendedUserWriteFilter) 때문에 쓰기는 403 이고, 세션 만료(14일) 또는 다음 정지
 	 * 재시도 때 사라진다.
 	 */
@@ -204,6 +208,41 @@ public class AdminUserService {
 			log.warn("정지 사용자 세션 삭제 실패(정지는 커밋됨, 남은 세션은 쓰기 불가 — 다시 정지하면 재시도): user=" + userId + " cause="
 					+ ex.getClass().getSimpleName() + " sqlState=" + SqlErrors.sqlState(ex));
 			return new SuspendResponse(response, List.of(SESSION_REVOKE_FAILED));
+		}
+	}
+
+	/** 세션 끊기 응답 (TASK-33#5): 정지 응답과 같은 {@code warnings} 모양(평소 빈 배열). */
+	public record RevokeSessionsResponse(List<String> warnings) {
+	}
+
+	/**
+	 * 세션 끊기(멱등, TASK-33#5). 정지 경고(session_revoke_failed)의 재시도용으로, 상태(ACTIVE·SUSPENDED)는 건드리지 않고 정지의 세션·토큰
+	 * 뒤처리만 한다: 한 트랜잭션에서 refresh 토큰 전부 폐기 + 감사 로그 {@code USER_SESSIONS_REVOKE}, 커밋 뒤 Spring Session 전부 삭제.
+	 * 삭제가 또 실패하면 200 + {@code warnings: ["session_revoke_failed"]}(정지와 같은 처리). 정지와 같은 이유로 자기 자신·다른 ADMIN 은
+	 * 409 ({@code cannot_revoke_self}·{@code cannot_revoke_admin}).
+	 */
+	public RevokeSessionsResponse revokeSessions(AuthUser admin, Long userId, String reason) {
+		if (admin.id().equals(userId)) {
+			throw new ApiException(HttpStatus.CONFLICT, CANNOT_REVOKE_SELF, "자기 자신의 세션은 여기서 끊을 수 없습니다");
+		}
+		tx.executeWithoutResult(ignored -> {
+			User user = users.findByIdForUpdate(userId).orElseThrow(AdminUserService::notFound);
+			if (user.isAdmin()) {
+				throw new ApiException(HttpStatus.CONFLICT, CANNOT_REVOKE_ADMIN, "관리자 계정의 세션은 끊을 수 없습니다");
+			}
+			int revoked = refreshTokens.revokeAllOfUser(userId, clock.instant());
+			audit.record(admin.id(), AdminAction.Type.USER_SESSIONS_REVOKE, userId, reason);
+			log.info("관리자 세션 끊기: admin=" + admin.id() + " user=" + userId + " refresh 폐기=" + revoked);
+		});
+		try {
+			int deleted = sessions.deleteAll(userId);
+			log.info("세션 끊기 삭제: user=" + userId + " 세션=" + deleted);
+			return new RevokeSessionsResponse(List.of());
+		}
+		catch (RuntimeException ex) {
+			log.warn("세션 끊기 삭제 실패(refresh 폐기·감사 로그는 커밋됨 — 다시 시도 가능): user=" + userId + " cause="
+					+ ex.getClass().getSimpleName() + " sqlState=" + SqlErrors.sqlState(ex));
+			return new RevokeSessionsResponse(List.of(SESSION_REVOKE_FAILED));
 		}
 	}
 

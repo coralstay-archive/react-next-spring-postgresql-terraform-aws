@@ -400,7 +400,8 @@ describe("TASK-15#1 카테고리 탭: 생성·수정·삭제", () => {
     expect(validateCategoryForm({ ...ok, name: "가".repeat(51) }).name).toBeDefined();
     expect(validateCategoryForm({ ...ok, name: "가".repeat(50) }).name).toBeUndefined();
     expect(validateCategoryForm({ ...ok, sortOrder: "1.5" }).sortOrder).toBeDefined();
-    expect(validateCategoryForm({ ...ok, sortOrder: "-3" }).sortOrder).toBeUndefined();
+    // TASK-33#6: 순서는 0~10000 으로 좁혀졌다(TASK-27#4) — 음수는 이제 오류.
+    expect(validateCategoryForm({ ...ok, sortOrder: "-3" }).sortOrder).toBeDefined();
     expect(validateCategoryForm({ ...ok, sortOrder: "99999999999" }).sortOrder).toBeDefined();
   });
 

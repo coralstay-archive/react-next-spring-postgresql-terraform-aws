@@ -9,6 +9,17 @@ export type PostSort = "latest" | "popular";
 
 export const PAGE_SIZE = 20;
 
+/** 서버 `Paging.MAX_OFFSET`(TASK-23#5): `page × size`(OFFSET)가 이를 넘으면 400 `validation` + `fields.page`. 관리자 목록도 같다. */
+export const MAX_OFFSET = 10_000;
+
+/** 크기 `size` 로 요청할 수 있는 쪽 수(TASK-33#4). API page 는 0..floor(MAX_OFFSET/size) 라 1부터 세면 그 + 1 쪽. */
+export function maxPageCount(size: number): number {
+  return Math.floor(MAX_OFFSET / size) + 1;
+}
+
+/** 게시판 목록의 마지막으로 요청할 수 있는 쪽(1부터). */
+export const MAX_LIST_PAGE = maxPageCount(PAGE_SIZE);
+
 export interface ListFilters {
   category?: string;
   tag?: string;
@@ -60,8 +71,19 @@ function nonEmpty(value: string | null): string | undefined {
   return v ? v : undefined;
 }
 
+/**
+ * URL `page`(1부터): 1 이상의 정수 문자열만 받고 그 외는 1쪽(TASK-33#2). OFFSET 상한을 넘으면(자릿수가 넘쳐도) {@link MAX_LIST_PAGE} 로 자르고
+ * `capped` 로 알린다(TASK-33#4).
+ */
+export function parseListPage(raw: string | null): { page: number; capped: boolean } {
+  if (raw === null || !/^\d+$/.test(raw)) return { page: 1, capped: false };
+  const page = Number(raw);
+  if (page < 1) return { page: 1, capped: false };
+  if (page > MAX_LIST_PAGE) return { page: MAX_LIST_PAGE, capped: true };
+  return { page, capped: false };
+}
+
 export function parseListFilters(params: { get(name: string): string | null }): ListFilters {
-  const page = params.get("page") ?? "";
   return withFilters(
     { sort: "latest", page: 1 },
     {
@@ -69,7 +91,7 @@ export function parseListFilters(params: { get(name: string): string | null }): 
       tag: nonEmpty(params.get("tag")),
       q: nonEmpty(params.get("q")),
       sort: params.get("sort")?.toLowerCase() === "popular" ? "popular" : "latest",
-      page: /^\d+$/.test(page) && Number(page) >= 1 ? Number(page) : 1,
+      page: parseListPage(params.get("page")).page,
       includeHidden: params.get("includeHidden") === "true" ? true : undefined,
     },
   );
