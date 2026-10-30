@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.http.HttpResponse;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -26,7 +28,9 @@ import com.example.board.support.Api;
 import com.example.board.support.AuthClient;
 import com.example.board.support.AuthFixtures;
 import com.example.board.support.BoardFixtures;
+import com.example.board.support.ErrorContractTestController;
 import com.example.board.support.IntegrationTest;
+import com.example.board.support.RowLock;
 import com.example.board.user.User;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -40,8 +44,15 @@ import tools.jackson.databind.JsonNode;
 @TestPropertySource(properties = { "spring.datasource.hikari.connection-timeout=1000",
 		"spring.datasource.hikari.validation-timeout=500",
 		"spring.datasource.hikari.data-source-properties.socketTimeout=3", "app.db.lock-timeout=300ms",
-		"app.db.statement-timeout=1s", "app.db.transaction-timeout=2s" })
+		"app.db.statement-timeout=1s", "app.db.transaction-timeout=" + DbFailureTest.TRANSACTION_TIMEOUT_SETTING })
 class DbFailureTest {
+
+	static final String TRANSACTION_TIMEOUT_SETTING = "2s";
+
+	static final Duration TRANSACTION_TIMEOUT = Duration.ofSeconds(2);
+
+	/** 부하가 큰 머신에서 transaction_timeout 뒤 응답까지 걸리는 여유(오류 처리·커넥션 정리·HTTP). */
+	static final Duration TIMEOUT_SLACK = Duration.ofSeconds(8);
 
 	/** B2: DB 장애 중에도 응답은 이 시간 안에 끝난다. */
 	static final Duration RESPONSE_BUDGET = Duration.ofSeconds(30);
@@ -114,21 +125,29 @@ class DbFailureTest {
 	void lockTimeout() throws Exception {
 		User author = fixtures.user();
 		long postId = board.post(author.getId(), null, "잠긴 글");
-		try (Connection holder = dataSource.getConnection()) {
+		String bearer = fixtures.bearer(author);
+		// TASK-35: 잠금을 쥔 쪽은 앱 풀(이 컨텍스트의 transaction_timeout 2s)이 아니라 따로 연 커넥션에 넉넉한 transaction_timeout 을 준다.
+		// 부하가 크면 쥔 트랜잭션이 2s 를 넘겨 서버가 세션을 끊고(FATAL: terminating connection due to transaction timeout) 잠금이 풀려
+		// 기대한 409 대신 200 이 나왔다.
+		try (Connection holder = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(),
+				postgres.getPassword())) {
+			try (Statement session = holder.createStatement()) {
+				session.execute("set transaction_timeout = '" + RowLock.TRANSACTION_TIMEOUT + "'");
+			}
 			holder.setAutoCommit(false);
 			try (PreparedStatement lock = holder.prepareStatement("select id from posts where id = ? for update")) {
 				lock.setLong(1, postId);
 				lock.executeQuery().close();
 			}
 			try {
-				error(timed(api.patch("/posts/" + postId).bearer(fixtures.bearer(author))
-					.json("{\"title\":\"바뀐 제목\"}")), 409, "lock_timeout");
+				error(timed(api.patch("/posts/" + postId).bearer(bearer).json("{\"title\":\"바뀐 제목\"}")), 409,
+						"lock_timeout");
 			}
 			finally {
 				holder.rollback();
 			}
 		}
-		assertThat(api.patch("/posts/" + postId).bearer(fixtures.bearer(author)).json("{\"title\":\"바뀐 제목\"}")
+		assertThat(api.patch("/posts/" + postId).bearer(bearer).json("{\"title\":\"바뀐 제목\"}")
 			.send()
 			.statusCode()).isEqualTo(200);
 	}
@@ -146,11 +165,15 @@ class DbFailureTest {
 	@DisplayName("TASK-23#1 TASK-23#B2 문장마다는 statement_timeout 안이어도 합쳐서 transaction_timeout 을 넘는 트랜잭션은 30초 안에 503 db_timeout JSON, 끊긴 커넥션은 풀에서 빠진다")
 	void transactionTimeout() throws Exception {
 		User user = fixtures.user();
+		String bearer = fixtures.bearer(user);
 		Instant start = Instant.now();
-		JsonNode body = error(timed(api.get("/test/errors/slow-transaction").bearer(fixtures.bearer(user))), 503,
-				"db_timeout");
-		// 8 × 0.6s 를 다 기다리지 않고 transaction_timeout(2s) 무렵 끝난다
-		assertThat(Duration.between(start, Instant.now())).isLessThan(Duration.ofMillis(4500));
+		JsonNode body = error(timed(api.get("/test/errors/slow-transaction").bearer(bearer)), 503, "db_timeout");
+		// 문장을 다 실행하면 SLOW_TRANSACTION(15s)이 걸리는데, transaction_timeout(2s) + 부하 여유로 끝난다 — 30s 예산(B2)이 아니라
+		// transaction_timeout 이 끊었다. TASK-35: 부하(load avg 약 29)에서 6.4s 까지 관측돼 4.5s 고정 상한을 설정값 기반 상한으로 바꿨다.
+		Duration elapsed = Duration.between(start, Instant.now());
+		assertThat(elapsed).isLessThan(TRANSACTION_TIMEOUT.plus(TIMEOUT_SLACK));
+		assertThat(TRANSACTION_TIMEOUT.plus(TIMEOUT_SLACK)).isLessThan(ErrorContractTestController.SLOW_TRANSACTION)
+			.isLessThan(RESPONSE_BUDGET);
 		assertThat(body.toString()).doesNotContain("terminating connection");
 		// 서버가 끊은 세션은 풀에 남지 않는다: 바로 풀 크기만큼 빌려도 모두 쓸 수 있다
 		HikariDataSource hikari = dataSource.unwrap(HikariDataSource.class);

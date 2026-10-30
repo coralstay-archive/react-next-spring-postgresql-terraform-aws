@@ -44,7 +44,14 @@ public @interface IntegrationTest {
 	 */
 	String PUBLIC_BASE_URL = "http://board.test";
 
-	/** TASK-25#3 통합 테스트의 OAuth 제공자 호출 읽기 타임아웃 (운영 기본 5s). */
-	String OAUTH_READ_TIMEOUT = "3s";
+	/**
+	 * TASK-25#3 통합 테스트의 OAuth 제공자 호출 읽기 타임아웃 (운영 기본 5s). TASK-35: 3s 는 부하가 큰 머신(load avg 약 29)에서 정상 stub
+	 * 응답도 넘겨 ?error=invalid_token_response 로 실패했다(IdentityLinkTest) — 10s 로 늘렸다. 지연 stub 테스트(OAuth2ProviderTimeoutTest)는
+	 * 지연을 이보다 충분히 길게 둔다.
+	 */
+	String OAUTH_READ_TIMEOUT = "10s";
+
+	/** {@link #OAUTH_READ_TIMEOUT} 을 Duration 으로. */
+	java.time.Duration OAUTH_READ_TIMEOUT_DURATION = java.time.Duration.ofSeconds(10);
 
 }

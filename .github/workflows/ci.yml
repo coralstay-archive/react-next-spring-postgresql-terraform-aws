@@ -67,6 +67,11 @@ jobs:
           bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12 "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
+      # TASK-35#1: repo_test 가 build-diagrams.py --check 로 커밋된 SVG 를 검사하게 graphviz 를 설치한다. Ubuntu 패키지(2.43)는
+      # diagrams/render-env.txt 와 환경이 달라 바이트 비교는 SKIP 되고, 구조(글자·요소·색 토큰·모양 종류)·문서 블록·파일 목록을 비교한다.
+      - name: Install graphviz
+        run: sudo apt-get update -qq && sudo apt-get install -y graphviz
+
       - name: make test
         env:
           REQUIRE_LINTERS: "1"

@@ -1,6 +1,10 @@
-# repo 루트의 .env 가 있으면 읽어서 하위 명령(docker compose, gradlew)에 넘긴다. 없으면 기본값을 쓴다.
--include .env
-export
+# repo 루트의 .env(example.env 를 복사)는 로컬 실행 타깃(dev-db, dev-storage, dev-db-down, backend-run, frontend-dev)의
+# 레시피 안에서만 읽는다(TASK-35#4, OPS-41). 전역으로 include·export 하지 않는다 — 배포(deploy*, put-secrets, tf-outputs)·smoke·
+# test·e2e 에 로컬 값(AWS_PROFILE, DRY_RUN 같은)이 섞이거나, 명령줄·환경변수로 준 DRY_RUN=1 을 덮지 않게. 없으면 기본값을 쓴다.
+# 로컬 실행 타깃에서도 이미 정의된 변수(환경변수, make 명령줄 변수)는 덮지 않는다 — make dev-db POSTGRES_PORT=5433 이 파일 값보다 우선한다
+# (scripts/local-env.sh: 정의되지 않은 키만 export 문으로 출력). 셸 문법으로 읽으므로 값에 공백·특수문자가 있으면 따옴표로 감싸고,
+# 문법 오류면 타깃이 실패한다. docker compose 는 같은 디렉터리의 .env 를 스스로도 읽지만 셸 환경변수가 우선한다.
+LOCAL_ENV = local_env="$$(./scripts/local-env.sh .env)" && eval "$$local_env" &&
 
 .PHONY: help test dev-db dev-storage dev-db-down backend-run backend-test backend-build frontend-install frontend-dev frontend-test frontend-build \
 	deploy deploy-backend deploy-frontend put-secrets tf-outputs smoke e2e diagrams
@@ -12,17 +16,17 @@ test: ## 리포·Terraform·백엔드·프론트 테스트 일괄 실행
 	./scripts/test.sh
 
 dev-db: ## 로컬 PostgreSQL 기동 (docker compose)
-	docker compose up -d --wait postgres
+	$(LOCAL_ENV) docker compose up -d --wait postgres
 
 dev-storage: ## 로컬 첨부 저장소 MinIO 기동 + 버킷 준비 (http://localhost:9000, 콘솔 :9001)
-	docker compose up -d --wait minio
-	docker compose run --rm minio-init
+	$(LOCAL_ENV) docker compose up -d --wait minio
+	$(LOCAL_ENV) docker compose run --rm minio-init
 
 dev-db-down: ## 로컬 PostgreSQL·MinIO 중지
-	docker compose down
+	$(LOCAL_ENV) docker compose down
 
 backend-run: ## 백엔드 실행 (http://localhost:8080/api)
-	cd backend && ./gradlew bootRun
+	$(LOCAL_ENV) cd backend && ./gradlew bootRun
 
 backend-test: ## 백엔드 테스트
 	cd backend && ./gradlew test
@@ -30,16 +34,19 @@ backend-test: ## 백엔드 테스트
 backend-build: ## 백엔드 빌드 (bootJar)
 	cd backend && ./gradlew build
 
-frontend-install: ## 프론트 의존성 설치
-	cd frontend && npm ci
+frontend-install: ## 프론트 의존성 설치 (npm ci. frontend-* 타깃은 lock 이 바뀌었을 때만 자동으로 한다)
+	./scripts/frontend-deps.sh --force
 
 frontend-dev: ## 프론트 개발 서버 (http://localhost:3000)
-	cd frontend && npm run dev
+	./scripts/frontend-deps.sh
+	$(LOCAL_ENV) cd frontend && npm run dev
 
 frontend-test: ## 프론트 테스트
+	./scripts/frontend-deps.sh
 	cd frontend && npm test
 
 frontend-build: ## 프론트 정적 export (frontend/out)
+	./scripts/frontend-deps.sh
 	cd frontend && npm run build
 
 diagrams: ## diagrams/*.dot → docs/diagrams/*.svg 렌더 + 문서의 <!--dot:이름--> 블록 갱신 (graphviz 필요)
