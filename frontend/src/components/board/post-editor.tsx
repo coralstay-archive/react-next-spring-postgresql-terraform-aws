@@ -6,14 +6,17 @@ import { useRouter } from "next/navigation";
 import { useId, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 
 import { ApiErrorAlert } from "@/components/board/api-error-alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useDraftAutosave } from "@/hooks/use-draft-autosave";
 import { api, isApiError } from "@/lib/api";
-import { useMe } from "@/lib/auth";
+import { useSessionUser } from "@/lib/auth";
 import { useCategories, type Attachment, type PostDetail } from "@/lib/board";
 import { CONTENT_MAX, TITLE_MAX, validatePost, type PostInput } from "@/lib/board-validation";
+import { draftKeys, loadDraft } from "@/lib/drafts";
 import { errorMessage } from "@/lib/errors";
 import { queryKeys } from "@/lib/query";
 import { addTag, MAX_TAGS, normalizeTag } from "@/lib/tags";
@@ -23,6 +26,74 @@ type UploadItem =
   | { key: string; name: string; status: "uploading"; progress: number }
   | { key: string; name: string; status: "done"; attachment: Attachment }
   | { key: string; name: string; status: "error"; error: string };
+
+/**
+ * 글 초안(TASK-29#3). 업로드가 끝난 첨부만 담는다(진행 중·실패한 것은 다시 올려야 한다).
+ * 수정 초안은 바탕이 된 글의 `updatedAt`(`baseUpdatedAt`)도 담아, 복원할 때 서버 글이 그사이 바뀌었는지 본다.
+ */
+interface PostDraft {
+  title: string;
+  content: string;
+  categorySlug: string;
+  tags: string[];
+  attachments: Attachment[];
+  baseUpdatedAt?: string;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function readPostDraft(key: string, userId: number): PostDraft | null {
+  const draft = loadDraft<Partial<PostDraft>>(key, userId);
+  if (!draft || typeof draft !== "object") return null;
+  if (typeof draft.title !== "string" || typeof draft.content !== "string") return null;
+  return {
+    title: draft.title,
+    content: draft.content,
+    categorySlug: typeof draft.categorySlug === "string" ? draft.categorySlug : "",
+    tags: isStringArray(draft.tags) ? draft.tags : [],
+    attachments: Array.isArray(draft.attachments)
+      ? draft.attachments.filter((a): a is Attachment => !!a && typeof a === "object" && typeof a.id === "number")
+      : [],
+    baseUpdatedAt: typeof draft.baseUpdatedAt === "string" ? draft.baseUpdatedAt : undefined,
+  };
+}
+
+/** 수정 초안의 바탕 글보다 서버 글이 새로운가. 수정 시각을 모르는 초안(이전 형식·깨진 값)도 새로운 것으로 본다. */
+function serverIsNewer(post: PostDetail, draft: PostDraft): boolean {
+  const base = draft.baseUpdatedAt ? Date.parse(draft.baseUpdatedAt) : NaN;
+  return Number.isNaN(base) || Date.parse(post.updatedAt) > base;
+}
+
+function initialDraft(post?: PostDetail): PostDraft {
+  return {
+    title: post?.title ?? "",
+    content: post?.content ?? "",
+    categorySlug: post?.category?.slug ?? "",
+    tags: post?.tags ?? [],
+    attachments: post?.attachments ?? [],
+  };
+}
+
+function sameDraft(a: PostDraft, b: PostDraft): boolean {
+  return (
+    a.title === b.title &&
+    a.content === b.content &&
+    a.categorySlug === b.categorySlug &&
+    a.tags.join("\n") === b.tags.join("\n") &&
+    a.attachments.map((x) => x.id).join(",") === b.attachments.map((x) => x.id).join(",")
+  );
+}
+
+function doneItems(attachments: Attachment[]): UploadItem[] {
+  return attachments.map((attachment) => ({
+    key: `existing-${attachment.id}`,
+    name: attachment.url,
+    status: "done" as const,
+    attachment,
+  }));
+}
 
 type FieldErrors = Partial<Record<keyof PostInput | "category" | "tags", string>>;
 
@@ -35,31 +106,70 @@ const SELECT = "border-input h-8 w-full rounded-lg border bg-transparent px-2 te
  * - 카테고리: `adminOnly` 는 ADMIN 에게만 보인다(서버도 403 `category_admin_only`).
  * - 태그: 서버와 같은 정규화를 미리 보여 주고 최대 5개.
  * - 이미지: 선검증 → presign → PUT(진행률) → confirm 한 첨부의 id 를 `attachmentIds` 로 보낸다. 업로드 중에는 등록을 막는다.
+ * - 초안(TASK-29#3, B1): 입력이 멈추면 sessionStorage 에 저장하고(원래 값과 같으면 지움, useDraftAutosave), 다시 열면 복원한다.
+ *   수정 초안은 바탕 글의 updatedAt 을 담고, 복원 때 서버 글이 더 새로우면 경고하고 초안 유지·버리기(최신 글)를 고르게 한다. 세션이 끝나도
+ *   편집기는 언마운트되지 않는다(RequireAuth). 저장에 성공하면 초안을 지운다.
  */
 export function PostEditor({ post }: { post?: PostDetail }) {
   const ids = useId();
   const router = useRouter();
   const client = useQueryClient();
-  const { data: me } = useMe();
+  // 세션이 끝나도 마지막 사용자로 판단한다(카테고리 노출·초안 주인).
+  const { user } = useSessionUser();
   const categories = useCategories();
-  const isAdmin = me?.role === "ADMIN";
+  const isAdmin = user?.role === "ADMIN";
+  // 초안 주인은 편집기를 연 사용자로 고정한다. 계정이 바뀌면 RequireAuth 가 다시 마운트하고, 그 전에도 A 의 입력을 B 의 id 로 쓰지 않는다.
+  const [userId, setUserId] = useState(user?.id);
+  if (userId === undefined && user) setUserId(user.id);
+  const draftKey = post ? draftKeys.editPost(post.id) : draftKeys.newPost;
 
-  const [title, setTitle] = useState(post?.title ?? "");
-  const [content, setContent] = useState(post?.content ?? "");
-  const [categorySlug, setCategorySlug] = useState(post?.category?.slug ?? "");
-  const [tags, setTags] = useState<string[]>(post?.tags ?? []);
+  const [restored, setRestored] = useState<PostDraft | null>(() => (user ? readPostDraft(draftKey, user.id) : null));
+  // 수정 초안의 바탕 글 시각. 서버 글이 더 새로우면 사용자가 고를 때까지 초안이 기억한 시각을 그대로 둔다(다시 열어도 경고가 남게).
+  const [conflict, setConflict] = useState(() => !!post && !!restored && serverIsNewer(post, restored));
+  const [baseUpdatedAt, setBaseUpdatedAt] = useState(() => (restored && post ? restored.baseUpdatedAt : post?.updatedAt));
+  const start = restored ?? initialDraft(post);
+  const [title, setTitle] = useState(start.title);
+  const [content, setContent] = useState(start.content);
+  const [categorySlug, setCategorySlug] = useState(start.categorySlug);
+  const [tags, setTags] = useState<string[]>(start.tags);
   const [tagText, setTagText] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [items, setItems] = useState<UploadItem[]>(
-    () =>
-      post?.attachments.map((attachment) => ({
-        key: `existing-${attachment.id}`,
-        name: attachment.url,
-        status: "done" as const,
-        attachment,
-      })) ?? [],
-  );
+  const [items, setItems] = useState<UploadItem[]>(() => doneItems(start.attachments));
   const nextKey = useRef(0);
+
+  // 초안 저장(TASK-29#3). 원래 값(작성: 빈 폼, 수정: 받은 글)과 같으면 지운다.
+  const doneAttachments = items.flatMap((item) => (item.status === "done" ? [item.attachment] : []));
+  const draft: PostDraft = {
+    title,
+    content,
+    categorySlug,
+    tags,
+    attachments: doneAttachments,
+    ...(post && baseUpdatedAt ? { baseUpdatedAt } : {}),
+  };
+  const pristine = sameDraft(draft, initialDraft(post));
+  const autosave = useDraftAutosave({ key: draftKey, ownerId: userId, data: draft, empty: pristine });
+
+  const discardDraft = () => {
+    const initial = initialDraft(post);
+    setTitle(initial.title);
+    setContent(initial.content);
+    setCategorySlug(initial.categorySlug);
+    setTags(initial.tags);
+    setTagText("");
+    setItems(doneItems(initial.attachments));
+    setFieldErrors({});
+    setRestored(null);
+    setConflict(false);
+    setBaseUpdatedAt(post?.updatedAt);
+    autosave.discard();
+  };
+
+  /** 서버 글이 바뀌었어도 초안을 쓴다: 이제 지금 서버 글을 바탕으로 본다(다음에 열 때 다시 경고하지 않는다). */
+  const keepDraft = () => {
+    setConflict(false);
+    setBaseUpdatedAt(post?.updatedAt);
+  };
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -67,6 +177,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
         ? api<PostDetail>(`/posts/${post.id}`, { method: "PATCH", body })
         : api<PostDetail>("/posts", { method: "POST", body }),
     onSuccess: (saved) => {
+      autosave.discard();
       client.setQueryData(queryKeys.post(saved.id), saved);
       void client.invalidateQueries({ queryKey: queryKeys.postLists });
       void client.invalidateQueries({ queryKey: ["tags"] });
@@ -198,12 +309,42 @@ export function PostEditor({ post }: { post?: PostDetail }) {
     else if (categorySlug) body.categorySlug = categorySlug;
     body.tags = finalTags;
     body.attachmentIds = attachmentIds;
+    // 요청 중 세션이 끝나도 마지막 입력이 초안에 있게 기다리지 않고 저장한다.
+    autosave.flush();
     save.mutate(body);
   };
 
   return (
     <form onSubmit={submit} noValidate className="flex w-full flex-col gap-5" data-testid="post-editor">
       <h1 className="text-2xl font-semibold tracking-tight">{post ? "글 수정" : "글쓰기"}</h1>
+
+      {restored && conflict && (
+        <Alert variant="destructive" data-testid="draft-conflict">
+          <AlertDescription className="flex flex-col gap-2">
+            <p>
+              이 글은 그사이 수정되었습니다. 불러온 초안은 이전 글을 바탕으로 쓴 것이라, 그대로 저장하면 그사이 바뀐 내용을 덮어씁니다.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="xs" onClick={keepDraft}>
+                초안 유지
+              </Button>
+              <Button type="button" variant="outline" size="xs" onClick={discardDraft}>
+                초안 버리고 최신 글 불러오기
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+      {restored && !conflict && (
+        <Alert data-testid="draft-restored">
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            <span>임시 저장된 초안을 불러왔습니다.</span>
+            <Button type="button" variant="outline" size="xs" onClick={discardDraft}>
+              초안 버리기
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex flex-col gap-2">
         <Label htmlFor={`${ids}-title`}>제목</Label>

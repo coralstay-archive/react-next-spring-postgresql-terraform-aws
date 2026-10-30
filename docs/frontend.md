@@ -16,8 +16,8 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
 | 경로 | 내용 |
 |---|---|
 | `/login/` | 이메일·비밀번호, 휴대폰 OTP(인증번호 3분 카운트다운, 429면 `Retry-After` 초 동안 다시 받기 대기), 소셜 5종(`/api/oauth2/authorization/{p}`로 페이지 이동). `?next=`로 돌아갈 경로(같은 오리진만 — 아래 `safeNext`) |
-| `/signup/` | 서버와 같은 검증(이메일 모양, 비밀번호 8자·72바이트·문자+숫자, 닉네임 2~20자), 409 `email_taken`, 가입 뒤 `/api/auth/login`으로 자동 로그인 |
-| `/auth/callback/` | 소셜 로그인 착지. `?status=ok`면 me를 다시 받아 로그인 전에 기억한 경로(sessionStorage `auth.next`)로, `?error=`면 한국어 안내(oauth2_failed·표준 OAuth 코드 매핑, 모르는 코드는 콜백 전용 문구) |
+| `/signup/` | 서버와 같은 검증(이메일 모양, 비밀번호 8자·72바이트·문자+숫자, 닉네임 2~20자), 409 `email_taken`, 가입 뒤 `/api/auth/login`으로 자동 로그인하고 `next`로 replace 이동. 자동 로그인이 실패하면 폼 대신 "가입은 완료됐습니다" + 로그인 링크(`next` 유지)를 보여 재제출(409)을 막는다(TASK-29#8) |
+| `/auth/callback/` | 소셜 로그인 착지. `?status=ok`면 me를 다시 받아 로그인 전에 기억한 경로(sessionStorage `auth.next`)로, `?error=`면 한국어 안내(oauth2_failed·표준 OAuth 코드 매핑, 모르는 코드는 콜백 전용 문구). 성공이든 실패든 `auth.next`는 한 번 읽고 지우며, 실패 시 "로그인으로 돌아가기" 링크의 `?next=`에 싣는다(TASK-29#7) |
 | `/account/` | 로그인 수단 목록·해제(409 `last_identity`), 소셜 연결(`/api/me/identities/link/{p}` → `?linked=`/`?error=`. `linked`는 알려진 제공자 id만 알린다. `linked`·`error`는 보여 준 뒤 URL에서 지우고 다른 쿼리와 hash는 남긴다), 휴대폰 연결(OTP `?link=true`), 제한 세션 다시 인증(LOCAL 비밀번호 또는 소셜 재로그인) |
 
 - **API 클라이언트** `src/lib/api.ts`: `api(path, {method, body, query})`. 같은 오리진 `/api`, `credentials:'include'`. 쓰기 메서드는 `XSRF-TOKEN` 쿠키를
@@ -26,8 +26,12 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
   오류 본문의 `error`가 `^[a-z0-9_]+$`가 아니거나 JSON이 아니면(프록시 HTML, Spring 기본 오류) `code`는 `http_<상태>`, `message`는 상태 범위별
   한국어(`statusMessage`)다. 2xx인데 본문이 JSON이 아니면 `bad_response`로 실패시킨다(텍스트를 데이터로 넘기지 않는다). (TASK-28#2·#3)
 - **TanStack Query** `src/lib/query.ts`: 쿼리 키는 `[도메인, ...세부]`(`queryKeys`). 4xx는 재시도하지 않는다. 401 `unauthorized`면 me 캐시를 `null`로 바꿔
-  헤더·가드가 로그아웃 상태를 따라간다(401 `invalid_credentials`·`invalid_otp`는 제외). 로그인 계열 성공 뒤에는 `useSessionChanged()`로 me를 바꾸고 다른 쿼리를 초기화한다.
-- **가드** `src/components/guards.tsx`: `RequireAuth`(익명 → `/login/?next=<경로>`), `RequireAdmin`(USER는 권한 없음 안내). 제한 세션이면 레이아웃의 배너가 `/account/#step-up`으로 안내한다.
+  헤더·가드가 로그아웃 상태를 따라간다(401 `invalid_credentials`·`invalid_otp`는 제외). 로그인 상태였다면 세션 만료로 처리한다(아래 "세션 만료·초안").
+  로그인 계열 성공 뒤에는 `useSessionChanged()`로 me를 바꾸고 다른 쿼리를 초기화한다.
+- **가드** `src/components/guards.tsx`: `RequireAuth`(처음부터 익명 → `/login/?next=<경로>`, me를 못 받으면 오류 + 다시 시도), `RequireAdmin`(USER는 권한 없음 안내).
+  내용을 그린 뒤 세션이 끝나면 언마운트하지 않는다(아래, 단 내용 컴포넌트가 스스로 숨는 `/account/`는 예외). 제한 세션이면 레이아웃의 배너가 `/account/#step-up`으로 안내한다.
+- **헤더**: me를 못 받으면(네트워크·5xx) 로그인·가입 링크가 아니라 "사용자 정보를 불러오지 못했습니다" + 다시 시도(사용자를 이미 알면 재조회 실패에도 표시 유지).
+  로그아웃은 성공(204) 또는 401일 때만 로그아웃 상태로 바꾸고 초안을 모두 지운 뒤 `/`로 간다. 그 밖의 실패는 "로그아웃하지 못했습니다 …"를 보이고 상태를 그대로 둔다(TASK-29#5·#6).
 - **오류 문장** `src/lib/errors.ts`: 백엔드·OAuth 오류 코드 → 한국어. `errorMessage`는 형식이 맞고 표에 있으면 표 문구, 표에 없으면 서버 `message`가
   한국어일 때만 그 문장, 아니면 상태 범위별 한국어를 쓴다 — 영어 원문·HTML·내부 코드는 화면에 나오지 않는다. docs/api.md의 코드는 모두 표에 있다
   (`errors.test.ts`가 전수 확인 — 백엔드 코드를 더하면 그 목록에도 더한다). OAuth 콜백 `?error=`는 `oauthErrorMessage(code, "login"|"link")`로,
@@ -38,7 +42,40 @@ make frontend-dev                    # 터미널 2: http://localhost:3000 (/api 
   오리진의 절대 URL이며, `new URL(next, origin)`의 오리진이 같을 때만 쓴다. 쓰는 값은 `pathname+search+hash`뿐이고, 결과가 `//`로 시작하면 버린다. 이어서
   `pathname`을 `decodeURIComponent`로 한 번 디코드해, 디코드에 실패하거나 디코드한 경로가 `//`로 시작하거나(`/%2F/evil.com`) 역슬래시·제어
   문자를 담으면(`/%5Cevil.com`) 버린다. 이 디코드 검사에서는 공백을 지운 뒤 문자를 보므로, 인코딩된 공백(`%20`)은 경로에 남아도 된다(원문의 생 공백은 위에서 이미 거부). 로그인·휴대폰 로그인·소셜 시작·OAuth 콜백·가입이 모두 이 함수를 거친다. (TASK-28#1)
-- **테스트**: Vitest + Testing Library + MSW(`src/test/server.ts`, 모르는 요청은 실패). 쿠키는 jsdom `document.cookie`로 흉내 낸다.
+- **테스트**: Vitest + Testing Library + MSW(`src/test/server.ts`, 모르는 요청은 실패). 쿠키는 jsdom `document.cookie`로 흉내 낸다. 테스트마다 쿠키와 sessionStorage를 비운다.
+  `make test`가 백엔드 빌드와 겹쳐도 파일의 첫 테스트(콜드 스타트)가 시간 초과로 깨지지 않게 `testTimeout`·`hookTimeout` 15초, 워커는 코어 절반(`vitest.config.mts`).
+
+### 세션 만료·초안 (TASK-29)
+
+- **만료 판정**: "로그인 상태였는데 세션이 끝났다"를 두 곳에서 본다. (1) me가 아닌 쿼리·뮤테이션의 401 `unauthorized`(`ApiError.isSessionExpired`). 틀린 비밀번호·인증번호(401 `invalid_*`)와
+  계약 밖 401(`http_401`)은 아니다. (2) me 재조회가 사용자 → `null`(me는 401을 익명 `null`로 받으므로 오류가 아니다). 로그인·로그아웃이 `setQueryData`로 바꾼 것은 만료가 아니다.
+  직전 me가 사용자였을 때만 처리하므로 처음부터 익명인 사용자에게는 안내가 뜨지 않고, 리셋 뒤 재조회가 다시 401이어도 반복하지 않는다.
+- **만료 처리** (`createQueryClient`): me=`null`, `["auth", …]` 밖의 모든 쿼리 `resetQueries`(데이터를 버리고 화면에 떠 있는 것은 익명으로 다시 받는다 → 서버 `editable=false`라
+  수정·삭제 버튼이 사라진다), `["auth","sessionExpired"]`=true → 레이아웃의 `SessionExpiredBanner`("세션이 만료되었습니다" + 현재 경로로 돌아오는 다시 로그인 링크 + 닫기).
+  다시 로그인하면(me가 사용자) 플래그를 내린다.
+- **계정 전환** (A→B, 리뷰 결정): me가 마지막으로 본 사용자(그사이 `null`이었어도)와 다른 사용자가 되면 — 다른 탭에서 B로 로그인한 뒤 이 탭이 me를 다시 받은 경우 —
+  만료 안내 없이 `["auth", …]` 밖의 쿼리를 reset(A의 `editable`·`["me","identities"]`를 버림)하고 이 탭의 A 초안을 지운다(`clearDraftsOf`). `RequireAuth`는 내용을,
+  댓글 폼은 편집기를 사용자 id를 key로 다시 마운트해 빈 상태로 연다. 초안 저장은 화면을 연 사용자로 주인을 고정하고, 쓰기 직전 me가 다른 사용자면 쓰지 않는다
+  (A의 입력이 B의 초안·B의 등록으로 넘어가지 않는다).
+- **me 재조회**: `useMe`는 창 포커스 때(기본 staleTime 30초 안이면 생략)와 탭이 보이는 동안 5분마다(`ME_REFETCH_INTERVAL`, 백그라운드 탭 제외) 다시 받는다.
+- **작성 화면 유지**: `useSessionUser()`는 컴포넌트가 본 마지막 사용자를 기억한다. `RequireAuth`·`RequireAdmin`은 내용을 그린 뒤 세션이 끝나면 로그인으로 보내지 않고 내용을 그대로 둔 채
+  화면 아래 고정 안내("로그인이 끊겼습니다" + 다시 로그인 링크)를 붙인다(트리 모양을 바꾸지 않아 입력·첨부·관리 다이얼로그 사유가 언마운트되지 않는다). `RequireAuth` 자신은
+  내용을 언마운트하지 않지만, 내용 컴포넌트가 me를 보고 스스로 숨으면 사라진다: `/account/`(`account-view.tsx`의 `if (!me) return null`)는 만료 뒤 내용이 비고
+  연결·step-up 입력이 사라진다(범위 밖, TASK-32). 명시적 로그아웃 성공 뒤(`["auth","loggedOut"]`, 다시 로그인하면 내림)에는 "임시 저장되어 있습니다" 안내가 틀린 말이라
+  안내 없이 내용을 비우고 `/`로 간다.
+- **안내는 하나만** (리뷰 결정): 작성 화면이 하단 고정 안내를 띄운 동안에는 상단 `SessionExpiredBanner`(`["auth","sessionLostNotices"]` 수로 판단)와 그 안쪽
+  `ApiErrorAlert`의 "로그인하기" 링크를 숨긴다. 다른 화면(상세의 댓글 폼 등)은 상단 배너와 오류 속 로그인 링크를 그대로 보인다. 수정 화면은 처음 받은
+  editable 글로 편집기를 유지하고, 상세 화면은 리셋 뒤 다시 받는 동안 마지막 글을 `editable`·`likedByMe`=false로 보여 댓글 폼이 남는다. 댓글 폼은 처음부터 익명일 때만
+  로그인 링크이고, 작성 중 401·403 `suspended`면 폼·입력·오류(401은 로그인 링크 포함)를 유지한다(TASK-18의 "정지 사용자 댓글이 메시지 없이 사라짐"의 원인).
+- **초안** `src/lib/drafts.ts`(sessionStorage, 탭 단위): 키 `draft:post:new`, `draft:post:edit:<글 id>`, `draft:comment:<글 id>`, 값 `{v:1, userId, savedAt, data}`.
+  화면은 `useDraftAutosave`(`src/hooks/use-draft-autosave.ts`)로 입력이 400ms 멈춘 뒤 한 번 저장하고(키 입력마다 직렬화·정리를 하지 않는다), 언마운트·`pagehide`·제출 직전에는
+  바로 저장한다. 빈 값·원래 값과 같으면 바로 지운다. 다시 열면 같은 사용자일 때만 복원한다(글 편집기는 "임시 저장된 초안을 불러왔습니다" + 초안 버리기).
+  글 초안은 제목·본문·카테고리·태그·업로드가 끝난 첨부. 직렬화 20만 자를 넘으면 저장하지 않고, 최대 20개(쓰기 전에 오래된 것부터 지움). 용량 초과면 그 키의 옛 버전을 지우고
+  한 번 더 쓰고, 그래도 안 되면 그 키를 비운다(옛 버전이 최신 입력처럼 복원되지 않게). 등록·저장 성공, 명시적 로그아웃 성공, 계정 전환(A의 것) 때 지운다.
+- **수정 초안 충돌** (리뷰 결정): 수정 초안은 바탕 글의 `updatedAt`(`baseUpdatedAt`)을 함께 담는다. 복원할 때 서버 글이 더 새로우면(또는 시각을 모르는 이전 형식이면)
+  "이 글은 그사이 수정되었습니다 …" 경고와 "초안 유지"(지금 서버 글을 바탕으로 기억, 다음엔 경고 없음)·"초안 버리고 최신 글 불러오기"를 보인다. 고르기 전에는 기억한
+  시각을 바꾸지 않아 다시 열어도 경고가 남는다. 덮어쓸지는 사용자가 정한다(서버의 낙관적 잠금은 없다).
+- **이중 제출(PRG)**: 가입·댓글은 같은 틱의 두 번째 제출을 ref로 막는다. 가입 성공은 replace 이동. 글 작성·수정의 replace 이동과 성공 뒤 버튼 비활성 유지는 TASK-31 범위다.
 
 ### 게시판 화면 (TASK-14)
 

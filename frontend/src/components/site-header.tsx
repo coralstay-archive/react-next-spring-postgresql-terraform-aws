@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useLogout, useMe } from "@/lib/auth";
+import { errorMessage } from "@/lib/errors";
 
 export function SiteHeader() {
-  const { data: me } = useMe();
+  const { data: me, isError, isFetching, refetch } = useMe();
   const logout = useLogout();
   const router = useRouter();
 
@@ -18,7 +19,19 @@ export function SiteHeader() {
           게시판
         </Link>
         <div className="ml-auto flex items-center gap-2 text-sm">
-          {me === undefined ? null : me ? (
+          {me === undefined ? (
+            // me 를 못 받으면(네트워크·5xx) 로그아웃 상태로 보이지 않고 오류와 다시 시도를 보인다(TASK-29#6, FE-11).
+            isError ? (
+              <span className="flex items-center gap-2" data-testid="me-error">
+                <span role="alert" className="text-destructive text-xs">
+                  사용자 정보를 불러오지 못했습니다
+                </span>
+                <Button variant="outline" size="sm" disabled={isFetching} onClick={() => void refetch()}>
+                  다시 시도
+                </Button>
+              </span>
+            ) : null
+          ) : me ? (
             <>
               <span className="text-muted-foreground" aria-label="로그인한 사용자">
                 {me.nickname}
@@ -35,10 +48,16 @@ export function SiteHeader() {
                 variant="outline"
                 size="sm"
                 disabled={logout.isPending}
-                onClick={() => logout.mutate(undefined, { onSettled: () => router.push("/") })}
+                onClick={() => logout.mutate(undefined, { onSuccess: () => router.push("/") })}
               >
                 로그아웃
               </Button>
+              {/* 실패하면 로그인 상태를 그대로 두고 알린다(TASK-29#5). 다시 누를 수 있다. */}
+              {logout.isError && (
+                <span role="alert" className="text-destructive text-xs" data-testid="logout-error">
+                  로그아웃하지 못했습니다. {errorMessage(logout.error)}
+                </span>
+              )}
             </>
           ) : (
             <>

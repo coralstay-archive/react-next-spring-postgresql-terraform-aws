@@ -17,6 +17,8 @@ afterEach(() => {
   cleanup();
   server.resetHandlers();
   clearCookies();
+  // 초안(TASK-29#3)·auth.next 가 다음 테스트로 새지 않게.
+  window.sessionStorage.clear();
 });
 
 afterAll(() => {

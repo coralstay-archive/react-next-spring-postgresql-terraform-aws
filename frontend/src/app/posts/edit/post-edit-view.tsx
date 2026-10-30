@@ -1,13 +1,14 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import { useState } from "react";
 
 import { PostNotFound } from "@/app/posts/view/post-detail-view";
 import { ApiErrorAlert } from "@/components/board/api-error-alert";
 import { PostEditor } from "@/components/board/post-editor";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { isApiError } from "@/lib/api";
-import { parsePostId, usePost } from "@/lib/board";
+import { parsePostId, usePost, type PostDetail } from "@/lib/board";
 
 /** `/posts/edit/?id=` (TASK-14#3). 상세를 받아 폼을 채운다. */
 export function PostEditView() {
@@ -18,6 +19,11 @@ export function PostEditView() {
 
 function EditById({ id }: { id: number }) {
   const post = usePost(id);
+  // 처음 받은 editable 글로 편집기를 연 뒤에는 그 글을 계속 쓴다(TASK-29#3). 세션 만료 리셋 뒤 익명으로 다시 받은 상세
+  // (editable=false·로딩)로 바뀌어 편집기가 언마운트되면 입력이 사라진다. 저장 때 서버가 다시 401·403·404 로 판단한다.
+  const [opened, setOpened] = useState<PostDetail | null>(null);
+  if (opened === null && post.data?.editable) setOpened(post.data);
+  if (opened) return <PostEditor post={opened} />;
   if (post.isError) {
     if (isApiError(post.error) && post.error.status === 404) return <PostNotFound />;
     return <ApiErrorAlert error={post.error} testId="post-error" />;
