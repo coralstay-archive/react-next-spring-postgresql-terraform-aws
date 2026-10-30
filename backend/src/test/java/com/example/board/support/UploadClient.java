@@ -67,6 +67,10 @@ public final class UploadClient {
 				.orElse(entry.getValue().asString());
 			builder.header(name, value);
 		});
+		return send(builder);
+	}
+
+	private static HttpResponse<String> send(HttpRequest.Builder builder) {
 		try {
 			return HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString());
 		}
@@ -77,6 +81,18 @@ public final class UploadClient {
 			Thread.currentThread().interrupt();
 			throw new IllegalStateException(ex);
 		}
+	}
+
+	/** 응답 headers 에서 {@code omitted} 헤더 하나를 빼고 PUT 한다(서명된 헤더를 빠뜨리는 경우를 시험, TASK-26#2). */
+	public static HttpResponse<String> putWithout(JsonNode presigned, byte[] body, String omitted) {
+		HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(presigned.get("uploadUrl").asString()))
+			.PUT(HttpRequest.BodyPublishers.ofByteArray(body));
+		presigned.get("headers").properties().forEach(entry -> {
+			if (!entry.getKey().equalsIgnoreCase(omitted)) {
+				builder.header(entry.getKey(), entry.getValue().asString());
+			}
+		});
+		return send(builder);
 	}
 
 	/** presign → PUT → confirm 까지 하고 첨부 id. */

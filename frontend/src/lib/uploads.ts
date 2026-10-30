@@ -6,6 +6,8 @@ import { ERROR_MESSAGES } from "@/lib/errors";
  * 이미지 업로드 (TASK-11 흐름, TASK-14#3).
  * 1. 클라이언트 선검증(서버 B1과 같은 타입·크기) → 2. `POST /api/attachments/presign` → 3. 받은 `uploadUrl` 로 `PUT`
  * (`headers` 를 그대로, 본문은 파일 그대로; 진행률 때문에 XHR) → 4. `POST /api/attachments/{id}/confirm`.
+ * `headers` 에는 서명된 `If-None-Match: *`(덮어쓰기 금지, TASK-26#2)가 있다 — 빼면 서명 불일치로 거부되고, 이미 올린 키에 다시 PUT 하면
+ * 412 라 `upload_failed` 다.
  * 글 작성·수정 때 확정된 첨부 id 를 `attachmentIds` 로 보낸다.
  */
 

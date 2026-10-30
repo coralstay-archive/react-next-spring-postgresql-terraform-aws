@@ -29,7 +29,9 @@ import com.example.board.TestcontainersConfiguration;
 				// TASK-7#4 클라이언트 IP 는 CloudFront 처럼 신뢰 헤더로 받는다(테스트마다 다른 IP → IP 별 발송 한도를 나눠 쓰지 않는다)
 				"app.client-ip.header=CloudFront-Viewer-Address",
 				// TASK-25#3 OAuth 제공자 호출 읽기 타임아웃을 짧게(stub 은 ms 안에 응답한다) → 지연 stub 테스트가 빨리 끝난다
-				"app.oauth2.http.read-timeout=" + IntegrationTest.OAUTH_READ_TIMEOUT })
+				"app.oauth2.http.read-timeout=" + IntegrationTest.OAUTH_READ_TIMEOUT,
+				// TASK-26#5 스케줄 락 최소 유지 시간 없음 → 같은 정리 작업을 테스트가 연달아 부를 수 있다(운영 기본 10s)
+				"app.scheduling.lock-at-least-for=PT0S" })
 @Import({ TestcontainersConfiguration.class, TestFixturesConfiguration.class })
 public @interface IntegrationTest {
 

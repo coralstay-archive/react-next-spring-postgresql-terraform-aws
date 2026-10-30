@@ -6,7 +6,8 @@
 만드는 것:
 
 - `aws_s3_bucket` + 퍼블릭 접근 차단 4종 + `BucketOwnerEnforced`(ACL 비활성) + SSE-S3(AES256, bucket key)
-- CORS: `allowed_origins` 에서 `PUT`(헤더 `content-type`, `x-amz-tagging` — presign 이 서명한 헤더), `GET`/`HEAD`
+- CORS: `allowed_origins` 에서 `PUT`(헤더 `content-type`, `x-amz-tagging`, `if-none-match` — presign 이 서명한 헤더.
+  `If-None-Match: *` 는 덮어쓰기 금지라 확정한 객체에 같은 URL 로 다시 PUT 하면 412), `GET`/`HEAD`
 - lifecycle: `uploads/` 아래 `status=pending` 태그가 남은 객체를 `pending_expiration_days`(기본 1)일 뒤 만료,
   끝나지 않은 멀티파트 업로드는 1일 뒤 정리
 - 버킷 정책: HTTPS 강제, `cloudfront_distribution_arn` 을 주면 그 배포(OAC)만 `uploads/*` 를 `s3:GetObject`
@@ -42,8 +43,9 @@ CloudFront: 오리진 `bucket_regional_domain_name` + OAC(sigv4, always), 동작
 | 출력 | 쓰는 곳 |
 |---|---|
 | `bucket_name` | `UPLOADS_BUCKET` (`UPLOADS_REGION` 은 버킷 리전, `UPLOADS_PUBLIC_BASE_PATH` 는 기본 `/uploads/`) |
-| `app_policy_json` | EC2 role 인라인 정책 (uploads/* Put/Get/Delete Object + Tagging) |
+| `app_policy_json` | EC2 role 인라인 정책 (uploads/* Put/Get/Delete Object + Tagging, 이 버킷 `s3:ListBucket`(조건 없음 — HeadObject 에는 `s3:prefix` 가 없어 접두어 조건이 적용되지 않는다) — 없는 키 HeadObject 가 403 이 아니라 404) |
 | `bucket_regional_domain_name`, `bucket_arn` | CloudFront 오리진·OAC (TASK-16) |
+
 
 ## 테스트
 

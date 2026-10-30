@@ -1,6 +1,7 @@
 package com.example.board.attachment;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -14,8 +15,10 @@ import org.slf4j.LoggerFactory;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.example.board.auth.AuthUser;
 import com.example.board.attachment.AttachmentResponses.AttachmentView;
@@ -50,6 +53,9 @@ public class AttachmentService {
 
 	public static final String IN_USE = "attachment_in_use";
 
+	/** pending-ttl 이 지나 확정할 수 없다 (TASK-26#2). 410. 다시 presign 해서 올린다. */
+	public static final String EXPIRED = "attachment_expired";
+
 	/** 미확정(PENDING) 첨부가 한도에 이름 (TASK-22#3). 409. */
 	public static final String TOO_MANY_PENDING = "too_many_pending_attachments";
 
@@ -73,8 +79,12 @@ public class AttachmentService {
 
 	private final RateLimitProperties rateLimits;
 
+	private final TransactionTemplate tx;
+
 	public AttachmentService(AttachmentRepository attachments, UploadStorage storage, UploadProperties properties,
-			Clock clock, RateLimiter rateLimiter, RateLimitProperties rateLimits) {
+			Clock clock, RateLimiter rateLimiter, RateLimitProperties rateLimits,
+			PlatformTransactionManager transactionManager) {
+		this.tx = new TransactionTemplate(transactionManager);
 		this.rateLimiter = rateLimiter;
 		this.rateLimits = rateLimits;
 		this.attachments = attachments;
@@ -88,10 +98,13 @@ public class AttachmentService {
 	 * 타입에서 정하고 파일명은 쓰지 않는다. 행은 PENDING 으로 남고 confirm 하지 않으면 정리 대상이 된다.
 	 *
 	 * <p>할당량 (TASK-22#3): 사용자별 시간당 presign 한도를 넘으면 429, 미확정(PENDING) 첨부가 한도에 이르렀으면 409
-	 * {@value #TOO_MANY_PENDING}. 한도 기록과 개수 확인은 같은 사용자 잠금(이 트랜잭션) 안이라 동시 presign 으로 넘길 수 없고,
+	 * {@value #TOO_MANY_PENDING}. 한도 기록과 개수 확인·행 저장은 같은 사용자 잠금(한 트랜잭션) 안이라 동시 presign 으로 넘길 수 없고,
 	 * 거절(롤백)된 presign 은 시간당 한도를 소모하지 않는다.
+	 *
+	 * <p>트랜잭션 밖 서명 (TASK-26#3, BE-35): 서명은 SDK 자격 증명 조회(운영은 IMDS 네트워크 호출일 수 있다)를 하므로 DB 커넥션을 잡기 전에
+	 * 한다. 키는 서명 전에 정한다. 서명이 실패하면 503 {@code storage_unavailable} 이고 행·한도를 쓰지 않는다. 서명하고 한도에 걸린 URL 은
+	 * 응답하지 않으므로 쓰이지 않는다.
 	 */
-	@Transactional
 	public Presigned presign(AuthUser user, AttachmentRequests.Presign request) {
 		String contentType = ImageTypes.normalize(request.contentType());
 		String extension = ImageTypes.extension(contentType)
@@ -104,14 +117,17 @@ public class AttachmentService {
 		if (!storage.available()) {
 			throw DisabledUploadStorage.unavailable();
 		}
-		rateLimiter.hit(new RateLimiter.Rule(PRESIGN, String.valueOf(user.id()), rateLimits.presign()));
-		if (attachments.countByOwnerIdAndStatus(user.id(), AttachmentStatus.PENDING) >= rateLimits.maxPendingAttachments()) {
-			throw new ApiException(HttpStatus.CONFLICT, TOO_MANY_PENDING, "업로드를 마치지 않은 이미지가 너무 많습니다. 올리던 이미지를"
-					+ " 마무리하거나 잠시 후 다시 시도하세요");
-		}
 		String key = UploadProperties.KEY_PREFIX + user.id() + "/" + UUID.randomUUID() + "." + extension;
-		Attachment attachment = attachments.saveAndFlush(Attachment.pending(user.id(), key, contentType, size, clock.instant()));
 		PresignedUpload upload = storage.presignPut(key, contentType, size, properties.presignTtl());
+		Attachment attachment = tx.execute(status -> {
+			rateLimiter.hit(new RateLimiter.Rule(PRESIGN, String.valueOf(user.id()), rateLimits.presign()));
+			if (attachments.countByOwnerIdAndStatus(user.id(), AttachmentStatus.PENDING) >= rateLimits
+				.maxPendingAttachments()) {
+				throw new ApiException(HttpStatus.CONFLICT, TOO_MANY_PENDING, "업로드를 마치지 않은 이미지가 너무 많습니다. 올리던 이미지를"
+						+ " 마무리하거나 잠시 후 다시 시도하세요");
+			}
+			return attachments.saveAndFlush(Attachment.pending(user.id(), key, contentType, size, clock.instant()));
+		});
 		return new Presigned(attachment.getId(), key, upload.url(), "PUT", upload.headers(), upload.expiresAt());
 	}
 
@@ -120,7 +136,13 @@ public class AttachmentService {
 	 * 이하) 다시 확인한 뒤 {@code status=pending} 태그를 지우고(lifecycle 대상에서 빠짐) CONFIRMED 로 바꾼다. 이미 확정됐으면 그대로
 	 * 200(멱등). 다르면 객체를 지우고 400 {@code attachment_mismatch}.
 	 *
-	 * <p>S3 호출이 DB 트랜잭션을 잡고 있지 않도록 트랜잭션 없이 돌고, 마지막 상태 변경만 조건부 UPDATE 로 한다.
+	 * <p>S3 호출이 DB 트랜잭션을 잡고 있지 않도록 트랜잭션 없이 돌고, 마지막 상태 변경만 조건부 UPDATE 로 한다. S3 오류는 503
+	 * {@code storage_unavailable}(TASK-26#1)이고 첨부는 PENDING 그대로다.
+	 *
+	 * <p>만료 (TASK-26#2, BE-33): 만든 지 pending-ttl 이 지난 첨부는 410 {@value #EXPIRED} — 정리 작업({@link PendingAttachmentCleanup})과
+	 * S3 lifecycle 이 지울 대상이다. 태그를 지운 뒤 확정(markConfirmed)이 0행이면 다시 읽어서, 동시 confirm 이 먼저 확정했으면 그대로 200,
+	 * 아니면(정리가 행을 지웠거나 그사이 만료) 태그 없는 객체가 영구 고아로 남지 않게 지우고 410. 정리 작업은 행을 먼저 지우고 객체를 지우므로
+	 * 어느 쪽이 이겨도 CONFIRMED 행은 객체가 있다(B1).
 	 */
 	public AttachmentView confirm(Long id, AuthUser user) {
 		Attachment attachment = attachments.findById(id).orElseThrow(AttachmentService::notFound);
@@ -129,6 +151,9 @@ public class AttachmentService {
 		}
 		if (attachment.isConfirmed()) {
 			return AttachmentView.of(attachment, properties);
+		}
+		if (!attachment.getCreatedAt().isAfter(pendingCutoff())) {
+			throw expired();
 		}
 		if (!storage.available()) {
 			throw DisabledUploadStorage.unavailable();
@@ -141,9 +166,21 @@ public class AttachmentService {
 			throw new ApiException(HttpStatus.BAD_REQUEST, MISMATCH, "업로드된 파일이 요청한 타입·크기와 다릅니다");
 		}
 		storage.clearPendingTag(key);
-		attachments.markConfirmed(id, clock.instant());
+		if (attachments.markConfirmed(id, clock.instant(), pendingCutoff()) == 0) {
+			Attachment current = attachments.findById(id).orElse(null);
+			if (current != null && current.isConfirmed()) {
+				return AttachmentView.of(current, properties);
+			}
+			deleteQuietly(key);
+			throw expired();
+		}
 		return attachments.findById(id).map(a -> AttachmentView.of(a, properties))
 			.orElseThrow(AttachmentService::notFound);
+	}
+
+	/** 이 시각 이전(포함)에 만든 PENDING 첨부는 만료다. */
+	private Instant pendingCutoff() {
+		return clock.instant().minus(properties.pendingTtl());
 	}
 
 	/**
@@ -154,7 +191,8 @@ public class AttachmentService {
 	 * <li>CONFIRMED 여야 한다 → 400 {@code attachment_not_confirmed}</li>
 	 * <li>다른 글에 붙어 있지 않아야 한다 → 400 {@code attachment_in_use}</li>
 	 * </ul>
-	 * 없는 id 는 400 {@code unknown_attachment}. 목록에서 빠진 첨부는 연결을 푼다(객체는 지우지 않는다). 행을 잠그고 바꾸므로 같은
+	 * 없는 id 는 400 {@code unknown_attachment}. 목록에서 빠진 첨부는 연결을 풀고 그 시각을 남긴다(객체는 유예 기간 뒤
+	 * {@link OrphanAttachmentCleanup} 이 지운다, TASK-26#4). 행을 잠그고 바꾸므로 같은
 	 * 첨부를 두 글에 동시에 붙일 수 없다.
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
@@ -182,7 +220,7 @@ public class AttachmentService {
 		}
 		for (Attachment current : attachments.findByPostIdOrderByIdAsc(postId)) {
 			if (!ids.contains(current.getId())) {
-				current.detach();
+				current.detach(clock.instant());
 			}
 		}
 		requested.values().forEach(attachment -> attachment.attachTo(postId));
@@ -205,12 +243,17 @@ public class AttachmentService {
 			storage.delete(key);
 		}
 		catch (RuntimeException ex) {
-			log.warn("첨부 객체 삭제 실패(lifecycle 이 정리한다): {}", key, ex);
+			// S3 오류 원인은 저장소가 이미 남겼다(TASK-26#1). 태그를 지운 뒤라면 lifecycle 도 지우지 않는 고아 객체다
+			log.warn("첨부 객체 삭제 실패 key={} causes={}", key, ex.getClass().getSimpleName());
 		}
 	}
 
 	static ApiException notFound() {
 		return new ApiException(HttpStatus.NOT_FOUND, NOT_FOUND, "첨부를 찾을 수 없습니다");
+	}
+
+	static ApiException expired() {
+		return new ApiException(HttpStatus.GONE, EXPIRED, "업로드 확정 시간이 지났습니다. 이미지를 다시 올려 주세요");
 	}
 
 	static ApiException forbidden() {

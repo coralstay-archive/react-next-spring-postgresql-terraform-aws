@@ -1,11 +1,15 @@
 package com.example.board.support;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.DynamicPropertyRegistrar;
+
+import com.example.board.attachment.StorageProbe;
+import com.example.board.attachment.UploadStorage;
 
 /** 통합 테스트 전용 픽스처(테스트 컨트롤러, 인증 헬퍼, OAuth 제공자 stub)를 모아 등록한다. */
 @TestConfiguration(proxyBeanMethods = false)
@@ -18,6 +22,16 @@ public class TestFixturesConfiguration {
 	@Primary
 	MutableClock mutableClock() {
 		return new MutableClock();
+	}
+
+	/**
+	 * TASK-26 앱이 쓰는 첨부 저장소를 테스트가 들여다보고 고장 낼 수 있게 감싼다(평소에는 MinIO 저장소에 그대로 넘긴다). 별도 컨텍스트를 만들지
+	 * 않으려고 여기 둔다.
+	 */
+	@Bean
+	@Primary
+	StorageProbe storageProbe(@Qualifier("uploadStorage") UploadStorage real) {
+		return new StorageProbe(real);
 	}
 
 	/** TASK-4#5 OAuth 제공자 stub (WireMock). 컨텍스트가 하나라 서버도 하나다. */

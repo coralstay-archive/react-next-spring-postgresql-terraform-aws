@@ -92,13 +92,15 @@ class AttachmentPresignTest {
 		Map<String, String> query = query(url);
 		assertThat(query.get("X-Amz-Expires")).isEqualTo("300");
 		assertThat(List.of(query.get("X-Amz-SignedHeaders").split(";"))).contains("content-length", "content-type",
-				"host", "x-amz-tagging");
+				"host", "x-amz-tagging", "if-none-match");
 		assertThat(body.get("method").asString()).isEqualTo("PUT");
 		assertThat(body.get("expiresAt").asString()).isNotBlank();
 
 		Map<String, String> headers = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
 		body.get("headers").properties().forEach(e -> headers.put(e.getKey(), e.getValue().asString()));
 		assertThat(headers).containsEntry("content-type", "image/png").containsEntry("x-amz-tagging", "status=pending");
+		// TASK-26#2 TASK-26#B1 덮어쓰기 금지(S3 조건부 쓰기): 이미 있는 키에는 PUT 할 수 없다
+		assertThat(headers).containsEntry("if-none-match", "*");
 		assertThat(headers).doesNotContainKeys("host", "content-length");
 
 		Map<String, Object> row = jdbc.queryForMap(
@@ -125,6 +127,40 @@ class AttachmentPresignTest {
 		assertThat(head.contentType()).isEqualTo("image/webp");
 		List<Tag> tags = s3.getObjectTagging(b -> b.bucket(TestcontainersConfiguration.UPLOADS_BUCKET).key(key)).tagSet();
 		assertThat(tags).extracting(Tag::key, Tag::value).containsExactly(org.assertj.core.groups.Tuple.tuple("status", "pending"));
+	}
+
+	@Test
+	@DisplayName("TASK-26#2 TASK-26#B1 확정 뒤 같은 presigned URL 로 다시 PUT 하면 412 이고, 확정 객체는 내용 그대로 태그 없이 남는다(lifecycle 대상 아님)")
+	void rePutAfterConfirmRejected() {
+		String bearer = fixtures.bearer(fixtures.user());
+		JsonNode body = uploads.presigned(bearer, "image/png", 64);
+		String key = body.get("key").asString();
+		assertThat(UploadClient.put(body, UploadClient.bytes(64)).statusCode()).isEqualTo(200);
+		assertThat(uploads.confirm(bearer, body.get("attachmentId").asLong()).statusCode()).isEqualTo(200);
+
+		byte[] other = new byte[64];
+		HttpResponse<String> again = UploadClient.put(body, other);
+		assertThat(again.statusCode()).as(again.body()).isEqualTo(412);
+
+		String bucket = TestcontainersConfiguration.UPLOADS_BUCKET;
+		assertThat(s3.getObjectTagging(b -> b.bucket(bucket).key(key)).tagSet()).as("pending 태그가 다시 붙지 않는다").isEmpty();
+		assertThat(s3.getObjectAsBytes(b -> b.bucket(bucket).key(key)).asByteArray()).isEqualTo(UploadClient.bytes(64));
+	}
+
+	@Test
+	@DisplayName("TASK-26#2 TASK-26#B1 확정 전이라도 이미 올린 키에 다시 PUT 하면 412(덮어쓰기 금지), If-None-Match 를 빼면 거부")
+	void rePutBeforeConfirmRejected() {
+		String bearer = fixtures.bearer(fixtures.user());
+		JsonNode body = uploads.presigned(bearer, "image/png", 32);
+		assertThat(UploadClient.put(body, UploadClient.bytes(32)).statusCode()).isEqualTo(200);
+		assertThat(UploadClient.put(body, UploadClient.bytes(32)).statusCode()).isEqualTo(412);
+
+		// 서명한 헤더를 빼면 거부(S3 는 403 SignatureDoesNotMatch, MinIO 는 400) → 덮어쓰기 금지를 클라이언트가 끌 수 없다
+		JsonNode fresh = uploads.presigned(bearer, "image/png", 32);
+		assertThat(UploadClient.putWithout(fresh, UploadClient.bytes(32), "if-none-match").statusCode()).isIn(400, 403);
+		String freshKey = fresh.get("key").asString();
+		assertThat(s3.listObjectsV2(b -> b.bucket(TestcontainersConfiguration.UPLOADS_BUCKET).prefix(freshKey)).contents())
+			.isEmpty();
 	}
 
 	@Test

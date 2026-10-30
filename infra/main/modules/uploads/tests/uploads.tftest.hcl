@@ -64,6 +64,14 @@ run "cors_for_presigned_put" {
     ])
     error_message = "PUT 규칙은 content-type·x-amz-tagging 헤더를 허용해야 한다(presign 이 서명한 헤더)"
   }
+  # TASK-26#2 TASK-26#B1 presign 이 덮어쓰기 금지 If-None-Match: * 도 서명한다 → 브라우저 preflight 에 올라오므로 허용해야 PUT 이 된다
+  assert {
+    condition = anytrue([
+      for rule in aws_s3_bucket_cors_configuration.this.cors_rule :
+      contains(rule.allowed_methods, "PUT") && contains([for h in rule.allowed_headers : lower(h)], "if-none-match")
+    ])
+    error_message = "PUT 규칙은 If-None-Match 헤더를 허용해야 한다(TASK-26#2 덮어쓰기 금지)"
+  }
   assert {
     condition = anytrue([
       for rule in aws_s3_bucket_cors_configuration.this.cors_rule : contains(rule.allowed_methods, "GET")
@@ -148,6 +156,7 @@ run "policy_with_cloudfront_oac" {
 }
 
 # TASK-11#4 앱(EC2 role)에 붙일 IAM 정책 출력: uploads/* 에 PutObject(+태그)·GetObject(HeadObject)·DeleteObject·DeleteObjectTagging
+# TASK-26#1 + 버킷 ListBucket(조건 없음 — uploads 전용 버킷)
 run "app_policy_output" {
   command = apply
 
@@ -159,6 +168,21 @@ run "app_policy_output" {
       && jsondecode(output.app_policy_json).Statement[0].Resource == "arn:aws:s3:::board-test-uploads/uploads/*"
     )
     error_message = "앱 정책은 uploads/* 에 필요한 동작만"
+  }
+  # TASK-26#1 s3:ListBucket: 없으면 S3 가 없는 키의 HeadObject 에 404 대신 403 을 줘서 PUT 전 confirm 이
+  # 400 attachment_not_uploaded 가 아니라 503 storage_unavailable 이 된다. HeadObject 요청에는 s3:prefix 가 없어 접두어 조건을
+  # 붙이면 적용되지 않으므로 조건 없이 이 버킷에만 준다(버킷에는 uploads/ 객체뿐)
+  assert {
+    condition = anytrue([
+      for s in jsondecode(output.app_policy_json).Statement :
+      s.Effect == "Allow" && s.Action == "s3:ListBucket" && s.Resource == "arn:aws:s3:::board-test-uploads"
+      && try(s.Condition, null) == null
+    ])
+    error_message = "앱 정책은 이 버킷에 조건 없는 s3:ListBucket 을 허용한다(없는 키 HEAD → 404, s3:prefix 조건은 HEAD 에 적용되지 않음)"
+  }
+  assert {
+    condition     = length(jsondecode(output.app_policy_json).Statement) == 2
+    error_message = "앱 정책은 객체 동작(uploads/*)과 이 버킷 ListBucket 두 문장뿐"
   }
   assert {
     condition     = output.bucket_name == "board-test-uploads" && output.uploads_prefix == "uploads/"

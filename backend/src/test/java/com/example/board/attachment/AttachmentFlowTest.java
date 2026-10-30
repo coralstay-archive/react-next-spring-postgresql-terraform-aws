@@ -56,7 +56,7 @@ class AttachmentFlowTest {
 			.method("OPTIONS", HttpRequest.BodyPublishers.noBody())
 			.header("Origin", origin)
 			.header("Access-Control-Request-Method", "PUT")
-			.header("Access-Control-Request-Headers", "content-type,x-amz-tagging")
+			.header("Access-Control-Request-Headers", "content-type,x-amz-tagging,if-none-match")
 			.build();
 		return HTTP.send(request, HttpResponse.BodyHandlers.discarding());
 	}
@@ -81,7 +81,7 @@ class AttachmentFlowTest {
 	}
 
 	@Test
-	@DisplayName("TASK-11#3 브라우저 preflight: 프론트 origin 은 PUT + content-type·x-amz-tagging 헤더 허용, 다른 origin 은 허용 안 함")
+	@DisplayName("TASK-11#3 TASK-26#2 브라우저 preflight: 프론트 origin 은 PUT + content-type·x-amz-tagging·if-none-match 헤더 허용, 다른 origin 은 허용 안 함")
 	void corsPreflight() throws Exception {
 		String url = uploads.presigned(fixtures.bearer(fixtures.user()), "image/png", 10).get("uploadUrl").asString();
 
@@ -90,7 +90,9 @@ class AttachmentFlowTest {
 		assertThat(allowed.headers().firstValue("Access-Control-Allow-Origin")).hasValue(FRONTEND_ORIGIN);
 		assertThat(allowed.headers().firstValue("Access-Control-Allow-Methods").orElse("")).contains("PUT");
 		assertThat(allowed.headers().firstValue("Access-Control-Allow-Headers").orElse("").toLowerCase())
-			.contains("content-type").contains("x-amz-tagging");
+			.contains("content-type").contains("x-amz-tagging")
+			// TASK-26#2 덮어쓰기 금지 헤더(If-None-Match: *)도 서명된 헤더라 브라우저가 보낸다
+			.contains("if-none-match");
 
 		HttpResponse<Void> denied = preflight(url, "http://evil.test");
 		assertThat(denied.headers().firstValue("Access-Control-Allow-Origin")).isEmpty();

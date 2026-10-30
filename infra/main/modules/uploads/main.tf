@@ -8,7 +8,8 @@ locals {
   uploads_prefix = "uploads/"
   pending_tag    = { status = "pending" }
   # presign 이 서명하는 헤더 중 브라우저가 preflight 에 올리는 것(Content-Length·Host 는 브라우저가 붙인다)
-  signed_headers = ["content-type", "x-amz-tagging"]
+  # if-none-match: 덮어쓰기 금지(TASK-26#2) — 이미 있는 키에 다시 PUT 하면 412 라 확정 객체에 pending 태그가 다시 붙지 않는다
+  signed_headers = ["content-type", "x-amz-tagging", "if-none-match"]
 
   bucket_policy = {
     Version = "2012-10-17"
@@ -42,6 +43,14 @@ locals {
         "s3:PutObject", "s3:PutObjectTagging", "s3:GetObject", "s3:GetObjectTagging", "s3:DeleteObject", "s3:DeleteObjectTagging",
       ]
       Resource = "${aws_s3_bucket.this.arn}/${local.uploads_prefix}*"
+      }, {
+      # TASK-26#1 ListBucket 이 없으면 S3 는 없는 키의 HeadObject 에 404 대신 403 을 준다(키 존재 여부를 숨김) → PUT 전 confirm 이
+      # 400 attachment_not_uploaded 가 아니라 503 storage_unavailable 이 된다. HeadObject 요청에는 s3:prefix 가 없어 접두어 조건을
+      # 붙이면 적용되지 않으므로 조건 없이 이 버킷에만 준다 — 이 버킷에는 uploads/ 객체뿐이라 노출 범위는 같다
+      Sid      = "BoardUploadsList"
+      Effect   = "Allow"
+      Action   = "s3:ListBucket"
+      Resource = aws_s3_bucket.this.arn
     }]
   }
 }
