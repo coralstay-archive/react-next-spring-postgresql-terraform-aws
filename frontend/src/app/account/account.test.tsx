@@ -1,10 +1,11 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountView } from "@/app/account/account-view";
 import type { Identity } from "@/lib/identities";
+import { ERROR_MESSAGES, OAUTH_LINK_FALLBACK, OAUTH_LINK_MESSAGES } from "@/lib/errors";
 import { queryKeys } from "@/lib/query";
 import { apiError, csrfHandler, server } from "@/test/server";
 import { makeMe, meHandler, navigation, renderWithQuery } from "@/test/utils";
@@ -191,5 +192,105 @@ describe("TASK-13#5 내 계정: step-up(제한 세션 다시 인증)", () => {
 
     expect(await within(section).findByRole("alert")).toHaveTextContent("이메일 또는 비밀번호가 올바르지 않습니다.");
     expect(client.getQueryData(queryKeys.me)).toMatchObject({ stepUpRequired: true });
+  });
+});
+
+describe("TASK-28#4 계정 연결 실패 ?error=", () => {
+  it("TASK-28#4 oauth2_failed 는 연결 전용 문장, 모르는 코드는 연결 전용 fallback(코드 원문은 보이지 않는다)", async () => {
+    navigation.reset("/account/", "error=oauth2_failed");
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    const { unmount } = renderWithQuery(<AccountView />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(OAUTH_LINK_MESSAGES.oauth2_failed);
+    expect(screen.getByRole("alert")).not.toHaveTextContent("로그인");
+    unmount();
+
+    navigation.reset("/account/", "error=Weird-Provider-Error");
+    renderWithQuery(<AccountView />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(OAUTH_LINK_FALLBACK);
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Weird");
+  });
+});
+
+// TASK-28#5 FE-17: ?linked= 는 알려진 provider 만 알리고, 읽은 뒤 URL 에서 지워 새로고침해도 반복되지 않는다.
+describe("TASK-28#5 ?linked= 처리", () => {
+  it.each([
+    ["google", "Google"],
+    ["github", "GitHub"],
+    ["naver", "네이버"],
+    ["kakao", "카카오"],
+    ["cognito", "Cognito"],
+  ])("TASK-28#5 linked=%s 는 '%s 계정을 연결했습니다.'를 보이고 쿼리를 지운다", async (id, label) => {
+    navigation.reset("/account/", `linked=${id}`);
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    renderWithQuery(<AccountView />);
+
+    expect(await screen.findByRole("status", { name: "알림" })).toHaveTextContent(`${label} 계정을 연결했습니다.`);
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/account/", { scroll: false }));
+  });
+
+  it.each(["evil", "<b>해킹</b> 성공! 비밀번호를 입력하세요", "GitHub", "phone", "local", ""])(
+    "TASK-28#5 모르는 linked=%j 는 표시하지 않고 쿼리만 지운다",
+    async (value) => {
+      navigation.reset("/account/", `linked=${encodeURIComponent(value)}`);
+      server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+      renderWithQuery(<AccountView />);
+
+      await screen.findByRole("list", { name: "연결된 로그인 수단" });
+      expect(screen.queryByRole("status", { name: "알림" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/계정을 연결했습니다/)).not.toBeInTheDocument();
+      await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/account/", { scroll: false }));
+    },
+  );
+
+  it("TASK-28#5 linked 만 지우고 다른 쿼리는 남긴다, linked 가 없으면 URL 을 건드리지 않는다", async () => {
+    navigation.reset("/account/", "linked=kakao&tab=x");
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    const { unmount } = renderWithQuery(<AccountView />);
+    await screen.findByRole("status", { name: "알림" });
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/account/?tab=x", { scroll: false }));
+    unmount();
+
+    navigation.reset("/account/", "tab=x");
+    renderWithQuery(<AccountView />);
+    await screen.findByRole("list", { name: "연결된 로그인 수단" });
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+});
+
+// TASK-28#5: linked·error 를 지울 때 다른 쿼리와 hash 는 남긴다. ?error= 도 표시 후 지워 새로고침에 반복되지 않는다.
+describe("TASK-28#5 URL 정리(hash 보존, ?error= 제거)", () => {
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("TASK-28#5 linked 를 지울 때 hash 를 남긴다", async () => {
+    window.history.replaceState(null, "", "/account/?linked=kakao&tab=x#step-up");
+    navigation.reset("/account/", "linked=kakao&tab=x");
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    renderWithQuery(<AccountView />);
+    await screen.findByRole("status", { name: "알림" });
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith("/account/?tab=x#step-up", { scroll: false }),
+    );
+  });
+
+  it("TASK-28#5 ?error= 는 보여 준 뒤 주소에서 지운다(다른 쿼리·hash 유지)", async () => {
+    window.history.replaceState(null, "", "/account/?error=identity_in_use&tab=x#step-up");
+    navigation.reset("/account/", "error=identity_in_use&tab=x");
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    renderWithQuery(<AccountView />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(ERROR_MESSAGES.identity_in_use);
+    await waitFor(() =>
+      expect(navigation.replace).toHaveBeenCalledWith("/account/?tab=x#step-up", { scroll: false }),
+    );
+  });
+
+  it("TASK-28#5 linked 와 error 가 함께 오면 둘 다 지운다", async () => {
+    navigation.reset("/account/", "linked=github&error=oauth2_failed");
+    server.use(meHandler(makeMe()), identitiesHandler(() => [LOCAL]));
+    renderWithQuery(<AccountView />);
+    await screen.findByText(OAUTH_LINK_MESSAGES.oauth2_failed);
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/account/", { scroll: false }));
+    for (const [url] of navigation.replace.mock.calls) expect(url).toBe("/account/");
   });
 });

@@ -7,6 +7,8 @@
  *   `GET /api/auth/csrf` 로 먼저 받는다. 토큰은 로그인·OTP 검증·step-up·OAuth 콜백 뒤 회전하고 로그아웃 뒤 지워지므로
  *   **요청마다 쿠키를 다시 읽는다**(캐시하지 않는다). 그래도 403 `csrf` 가 오면 토큰을 다시 받아 한 번만 재시도한다.
  * - 오류 응답 `{status, error, message, fields?}` 는 {@link ApiError} 로 바꾼다. 429 는 `Retry-After`(초)를 담는다.
+ *   `error` 가 계약 형식(`^[a-z0-9_]+$`)이 아니거나 본문이 JSON 이 아니면(프록시 HTML, Spring 기본 오류) 코드는 `http_<상태>`,
+ *   문장은 상태 범위별 한국어다 — 영어 `statusText`·HTML 원문을 화면에 올리지 않는다(TASK-28#2).
  */
 
 export const API_BASE = "/api";
@@ -16,9 +18,32 @@ export const CSRF_HEADER = "X-XSRF-TOKEN";
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/** 백엔드 오류 코드 형식(snake_case). 이 형식이 아니면 코드로 쓰지 않는다. */
+export const ERROR_CODE_PATTERN = /^[a-z0-9_]+$/;
+
+/** 코드로 문장을 정하지 못할 때 쓰는 상태 범위별 한국어(TASK-28#2). */
+export function statusMessage(status: number): string {
+  if (status === 0) return "서버에 연결할 수 없습니다. 네트워크를 확인하세요.";
+  if (status === 401) return "로그인이 필요합니다. 다시 로그인하세요.";
+  if (status === 403) return "권한이 없습니다.";
+  if (status === 404) return "요청한 내용을 찾을 수 없습니다.";
+  if (status === 408) return "요청 시간이 초과되었습니다. 잠시 후 다시 시도하세요.";
+  if (status === 409) return "다른 변경과 충돌했습니다. 페이지를 새로 고친 뒤 다시 시도하세요.";
+  if (status === 413) return "보낸 내용이 너무 큽니다. 줄여서 다시 시도하세요.";
+  if (status === 429) return "요청이 너무 많습니다. 잠시 후 다시 시도하세요.";
+  if (status >= 400 && status < 500) return "요청을 처리하지 못했습니다. 입력을 확인한 뒤 다시 시도하세요.";
+  if (status === 504) return "서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도하세요.";
+  if (status === 502 || status === 503) return "서버가 잠시 응답하지 않습니다. 잠시 후 다시 시도하세요.";
+  if (status >= 500 && status < 600) return "서버에서 오류가 났습니다. 잠시 후 다시 시도하세요.";
+  return "요청을 처리하지 못했습니다. 잠시 후 다시 시도하세요.";
+}
+
 export class ApiError extends Error {
   readonly status: number;
-  /** 백엔드 `error` 코드(예: `email_taken`). JSON 이 아니면 `http_<status>`, 네트워크 오류는 `network`. */
+  /**
+   * 백엔드 `error` 코드(예: `email_taken`). 오류 본문이 JSON·계약 형식이 아니면 `http_<status>`, 네트워크 오류는 `network`,
+   * 2xx 인데 본문이 JSON 이 아니면 `bad_response`.
+   */
   readonly code: string;
   readonly fields?: Record<string, string>;
   /** 429 의 `Retry-After`(초). */
@@ -159,10 +184,14 @@ async function send(url: string, init: RequestInit): Promise<Response> {
     return await fetch(url, init);
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
-    throw new ApiError(0, "network", "서버에 연결할 수 없습니다");
+    throw new ApiError(0, "network", statusMessage(0));
   }
 }
 
+/**
+ * 2xx 본문. 204·빈 본문은 undefined. JSON 이 아니면(CloudFront SPA 폴백의 index.html, 프록시 문구 등) 텍스트를 데이터로
+ * 넘기지 않고 ApiError `bad_response` 로 실패시킨다(TASK-28#3) — 화면이 문자열을 객체로 쓰다 TypeError 가 나지 않게.
+ */
 async function parseBody<T>(response: Response): Promise<T> {
   if (response.status === 204) return undefined as T;
   const text = await response.text();
@@ -170,22 +199,28 @@ async function parseBody<T>(response: Response): Promise<T> {
   try {
     return JSON.parse(text) as T;
   } catch {
-    return text as T;
+    throw new ApiError(response.status, "bad_response", BAD_RESPONSE_MESSAGE);
   }
 }
+
+const BAD_RESPONSE_MESSAGE = "서버 응답을 해석하지 못했습니다. 잠시 후 다시 시도하세요.";
 
 async function toApiError(response: Response): Promise<ApiError> {
   const retryHeader = response.headers.get("Retry-After");
   const retryAfter = retryHeader && /^\d+$/.test(retryHeader.trim()) ? Number(retryHeader.trim()) : undefined;
   let body: { error?: unknown; message?: unknown; fields?: unknown } | null = null;
   try {
-    body = JSON.parse(await response.text());
+    const parsed: unknown = JSON.parse(await response.text());
+    body = parsed && typeof parsed === "object" ? parsed : null;
   } catch {
     body = null;
   }
-  const code = typeof body?.error === "string" ? body.error : `http_${response.status}`;
-  const message = typeof body?.message === "string" ? body.message : response.statusText || code;
+  const serverCode = typeof body?.error === "string" && ERROR_CODE_PATTERN.test(body.error) ? body.error : null;
+  const contract = serverCode !== null;
+  const code = serverCode ?? `http_${response.status}`;
+  const message =
+    contract && typeof body?.message === "string" && body.message ? body.message : statusMessage(response.status);
   const fields =
-    body?.fields && typeof body.fields === "object" ? (body.fields as Record<string, string>) : undefined;
+    contract && body?.fields && typeof body.fields === "object" ? (body.fields as Record<string, string>) : undefined;
   return new ApiError(response.status, code, message, { fields, retryAfter });
 }

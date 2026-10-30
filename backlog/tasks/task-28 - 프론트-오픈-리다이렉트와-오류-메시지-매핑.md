@@ -1,10 +1,10 @@
 ---
 id: TASK-28
 title: '프론트: 오픈 리다이렉트와 오류 메시지 매핑'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-10-12 04:09'
-updated_date: '2026-10-12 04:45'
+updated_date: '2026-10-23 06:08'
 labels:
   - frontend
   - security
@@ -34,9 +34,39 @@ documentation:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 FE-1 next는 new URL 기준 같은 오리진만 허용하고 pathname+search+hash만 사용(탭·개행·역슬래시 차단)
-- [ ] #2 FE-2 비JSON·Spring 기본 오류는 상태 범위별 한국어 문구로(코드는 ^[a-z0-9_]+$일 때만 사용)
-- [ ] #3 FE-3 JSON을 기대한 2xx에 비JSON이면 ApiError bad_response
-- [ ] #4 FE-12 oauth2_failed와 표준 OAuth 오류 코드 매핑, 콜백 전용 fallback 문구
-- [ ] #5 FE-17 linked는 알려진 provider만 허용하고 표시 후 쿼리 제거
+- [x] #1 FE-1 next는 new URL 기준 같은 오리진만 허용하고 pathname+search+hash만 사용(탭·개행·역슬래시 차단)
+- [x] #2 FE-2 비JSON·Spring 기본 오류는 상태 범위별 한국어 문구로(코드는 ^[a-z0-9_]+$일 때만 사용)
+- [x] #3 FE-3 JSON을 기대한 2xx에 비JSON이면 ApiError bad_response
+- [x] #4 FE-12 oauth2_failed와 표준 OAuth 오류 코드 매핑, 콜백 전용 fallback 문구
+- [x] #5 FE-17 linked는 알려진 provider만 허용하고 표시 후 쿼리 제거
 <!-- AC:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+1. (AC#1 FE-1) lib/auth.ts safeNext 재작성: 원문에 제어 문자(U+0000-001F, U+007F)·역슬래시가 있으면 거부 → new URL(next, window.location.origin) 파싱 실패·다른 오리진이면 거부 → pathname+search+hash 만 반환, 결과가 '//' 로 시작하거나 디코드한 경로에 역슬래시·제어 문자·'//' 시작이 있으면 거부(인코딩 우회). 소비처(login-view·phone 로그인·callback takeNext·signup)는 모두 safeNext 를 거치는지 확인. 테이블 테스트(B1).
+2. (AC#2 FE-2) lib/api.ts toApiError: 본문 error 가 ^[a-z0-9_]+$ 가 아니거나 JSON 이 아니면 code=http_<status>, message=상태 범위별 한국어(statusText 영어 원문 사용 중단). lib/errors.ts errorMessage: 표에 있으면 표 문구, 없으면 서버 message 가 한국어(한글 포함)일 때만 그 문구, 아니면 상태 범위별 한국어(0 네트워크, 401/403/404/408/413/429 개별, 그 밖 4xx, 502-504, 그 밖 5xx). docs/api.md 의 TASK-20~27 코드(not_found·method_not_allowed·not_acceptable·unsupported_media_type·payload_too_large·conflict·lock_timeout·internal_error·db_unavailable·db_timeout·service_unavailable·too_many_pending_attachments·storage_unavailable·attachment_expired·phone_not_allowed·invalid_refresh_token 등) 매핑 추가, 문서 코드 전수 테스트(B2).
+3. (AC#3 FE-3) lib/api.ts parseBody: 본문이 있는데 JSON 파싱 실패면 ApiError(status, 'bad_response', 한국어) — 텍스트를 데이터로 넘기지 않는다. 204·빈 본문은 그대로 undefined.
+4. (AC#4 FE-12) lib/errors.ts oauthErrorMessage(code): 형식 맞고 표에 있으면 표 문구, 아니면 콜백 전용 fallback. oauth2_failed·server_error·temporarily_unavailable·invalid_request·unauthorized_client·unsupported_response_type·invalid_scope·invalid_client·unsupported_grant_type 등 매핑. callback-view 와 account-view 의 ?error= 에 적용.
+5. (AC#5 FE-17) account-view: linked 는 SOCIAL_PROVIDERS id 일 때만 알림, 모르는 값은 표시하지 않음. 읽은 뒤 router.replace 로 linked 만 뺀 URL 로 바꿔 새로고침 시 반복되지 않게(다른 쿼리·hash 유지).
+6. docs/frontend.md 갱신, make test 전체 통과 확인.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+독립 리뷰(2026-10-23) 반영 결정(유저): 표에 없는 코드는 서버 message가 한국어(한글 포함, <> 없음)일 때만 보여 준다(유지, 같은 오리진 신뢰 경계). 계정 화면 ?error= 도 linked처럼 표시 후 주소에서 지운다(이 태스크에서). 입력칸 fields 문구는 백엔드 테스트로 막는다 — 모든 Bean Validation 제약에 한국어 message가 있는지 검사(B2). 그 밖에 연결 모드 전용 문구(oauth2_failed·server_error·invalid_request 등), linked 제거 시 hash 보존, frontend.md safeNext 설명 정정.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+프론트의 오픈 리다이렉트와 오류 문구를 정리했다.
+- AC#1 FE-1: safeNext — 제어 문자·역슬래시·공백 거부, 같은 오리진만, pathname+search+hash만, 디코드 경로가 //로 시작하면 거부. next를 쓰는 모든 곳(이메일·휴대폰 로그인, 소셜 시작, OAuth 콜백, 가입)이 거친다. B1: 우회 입력 30여 종을 리뷰에서 확인.
+- AC#2 FE-2: 비JSON·Spring 기본 오류는 http_<상태> 코드와 상태 범위별 한국어. 코드는 ^[a-z0-9_]+ 표에 있을 때만 표 문구, 표에 없으면 한국어 서버 문장만 통과(유저 결정). TASK-22~27의 새 코드 문구 추가, 문서 코드 전체를 테스트로 대조. B2: 모든 Bean Validation 제약에 한국어 message가 있는지 백엔드 테스트로 강제.
+- AC#3 FE-3: JSON을 기대한 2xx에 비JSON이면 ApiError bad_response(빈 본문·204는 undefined).
+- AC#4 FE-12: oauth2_failed·표준 OAuth·Spring 오류 코드 매핑, 로그인/연결 모드별 문구와 콜백 전용 fallback. 빈 ?error=로 멈추던 콜백도 실패 처리.
+- AC#5 FE-17: linked는 알려진 provider만 표시하고 표시 후 주소에서 제거. ?error=도 같이 제거, 다른 쿼리·hash 유지.
+검증: make test 통과(frontend 360, backend 874, repo 233, deploy 135, terraform 57).
+후속: 정지 warnings 표시는 TASK-33.
+<!-- SECTION:FINAL_SUMMARY:END -->

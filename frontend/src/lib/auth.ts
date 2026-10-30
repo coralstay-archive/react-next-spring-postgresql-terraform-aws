@@ -61,10 +61,39 @@ export function useLogout() {
   });
 }
 
-/** `?next=` 로 받은 이동 경로는 같은 사이트 경로만 허용한다(오픈 리다이렉트 방지). */
+/** 제어 문자(탭·개행 포함, URL 파서가 지워 버린다)·역슬래시(브라우저가 `/` 로 바꾼다)·공백. */
+const UNSAFE_NEXT_CHARS = /[\u0000- \u007F\\]/;
+
+/**
+ * `?next=` 로 받은 이동 경로(오픈 리다이렉트 방지, TASK-28#1). 로그인 후 이동은 언제나 같은 오리진이다(B1).
+ *
+ * - 원문에 제어 문자·역슬래시·공백이 있으면 거부한다(`/\t/evil.com`, `/\evil.com` 처럼 파서마다 해석이 갈리는 값).
+ * - `/` 로 시작하는 경로이거나 현재 오리진의 절대 URL 이어야 한다. `new URL(next, origin)` 으로 해석해 오리진을 비교한다.
+ * - 쓰는 값은 해석한 `pathname + search + hash` 뿐이다(사용자 정보·호스트는 버린다).
+ * - 결과가 `//` 로 시작하거나, 경로를 한 번 디코드했을 때 역슬래시·제어 문자·`//` 시작이 나오면(`/%2F/evil.com`,
+ *   `/%5Cevil.com`) 거부한다. 같은 오리진이라도 다음 단계(라우터·프록시)가 디코드하면 외부 주소가 될 수 있다.
+ */
 export function safeNext(next: string | null | undefined, fallback = "/"): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return fallback;
-  return next;
+  if (!next || UNSAFE_NEXT_CHARS.test(next)) return fallback;
+  const origin = typeof window === "undefined" ? "http://localhost" : window.location.origin;
+  if (!next.startsWith("/") && !next.startsWith(`${origin}/`)) return fallback;
+  let url: URL;
+  try {
+    url = new URL(next, origin);
+  } catch {
+    return fallback;
+  }
+  if (url.origin !== origin) return fallback;
+  const path = `${url.pathname}${url.search}${url.hash}`;
+  if (!path.startsWith("/") || path.startsWith("//")) return fallback;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(url.pathname);
+  } catch {
+    return fallback;
+  }
+  if (UNSAFE_NEXT_CHARS.test(decoded.replaceAll(" ", "")) || decoded.startsWith("//")) return fallback;
+  return path;
 }
 
 export function loginHref(next?: string): string {

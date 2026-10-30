@@ -1,7 +1,7 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useId, useState, type FormEvent } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useId, useState, type FormEvent } from "react";
 
 import { FormError } from "@/components/auth/form-error";
 import { PhoneOtpForm } from "@/components/auth/phone-otp-form";
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { useMe, useSessionChanged, type Me } from "@/lib/auth";
-import { errorMessage, NEXT_STORAGE_KEY } from "@/lib/errors";
+import { errorMessage, NEXT_STORAGE_KEY, oauthErrorMessage } from "@/lib/errors";
 import { useIdentities, useRefreshAccount, useUnlinkIdentity, type Identity } from "@/lib/identities";
 import {
   PROVIDER_LABELS,
@@ -37,14 +37,29 @@ function rememberAccountReturn() {
 export function AccountView() {
   const params = useSearchParams();
   const { data: me } = useMe();
+  const router = useRouter();
+  const pathname = usePathname();
   const linked = params.get("linked");
   const linkError = params.get("error");
+  // TASK-28#5: 알려진 제공자만 알린다(임의 문자열을 성공 문구에 넣지 않는다).
   const [notice, setNotice] = useState<string | null>(() => {
-    if (!linked) return null;
     const provider = SOCIAL_PROVIDERS.find((p) => p.id === linked);
-    return `${provider?.label ?? linked} 계정을 연결했습니다.`;
+    return provider ? `${provider.label} 계정을 연결했습니다.` : null;
   });
-  const [error, setError] = useState<string | null>(() => (linkError ? errorMessage(linkError) : null));
+
+  // 한 번 알린 linked·error 는 URL 에서 지운다(새로고침·뒤로 가기로 다시 뜨지 않게). 다른 쿼리와 hash 는 남긴다.
+  // 문구는 위 useState 초기값에 이미 담겼으므로 주소가 바뀌어도 화면에 남는다.
+  useEffect(() => {
+    if (linked === null && linkError === null) return;
+    const rest = new URLSearchParams(params.toString());
+    rest.delete("linked");
+    rest.delete("error");
+    const query = rest.toString();
+    router.replace(`${pathname}${query ? `?${query}` : ""}${window.location.hash}`, { scroll: false });
+  }, [linked, linkError, params, pathname, router]);
+  const [error, setError] = useState<string | null>(() =>
+    linkError !== null ? oauthErrorMessage(linkError, "link") : null,
+  );
 
   if (!me) return null;
 

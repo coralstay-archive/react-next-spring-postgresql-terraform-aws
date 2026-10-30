@@ -8,10 +8,17 @@ import { LoginView } from "@/app/login/login-view";
 import { PhoneOtpForm } from "@/components/auth/phone-otp-form";
 import { formatCountdown, useCountdown } from "@/hooks/use-countdown";
 import { ApiError } from "@/lib/api";
-import { errorMessage, NEXT_STORAGE_KEY } from "@/lib/errors";
+import {
+  ERROR_MESSAGES,
+  errorMessage,
+  NEXT_STORAGE_KEY,
+  OAUTH_LINK_FALLBACK,
+  OAUTH_LOGIN_FALLBACK,
+  oauthErrorMessage,
+} from "@/lib/errors";
 import { queryKeys } from "@/lib/query";
 import { apiError, csrfHandler, server } from "@/test/server";
-import { anonymous, makeMe, navigation, renderWithQuery } from "@/test/utils";
+import { anonymous, makeMe, meHandler, navigation, renderWithQuery } from "@/test/utils";
 
 vi.mock("next/navigation", async () => (await import("@/test/utils")).nextNavigationMock());
 
@@ -244,5 +251,93 @@ describe("TASK-13#3 /auth/callback/", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("취소");
     expect(screen.getByRole("link", { name: "로그인으로 돌아가기" })).toHaveAttribute("href", "/login/");
     expect(navigation.replace).not.toHaveBeenCalled();
+  });
+});
+
+// TASK-28#1 FE-1: next 를 쓰는 모든 곳(이메일·휴대폰 로그인, 소셜 시작 시 기억, OAuth 콜백)이 같은 오리진만 허용한다.
+describe("TASK-28#1 next 소비처의 오픈 리다이렉트 차단", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  it("TASK-28#1 TASK-28#B1 ?next= 에 탭을 넣은 외부 주소는 로그인 뒤 / 로 간다", async () => {
+    navigation.reset("/login/", `next=${encodeURIComponent("/\t/evil.com")}`);
+    server.use(
+      anonymous(),
+      csrfHandler(),
+      http.post("*/api/auth/login", () => HttpResponse.json(makeMe())),
+    );
+    renderWithQuery(<LoginView />);
+
+    await userEvent.type(screen.getByLabelText("이메일"), "a@example.com");
+    await userEvent.type(screen.getByLabelText("비밀번호"), "passw0rd!");
+    await userEvent.click(screen.getByRole("button", { name: "로그인" }));
+
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/"));
+  });
+
+  it("TASK-28#1 TASK-28#B1 소셜 로그인 전에 기억하는 next 도 검사한 값이다", async () => {
+    navigation.reset("/login/", `next=${encodeURIComponent("/\\evil.com")}`);
+    server.use(anonymous());
+    renderWithQuery(<LoginView />);
+
+    const link = screen.getByRole("link", { name: "GitHub로 로그인" });
+    link.addEventListener("click", (e) => e.preventDefault());
+    await userEvent.click(link);
+    expect(window.sessionStorage.getItem(NEXT_STORAGE_KEY)).toBe("/");
+  });
+
+  it("TASK-28#1 TASK-28#B1 OAuth 콜백은 sessionStorage 의 next 를 다시 검사한다", async () => {
+    navigation.reset("/auth/callback/", "status=ok");
+    window.sessionStorage.setItem(NEXT_STORAGE_KEY, "/%2F/evil.com");
+    server.use(meHandler(makeMe()));
+    renderWithQuery(<AuthCallbackView />);
+
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/"));
+  });
+});
+
+// TASK-28#4 FE-12: 콜백 ?error= 의 oauth2_failed·표준 OAuth 오류 코드는 한국어로, 모르는 코드는 콜백 전용 fallback.
+describe("TASK-28#4 OAuth 콜백 오류 코드", () => {
+  it.each([
+    ["oauth2_failed", "소셜 로그인"],
+    ["server_error", "다시 시도"],
+    ["temporarily_unavailable", "일시적"],
+    ["invalid_request", "요청"],
+    ["unauthorized_client", "설정"],
+    ["unsupported_response_type", "설정"],
+    ["invalid_scope", "권한"],
+    ["invalid_client", "설정"],
+    ["unsupported_grant_type", "설정"],
+    ["invalid_state_parameter", "만료"],
+    ["client_registration_not_found", "지원하지 않"],
+    ["login_required", "로그인"],
+    ["consent_required", "동의"],
+    ["interaction_required", "로그인"],
+  ])("TASK-28#4 %s 는 전용 한국어 문장", (code, text) => {
+    const message = oauthErrorMessage(code);
+    expect(ERROR_MESSAGES[code]).toBe(message);
+    expect(message).toContain(text);
+    expect(message).not.toContain(code);
+  });
+
+  it.each(["made_up_code", "Access-Denied", "<b>x</b>", "", "constructor", "__proto__"])(
+    "TASK-28#4 모르거나 형식이 틀린 코드 %j 는 콜백 전용 fallback",
+    (code) => {
+      expect(oauthErrorMessage(code)).toBe(OAUTH_LOGIN_FALLBACK);
+      expect(oauthErrorMessage(code, "link")).toBe(OAUTH_LINK_FALLBACK);
+    },
+  );
+
+  it("TASK-28#4 콜백 화면: oauth2_failed 는 전용 문장, 모르는 코드는 콜백 fallback 을 보인다", async () => {
+    navigation.reset("/auth/callback/", "error=oauth2_failed");
+    const { unmount } = renderWithQuery(<AuthCallbackView />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(ERROR_MESSAGES.oauth2_failed);
+    unmount();
+
+    navigation.reset("/auth/callback/", "error=brand_new_provider_error");
+    renderWithQuery(<AuthCallbackView />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(OAUTH_LOGIN_FALLBACK);
+    expect(screen.getByRole("alert")).not.toHaveTextContent("brand_new_provider_error");
   });
 });
