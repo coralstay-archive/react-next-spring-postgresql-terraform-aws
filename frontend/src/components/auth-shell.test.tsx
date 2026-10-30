@@ -131,7 +131,8 @@ describe("TASK-13#2 step-up 배너", () => {
     server.use(meHandler(makeMe({ stepUpRequired: true, stepUpProviders: ["LOCAL", "GOOGLE"] })));
     renderWithQuery(<StepUpBanner />);
 
-    const banner = await screen.findByRole("alert");
+    // TASK-34#3 제한 세션 배너는 오류가 아닌 상태 안내라 status 다.
+    const banner = await screen.findByRole("status");
     expect(banner).toHaveTextContent("다시 인증");
     expect(screen.getByRole("link", { name: /다시 인증하기/ })).toHaveAttribute("href", "/account/#step-up");
   });
@@ -139,10 +140,10 @@ describe("TASK-13#2 step-up 배너", () => {
   it("TASK-13#2 제한이 없거나 익명이면 배너가 없다", async () => {
     server.use(meHandler(makeMe()));
     const { unmount } = renderWithQuery(<StepUpBanner />);
-    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("step-up-banner")).not.toBeInTheDocument());
     unmount();
     server.use(anonymous());
     renderWithQuery(<StepUpBanner />);
-    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId("step-up-banner")).not.toBeInTheDocument());
   });
 });

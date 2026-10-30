@@ -129,6 +129,36 @@ run "default_behavior" {
   }
 }
 
+# TASK-34#2 모르는 정적 경로 → /404.html(상태 404). 같은 함수를 기본 동작의 viewer-request(리라이트)·viewer-response(상태 404)에 건다.
+# TASK-34#B1 /api 응답은 HTML 404 로 바뀌지 않는다: 함수는 기본 동작에만 있고, 배포 전체에 걸리는 custom_error_response 는 쓰지 않는다.
+run "not_found_page" {
+  command = apply
+
+  assert {
+    condition = anytrue([
+      for f in one(aws_cloudfront_distribution.this.default_cache_behavior).function_association :
+      f.event_type == "viewer-response" && f.function_arn == aws_cloudfront_function.index_rewrite.arn
+    ])
+    error_message = "TASK-34#2 기본 동작 viewer-response 에 같은 함수(/404.html 응답을 상태 404 로)"
+  }
+  assert {
+    condition     = strcontains(aws_cloudfront_function.index_rewrite.code, "/404.html") && strcontains(aws_cloudfront_function.index_rewrite.code, "viewer-response")
+    error_message = "TASK-34#2 함수 코드는 모르는 경로를 /404.html 로 보내고 viewer-response 를 처리한다"
+  }
+  assert {
+    condition     = length(one([for b in aws_cloudfront_distribution.this.ordered_cache_behavior : b.function_association if b.path_pattern == "/api/*"])) == 0
+    error_message = "TASK-34#B1 /api/* 에는 함수가 없다(API 404 JSON 을 /404.html 로 바꾸지 않는다)"
+  }
+  assert {
+    condition     = length(one([for b in aws_cloudfront_distribution.this.ordered_cache_behavior : b.function_association if b.path_pattern == "/uploads/*"])) == 0
+    error_message = "TASK-34#2 /uploads/* 에도 함수가 없다(없는 첨부는 S3 404 그대로)"
+  }
+  assert {
+    condition     = length(aws_cloudfront_distribution.this.custom_error_response) == 0
+    error_message = "TASK-34#B1 custom_error_response 는 /api/* 까지 덮으므로 404 페이지를 이 방법으로 만들지 않는다"
+  }
+}
+
 # TASK-16#3 /api/*: EC2(EIP DNS) HTTP 8080, 캐시 끔, 모든 메서드, 쿠키·쿼리·모든 헤더(Authorization 포함) + CloudFront-Viewer-Address, 함수 없음
 run "api_behavior" {
   command = apply

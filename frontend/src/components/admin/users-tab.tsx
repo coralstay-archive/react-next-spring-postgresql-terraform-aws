@@ -132,7 +132,11 @@ export function UsersTab() {
       </div>
 
       {warning && (
-        <Alert data-testid="admin-suspend-warning">
+        // TASK-34#3: 세션 끊기 실패는 정지된 사용자가 아직 접속해 있을 수 있다는 뜻이라 즉시 알린다(alert). 그 밖의 경고는 안내(status).
+        <Alert
+          role={warning.codes.includes(SESSION_REVOKE_FAILED) ? "alert" : "status"}
+          data-testid="admin-suspend-warning"
+        >
           <AlertDescription className="flex flex-col items-start gap-2">
             {warning.codes.map((code) => (
               <p key={code}>{suspendWarningMessage(code, warning.user)}</p>

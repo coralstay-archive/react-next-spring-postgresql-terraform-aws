@@ -114,7 +114,8 @@ make smoke  # 배포 스모크: SMOKE_BASE_URL=https://<cloudfront> make smoke (
 - Terraform: `terraform fmt -check -recursive infra` + 루트 스택(`infra/bootstrap`, `infra/main`)과 `tests/*.tftest.hcl`이 있는 모듈마다 `terraform init -backend=false`·`validate`·`test`.
   테스트는 `mock_provider "aws"`라 AWS 자격 증명이 필요 없다(provider는 처음 한 번 내려받아 `~/.terraform.d/plugin-cache`에 둔다).
   `terraform`이 없으면 경고만 내고 건너뛴다. 재사용 모듈의 `.terraform.lock.hcl`은 커밋하지 않고, 루트 스택(`infra/bootstrap`, `infra/main`)의 lock 파일은 커밋한다.
-- CloudFront Function: `scripts/test/cf_function_test.mjs`(Node 로 index 리라이트 함수를 직접 실행, `repo_test.sh`가 호출).
+- CloudFront Function: `scripts/test/cf_function_test.mjs`(Node 로 함수의 viewer-request·viewer-response 핸들러를 직접 실행하고, 함수의 페이지 목록이
+  `frontend/src/app`의 `page.tsx` 목록과 같은지 검사한다. `repo_test.sh`가 호출).
 
 개별 실행: `make backend-test`, `make frontend-test`, 정적 export 빌드는 `make frontend-build`(결과물 `frontend/out/`).
 전체 타깃 목록은 `make help`.
@@ -182,14 +183,24 @@ CloudFront 동작:
 
 | 경로 | 오리진 | 캐시 | 그 밖 |
 |---|---|---|---|
-| 기본(`/*`) | web S3(OAC) | Managed-CachingOptimized | viewer-request CF Function: `/x/` → `/x/index.html`, 확장자 없는 `/x` → `/x/index.html` |
+| 기본(`/*`) | web S3(OAC) | Managed-CachingOptimized | CF Function(같은 함수를 두 이벤트에): viewer-request `/x/`·`/x` → `/x/index.html`, 모르는 페이지 경로 → `/404.html`; viewer-response 그 응답을 상태 404 로 |
 | `/api/*` | EC2 EIP public DNS, HTTP 8080 | Managed-CachingDisabled | 모든 메서드, HTTPS 전용, 함수 없음(트레일링 슬래시 리라이트 없음). origin request policy = 모든 viewer 헤더·쿠키·쿼리 + `CloudFront-Viewer-Address` |
 | `/uploads/*` | uploads S3(OAC) | Managed-CachingOptimized | GET/HEAD |
 
 - `/api/*` 헤더: `Authorization`은 cache key 나 "모든 viewer 헤더" origin request policy 로만 전달된다. CachingDisabled 는 키를 둘 수 없으므로
   `allViewerAndWhitelistCloudFront` + `CloudFront-Viewer-Address`(앱의 `CLIENT_IP_HEADER`) 커스텀 정책을 쓴다. 이 정책은 viewer `Host`도 넘기지만
   오리진이 가상 호스트 없는 Tomcat 이라 문제없다(OAuth redirect-uri 는 `PUBLIC_BASE_URL`로 고정).
-- `custom_error_response`(404 페이지)는 두지 않는다. 배포 전체에 걸려 `/api/*`의 404·403 JSON 을 HTML 로 덮기 때문이다. 없는 정적 경로는 S3 404.
+- 404 페이지(TASK-34#2, FE-35): `custom_error_response`는 두지 않는다. 배포 전체에 걸려 `/api/*`의 404·403 JSON 을 HTML 로 덮기 때문이다(B1).
+  대신 기본 동작의 CF Function 이 페이지 목록(`PAGES`, `functions/index_rewrite.js`)에 없는 확장자 없는 경로·디렉터리를 `/404.html`로 보내고
+  viewer-response 에서 상태를 404 로 바꾼다. 함수는 S3 에 객체가 있는지 알 수 없어 목록을 두며, **페이지(`page.tsx`)를 더하면
+  `infra/main/modules/frontend_cdn/functions/index_rewrite.js`의 `PAGES`도 고친다**(`make test`의 `cf_function_test.mjs`가 어긋나면 실패).
+  배포 순서는 **`terraform apply`(함수의 `PAGES`) → `make deploy-frontend`(페이지 파일)**다. `deploy.yml`은 terraform 을 돌리지 않으므로 main 에
+  머지해도 함수는 바뀌지 않는다 — apply 를 먼저 하지 않으면 새 페이지가 404 로 보인다. 함수는 `/api/*`·`/uploads/*`에 붙지 않고, 함수 안에서도
+  `/api`·`/api/*`·`/uploads/*`는 그대로 돌려준다.
+- 비용: viewer-response 연결로 기본 동작 요청마다 함수가 두 번(viewer-request·viewer-response) 불린다. CloudFront Functions 는 100만 호출당
+  $0.10 이므로 기본 동작 100만 요청당 $0.10 이 더 든다.
+- 한계(받아들임): 확장자가 있는 없는 경로(`/robots.txt`, `/foo.html`, 옛 배포의 `_next` 청크 등)는 함수가 `/404.html`로 보내지 않아 S3 의 404(XML)
+  그대로다.
 - 가격 등급 PriceClass_100, 인증서는 `*.cloudfront.net` 기본(decision-9). `domain_name`을 주면 aliases + ACM.
 
 ### 처음 적용 순서
@@ -323,7 +334,9 @@ SMOKE_BASE_URL="$(terraform -chdir=infra/main output -raw public_base_url)" make
   ```
   `make deploy-backend`는 현재 코드로 다시 빌드하므로 롤백에 쓰지 않는다.
 - 주의: Flyway 마이그레이션은 되돌리지 않는다. 새 버전이 스키마를 바꿨다면 이전 이미지가 그 스키마에서 뜨는지 먼저 확인한다(마이그레이션은 하위 호환으로 쓴다).
-- 프론트: 이전 커밋을 체크아웃해 `make deploy-frontend`.
+- 프론트: 이전 커밋을 체크아웃해 `make deploy-frontend`. 이것은 S3 파일만 되돌리고 CloudFront Function 의 `PAGES`는 되돌리지 않는다. 되돌린
+  커밋에 없는 페이지가 `PAGES`에 남으면 그 경로는 `/404.html` 대신 S3 오류 응답(XML)이 되고, 되돌린 커밋에만 있는 페이지는 404 로 보인다 — 페이지 목록이
+  달라졌다면 그 커밋으로 `terraform apply`도 한다.
 
 ### 로그
 

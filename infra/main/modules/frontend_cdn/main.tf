@@ -1,5 +1,6 @@
 # 프론트·단일 오리진 CDN (TASK-16#3, decision-3·10).
-#   기본      → web S3(OAC), CachingOptimized, viewer-request CF Function 으로 /x/ → /x/index.html
+#   기본      → web S3(OAC), CachingOptimized, CF Function: viewer-request /x/ → /x/index.html, 모르는 페이지 → /404.html,
+#              viewer-response 로 그 응답을 상태 404 로(TASK-34#2)
 #   /api/*    → EC2(EIP DNS) HTTP:8080, CachingDisabled + API 전용 origin request policy(아래 설명)
 #   /uploads/* → uploads S3(OAC), CachingOptimized
 # + 백엔드 이미지 ECR 리포.
@@ -135,7 +136,7 @@ resource "aws_cloudfront_origin_access_control" "s3" {
 resource "aws_cloudfront_function" "index_rewrite" {
   name    = "${var.name}-index-rewrite"
   runtime = "cloudfront-js-2.0"
-  comment = "Next static export: /x/ -> /x/index.html"
+  comment = "Next static export: /x/ -> /x/index.html, unknown page -> /404.html (404)"
   publish = true
   code    = file("${path.module}/functions/index_rewrite.js")
 }
@@ -215,6 +216,12 @@ resource "aws_cloudfront_distribution" "this" {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.index_rewrite.arn
     }
+
+    # 같은 함수가 /404.html 로 보낸 응답의 200 을 404 로 바꾼다(TASK-34#2). 기본 동작에만 있어 /api/* 응답은 거치지 않는다(B1).
+    function_association {
+      event_type   = "viewer-response"
+      function_arn = aws_cloudfront_function.index_rewrite.arn
+    }
   }
 
   # /api/*: 같은 오리진이라 CORS·mixed content 가 없다(decision-3). 트레일링 슬래시 리라이트를 하지 않는다(TASK-13).
@@ -239,8 +246,9 @@ resource "aws_cloudfront_distribution" "this" {
     cache_policy_id        = local.caching_optimized_policy_id
   }
 
-  # custom_error_response 는 두지 않는다: 배포 전체(/api/* 포함)에 적용되어 API 의 404·403 JSON 을 HTML 로 덮는다.
-  # 없는 정적 경로는 S3 의 404 가 그대로 간다(web 버킷 정책의 ListBucket).
+  # custom_error_response 는 두지 않는다: 배포 전체(/api/* 포함)에 적용되어 API 의 404·403 JSON 을 HTML 로 덮는다(TASK-34#B1).
+  # 모르는 페이지 경로는 기본 동작의 CF Function 이 /404.html(상태 404)로 보낸다(TASK-34#2). 없는 파일(확장자 있는 경로)은 S3 404 그대로
+  # (web 버킷 정책의 ListBucket 덕에 403 이 아니라 404).
 
   restrictions {
     geo_restriction {

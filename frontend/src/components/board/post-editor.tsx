@@ -387,6 +387,9 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   };
 
   const preview = tagText.trim() ? normalizeTag(tagText) : null;
+  // 입력 중인 값의 오류는 미리보기 줄이 이미 보여 준다.
+  const tagsError = preview?.error ? undefined : fieldErrors.tags;
+  const errorId = (field: keyof FieldErrors) => `${ids}-${field}-error`;
 
   // --- 이미지 ---
   const updateItem = (key: string, next: UploadItem) =>
@@ -556,8 +559,9 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           maxLength={TITLE_MAX}
           onChange={(e) => setTitle(e.target.value)}
           aria-invalid={fieldErrors.title ? true : undefined}
+          aria-describedby={fieldErrors.title ? errorId("title") : undefined}
         />
-        <FieldError message={fieldErrors.title} testId="editor-title-error" />
+        <FieldError id={errorId("title")} message={fieldErrors.title} testId="editor-title-error" />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -568,6 +572,8 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           className={SELECT}
           value={categorySlug}
           onChange={(e) => setCategorySlug(e.target.value)}
+          aria-invalid={fieldErrors.category ? true : undefined}
+          aria-describedby={fieldErrors.category ? errorId("category") : undefined}
         >
           <option value="">카테고리 없음</option>
           {visibleCategories.map((category) => (
@@ -576,7 +582,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
             </option>
           ))}
         </select>
-        <FieldError message={fieldErrors.category} testId="editor-category-error" />
+        <FieldError id={errorId("category")} message={fieldErrors.category} testId="editor-category-error" />
         {categories.isError && (
           <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="editor-categories-error">
             <span className="text-destructive">카테고리 목록을 불러오지 못했습니다. {errorMessage(categories.error)}</span>
@@ -603,8 +609,9 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           maxLength={CONTENT_MAX}
           onChange={(e) => setContent(e.target.value)}
           aria-invalid={fieldErrors.content ? true : undefined}
+          aria-describedby={fieldErrors.content ? errorId("content") : undefined}
         />
-        <FieldError message={fieldErrors.content} testId="editor-content-error" />
+        <FieldError id={errorId("content")} message={fieldErrors.content} testId="editor-content-error" />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -632,18 +639,19 @@ export function PostEditor({ post }: { post?: PostDetail }) {
             onChange={onTagChange}
             onKeyDown={onTagKeyDown}
             className="sm:w-64"
+            aria-invalid={preview?.error || tagsError ? true : undefined}
+            aria-describedby={[preview && `${ids}-tag-preview`, tagsError && errorId("tags")].filter(Boolean).join(" ") || undefined}
           />
           <Button type="button" variant="outline" onClick={() => commitTag(tagText)}>
             태그 추가
           </Button>
         </div>
         {preview && (
-          <p className="text-muted-foreground text-xs" data-testid="editor-tag-preview">
+          <p id={`${ids}-tag-preview`} className="text-muted-foreground text-xs" data-testid="editor-tag-preview">
             {preview.error ? preview.error : <>저장될 이름: #{preview.name}</>}
           </p>
         )}
-        {/* 입력 중인 값의 오류는 미리보기 줄이 이미 보여 준다. */}
-        {!preview?.error && <FieldError message={fieldErrors.tags} testId="editor-tags-error" />}
+        <FieldError id={errorId("tags")} message={tagsError} testId="editor-tags-error" />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -657,6 +665,8 @@ export function PostEditor({ post }: { post?: PostDetail }) {
           disabled={restricted || attached >= MAX_ATTACHMENTS}
           onChange={onFiles}
           className="text-sm"
+          aria-invalid={fieldErrors.attachments ? true : undefined}
+          aria-describedby={fieldErrors.attachments ? errorId("attachments") : undefined}
         />
         <ul className="grid gap-2 sm:grid-cols-3" data-testid="editor-attachments">
           {items.map((item, index) => (
@@ -700,7 +710,7 @@ export function PostEditor({ post }: { post?: PostDetail }) {
             </li>
           ))}
         </ul>
-        <FieldError message={fieldErrors.attachments} testId="editor-attachments-error" />
+        <FieldError id={errorId("attachments")} message={fieldErrors.attachments} testId="editor-attachments-error" />
         {hasProblems && (
           <div>
             <Button type="button" variant="outline" size="sm" disabled={save.isPending} onClick={saveWithoutProblems}>
@@ -746,10 +756,11 @@ export function PostEditor({ post }: { post?: PostDetail }) {
   );
 }
 
-function FieldError({ message, testId }: { message?: string; testId?: string }) {
+/** 칸 오류 한 줄. 입력이 `aria-describedby={id}`·`aria-invalid` 로 가리킨다(TASK-34#3, FE-36). */
+function FieldError({ id, message, testId }: { id: string; message?: string; testId?: string }) {
   if (!message) return null;
   return (
-    <p className="text-destructive text-sm" data-testid={testId}>
+    <p id={id} className="text-destructive text-sm" data-testid={testId}>
       {message}
     </p>
   );
