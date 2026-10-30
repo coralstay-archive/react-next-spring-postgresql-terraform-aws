@@ -126,8 +126,19 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
   **3분** 뒤 만료되고, 한 번 성공하면 소멸한다(재사용 불가). 틀린 시도가 **5번**이 되면 챌린지를 폐기한다(그 뒤에는 맞는 코드도 실패).
   시도 횟수는 챌린지 행을 잠그고(FOR UPDATE) 세므로 동시 요청에도 정확하다.
 - 검증 실패(틀린 코드, 없음·만료·소멸·폐기된 챌린지)는 모두 같은 401 `invalid_otp`. 정지 계정은 403 `suspended`.
+- **확인 뒤 계정 처리 실패**(TASK-25#5, BE-22): 코드가 맞으면 챌린지를 먼저 소모(커밋)한 뒤 가입·연결·세션/토큰 발급을 한다. 그 사이에
+  오류가 나면(예: DB 장애 → 503 `db_unavailable`·500 `internal_error`, 또는 403 `suspended`·409 `identity_in_use` 같은 거절) 응답은 그 오류
+  그대로이고, 챌린지 소모는 되돌린다 — 만료 전이면 **같은 challengeId·인증번호로 다시 확인**할 수 있다(새 SMS·60초 쿨다운·일일 한도를 쓰지
+  않는다. 만료 시각·틀린 시도 횟수는 그대로). 프론트 폼은 오류 뒤에도 입력을 유지하므로 "확인"을 다시 누르면 된다. 한 트랜잭션으로 묶지 않은
+  이유: 같은 새 번호의 동시 가입이 UNIQUE 경합에서 진 쪽을 다시 조회하는 재시도는 PostgreSQL 이 오류 뒤 트랜잭션을 중단시켜 같은 트랜잭션에서
+  할 수 없고, 세션 저장은 응답 끝에 Spring Session 이 별도로 한다. 한계: 되돌리기 자체가 실패하거나(DB 장애가 계속됨, WARN 로그) 컨트롤러
+  밖(응답 끝 세션 저장)에서 실패하면 그 인증번호는 소모된 채로 남아 새로 받아야 한다. 불변식: **오류 응답이면 로그인되지 않았고 인증번호는 다시
+  쓸 수 있다**(인증번호 하나로 로그인 두 번이 되지 않게). 세션 로그인은 응답 본문(수단 목록) 조회까지 끝낸 뒤 마지막 단계로 하고, 그 도중
+  실패하면 이 요청이 세션에 넣은 인증을 걷어 낸 뒤 소모를 되돌린다.
 - **발송 한도**(DB 기준이라 인스턴스가 여러 개여도 같다): 같은 번호 60초에 1회·24시간 10회(`OTP_PHONE_DAILY_LIMIT`), 같은 클라이언트 IP
-  1시간 20회(`OTP_IP_HOURLY_LIMIT`). 넘으면 429 `rate_limited` + `Retry-After`(초). SMS 발송 실패는 503 `sms_unavailable`.
+  1시간 20회(`OTP_IP_HOURLY_LIMIT`). 넘으면 429 `rate_limited` + `Retry-After`(초). SMS 발송 실패는 503 `sms_unavailable` — End User Messaging 이
+  응답하지 않아도 호출 전체 10초(`SMS_API_CALL_TIMEOUT`, 시도별 4초 `SMS_API_CALL_ATTEMPT_TIMEOUT`) 안에 같은 503 으로 끝난다(TASK-25#4).
+  실패한 발송도 그 챌린지는 발송 한도에 포함된다.
 - **클라이언트 IP**: CloudFront 뒤에서는 EC2가 CloudFront의 IP를 보므로 `CLIENT_IP_HEADER=CloudFront-Viewer-Address`로 두고
   그 값(`ip:port`)의 IP를 쓴다. 헤더가 없거나 형식이 틀리면 remote address. `X-Forwarded-For`는 쓰지 않는다(클라이언트가 위조 가능).
   CloudFront 오리진 요청 정책이 `CloudFront-Viewer-Address`를 넘겨야 하고, EC2는 CloudFront를 거친 요청만 받아야 한다(TASK-16).
@@ -166,7 +177,19 @@ Spring Boot API의 상세 규칙이다. 모든 경로는 `/api` 아래에 있다
     boolean 또는 문자열 `"true"`(Cognito userinfo) 모두 받는다.
 - 실패 코드: `access_denied`(사용자가 거부), `authorization_request_not_found`(state 없음·만료·재사용), `invalid_id_token`,
   `invalid_nonce`, `invalid_grant`, `invalid_token_response`(토큰 응답에 access_token 없음 — Naver 토큰 오류), `invalid_user_info_response`, `invalid_user_info`(제공자 응답에 id 없음), `unknown_provider`(설정 안 된 제공자), `suspended`,
-  연결 전용 `identity_in_use`, `link_expired`(연결 시작 10분 초과 또는 그 사이 다른 계정으로 바뀜).
+  연결 전용 `identity_in_use`, `link_expired`(연결 시작 10분 초과 또는 그 사이 다른 계정으로 바뀜), 제공자가 콜백에 실어 보낸 OAuth 오류
+  코드(예: `temporarily_unavailable`, 형식이 이상하면 `oauth2_failed`), `server_error`(TASK-25#1 — 제공자 인증은 끝났지만 우리 쪽 계정 처리가
+  예외로 실패: DB 장애 등. 다시 시도하면 된다).
+- **어떤 실패든 프론트로 302**(TASK-25 B1): 인가 시작·콜백의 모든 실패(실패 핸들러, 매퍼 예외, state 불일치, 제공자 오류 파라미터, 성공 핸들러
+  안의 예외)는 500·JSON 이 아니라 로그인 콜백(`/auth/callback/?error=`) 또는 연결이었으면 계정 화면(`/account/?error=`)으로 돌아간다. 연결 플래그를
+  꺼내는 것 자체가 실패하면(모드를 알 수 없음) 로그인 콜백으로 간다. 그 요청이 세션 로그인까지 한 뒤 실패했으면 만든 인증은 세션에 남지 않고,
+  그 전에 실패했으면 기존 세션(휴대폰 제한 세션, 연결하려던 로그인 사용자)은 그대로 남는다. 예외: 응답이 이미 커밋된 뒤의 실패와, 핸들러가 302 를 쓴 뒤 응답 끝 세션 저장의 실패
+  (DB 장애 — 필터 단계 503 `db_unavailable` JSON, TASK-23)는 바꾸지 않는다.
+- **제공자 호출 타임아웃**(TASK-25#3): 토큰 교환·userinfo·JWKS 호출은 연결 3초·읽기 5초(`OAUTH_HTTP_CONNECT_TIMEOUT`·`OAUTH_HTTP_READ_TIMEOUT`).
+  넘으면 각각 `invalid_token_response`·`invalid_user_info_response`·`invalid_id_token`.
+- **로그**(TASK-25#1·#2): 실패는 WARN `OAuth 로그인 실패 → ?error=코드: registration=… mode=login|link [status=제공자 HTTP 상태] 오류=예외 클래스 사슬`,
+  매퍼 예외는 WARN `OAuth 사용자 정보 매핑 실패`, 성공 핸들러 예외는 ERROR `OAuth 콜백 처리 실패`. 예외 메시지·제공자 응답 본문·
+  error_description·인가 코드·state·토큰·이메일은 남기지 않는다(메시지에 제공자 원문이 섞이기 때문).
 
 OAuth 로그인 흐름(시퀀스라 DOT 대신 mermaid로 그렸다):
 

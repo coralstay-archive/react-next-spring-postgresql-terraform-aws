@@ -324,6 +324,41 @@ public final class OAuthProviderStub implements DisposableBean {
 		stubCognito(code, expectedRedirectUri, nonce, user, signingKey, issuer);
 	}
 
+	/** TASK-25#3 Google 토큰 엔드포인트가 이 코드에 대해 {@code delayMillis} 동안 응답하지 않는다(그 뒤에야 정상 응답). */
+	public void stubGoogleTokenDelayed(String code, String expectedRedirectUri, String nonce, GoogleUser user,
+			int delayMillis) {
+		stubGoogle(code, expectedRedirectUri, nonce, user);
+		Map<String, Object> token = new LinkedHashMap<>();
+		token.put("access_token", "google-at-" + code);
+		token.put("token_type", "Bearer");
+		token.put("expires_in", 3599);
+		token.put("id_token", idToken(user, nonce, signingKey));
+		server.stubFor(post(urlPathEqualTo("/google/token")).atPriority(1)
+			.withRequestBody(containing("code=" + code))
+			.willReturn(okJson(JSON.writeValueAsString(token)).withFixedDelay(delayMillis)));
+	}
+
+	/** TASK-25#3 GitHub 토큰은 정상, {@code /user} 가 {@code delayMillis} 동안 응답하지 않는다. */
+	public void stubGitHubUserDelayed(String code, String expectedRedirectUri, GitHubUser user, int delayMillis) {
+		stubGitHub(code, expectedRedirectUri, user);
+		server.stubFor(get(urlPathEqualTo("/github/user")).atPriority(1)
+			.withHeader("Authorization", equalTo("Bearer github-at-" + code))
+			.willReturn(aResponse().withHeader("Content-Type", "application/json")
+				.withBody(JSON.writeValueAsString(user.attributes()))
+				.withFixedDelay(delayMillis)));
+	}
+
+	/**
+	 * TASK-25#3 Google JWKS 가 {@code delayMillis} 동안 응답하지 않게 한다. 모든 Google 로그인에 걸리므로 반드시 닫는다(닫으면 원래 JWKS
+	 * stub 으로 돌아간다). 테스트는 한 JVM 에서 차례로 돈다.
+	 */
+	public AutoCloseable delayGoogleJwks(int delayMillis) {
+		com.github.tomakehurst.wiremock.stubbing.StubMapping slow = server.stubFor(get(urlPathEqualTo("/google/jwks"))
+			.atPriority(1)
+			.willReturn(okJson(new JWKSet(this.signingKey.toPublicJWK()).toString()).withFixedDelay(delayMillis)));
+		return () -> server.removeStub(slow);
+	}
+
 	/** TASK-6#3 Cognito 토큰 엔드포인트가 받은 요청 수 (code 기준). */
 	public int cognitoTokenRequests(String code) {
 		return server.findAll(com.github.tomakehurst.wiremock.client.WireMock

@@ -70,7 +70,16 @@ public class AuthFixtures {
 
 	/** 세션을 만들고 {@code SESSION=<base64 id>} 쿠키 문자열을 돌려준다. */
 	public String sessionCookie(User user) {
-		SecurityContext context = new SecurityContextImpl(AuthUserAuthentication.of(AuthUser.from(user)));
+		return sessionCookie(AuthUser.from(user));
+	}
+
+	/** 제한(step-up 필요, TASK-7 B4) 세션 — 휴대폰 로그인으로 만든 세션과 같다. */
+	public String stepUpSessionCookie(User user) {
+		return sessionCookie(AuthUser.from(user, true));
+	}
+
+	private String sessionCookie(AuthUser principal) {
+		SecurityContext context = new SecurityContextImpl(AuthUserAuthentication.of(principal));
 		String id = save(sessions, context);
 		return "SESSION=" + Base64.getEncoder().encodeToString(id.getBytes(StandardCharsets.UTF_8));
 	}

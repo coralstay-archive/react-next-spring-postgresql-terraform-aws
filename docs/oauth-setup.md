@@ -158,4 +158,6 @@ Cognito 값(`COGNITO_CLIENT_ID`·`COGNITO_CLIENT_SECRET`·`COGNITO_ISSUER_URI`·
 | `?error=invalid_token_response` (Naver) | Client Secret이 틀렸거나 앱이 "개발 중"인데 테스트 ID가 아니다 |
 | Kakao `KOE205` | 동의 항목에 `profile_nickname`이나 `account_email`이 설정되지 않았다 |
 | Kakao `KOE010`·`invalid_client` | Client Secret을 "사용함"으로 두고 값을 넣지 않았거나 값이 틀렸다 |
+| `?error=server_error` | 제공자 로그인은 됐지만 계정 처리 중 서버 오류(대개 DB). 백엔드 로그의 ERROR `OAuth 콜백 처리 실패` 줄에 등록 id·예외 종류가 있다 |
+| `?error=invalid_token_response`·`invalid_user_info_response`·`invalid_id_token` (모든 제공자) | 제공자 응답 오류 또는 타임아웃(연결 3초·읽기 5초, `OAUTH_HTTP_*`). 백엔드 WARN `OAuth 로그인 실패` 줄의 `status=`·예외 사슬(`HttpTimeoutException` 등)로 구분한다 |
 | `?error=authorization_request_not_found` | 로그인을 시작한 브라우저와 콜백 브라우저가 다르거나, 세션 쿠키가 막혔다(`COOKIE_SECURE=true`인데 http) |

@@ -11,6 +11,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
@@ -44,6 +46,11 @@ import com.example.board.user.UserStatus;
  * <p><b>연결 모드</b>(세션에 {@link LinkIntent}): 로그인하지 않고, 세션의 현재 사용자(로그인 필터가 세션의 SecurityContext 를
  * 건드리지 않으므로 그대로 남아 있다)에게 identity 를 붙인 뒤 계정 화면으로 보낸다. 플래그가 그 사용자·제공자의 것이 아니거나
  * 만료됐으면 {@code link_expired}, 이미 다른 계정의 identity 면 {@code identity_in_use}(B2), 정지 계정이면 {@code suspended}.
+ *
+ * <p><b>예외</b>(TASK-25#1, BE-19): 계정 처리(DB 오류 등) 중 예외가 나면 500 JSON 대신 프론트로 302 {@code ?error=server_error}
+ * (로그인은 로그인 콜백, 연결은 계정 화면 — B1 브라우저 흐름은 어떤 실패에도 프론트로 돌아간다). 모드는 연결 플래그를 꺼낸 결과로 정하고, 꺼내기
+ * 자체가 실패하면 로그인 콜백으로 보낸다. 이번 요청이 세션 로그인까지 한 뒤 실패했을 때만 그 인증을 걷어 낸다({@link SessionLogin#discardLogin}) —
+ * 그 전에 실패했으면 기존 세션(제한 세션, 연결하려던 로그인 사용자)은 그대로 남는다. 로그는 ERROR 한 줄(등록 id·모드·예외 클래스 사슬)이고 메시지·이메일·토큰 같은 값은 싣지 않는다.
  */
 public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
 
@@ -52,6 +59,10 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 	public static final String INVALID_USER_INFO = "invalid_user_info";
 
 	public static final String LINK_EXPIRED = "link_expired";
+
+	public static final String SERVER_ERROR = "server_error";
+
+	private static final Log log = LogFactory.getLog(OAuth2LoginSuccessHandler.class);
 
 	private final Map<String, OAuth2UserInfoMapper> mappers;
 
@@ -83,23 +94,65 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 		// 스프링의 OAuth2 인증은 이 요청 안에서도 쓰지 않는다.
 		SecurityContextHolder.clearContext();
 		OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
-		OAuth2UserInfo info = userInfo(token);
-		LinkIntent intent = LinkIntent.take(request);
-		if (intent != null) {
-			response.sendRedirect(link(intent, token.getAuthorizedClientRegistrationId(), info, request));
-			return;
+		String registrationId = token.getAuthorizedClientRegistrationId();
+		// 모드는 연결 플래그를 꺼낸 결과로 정한다. 꺼내다 실패하면(UNKNOWN) 연결인지 알 수 없으므로 로그인 콜백으로 보낸다(B1).
+		Mode mode = Mode.UNKNOWN;
+		String location;
+		try {
+			LinkIntent intent = LinkIntent.take(request);
+			mode = intent != null ? Mode.LINK : Mode.LOGIN;
+			location = intent != null ? link(intent, registrationId, userInfo(token), request)
+					: login(userInfo(token), request, response);
 		}
+		catch (RuntimeException ex) {
+			log.error("OAuth 콜백 처리 실패 → ?error=" + SERVER_ERROR + ": registration=" + registrationId + " mode="
+					+ mode.label + " 오류=" + OAuth2Logs.causes(ex));
+			if (response.isCommitted()) {
+				throw ex;
+			}
+			discardLogin(request);
+			response.resetBuffer();
+			location = mode == Mode.LINK ? redirects.linkFailed(SERVER_ERROR) : redirects.loginFailed(SERVER_ERROR);
+		}
+		response.sendRedirect(location);
+	}
+
+	/** 로그인 모드 처리 후 돌려보낼 URL. */
+	private String login(OAuth2UserInfo info, HttpServletRequest request, HttpServletResponse response) {
 		if (info == null) {
-			response.sendRedirect(redirects.loginFailed(INVALID_USER_INFO));
-			return;
+			return redirects.loginFailed(INVALID_USER_INFO);
 		}
 		User user = resolveForLogin(info);
 		if (user.getStatus() != UserStatus.ACTIVE) {
-			response.sendRedirect(redirects.loginFailed(SUSPENDED));
-			return;
+			return redirects.loginFailed(SUSPENDED);
 		}
 		sessionLogin.login(user, request, response);
-		response.sendRedirect(redirects.loginSucceeded());
+		return redirects.loginSucceeded();
+	}
+
+	/**
+	 * 실패: 이번 요청이 세션 로그인까지 했으면 넣은 인증을 걷어 낸다(실패 응답인데 로그인된 세션이 남지 않게). 로그인 전에 실패했으면 기존 세션(제한
+	 * 세션·연결하려던 로그인 사용자)은 건드리지 않는다.
+	 */
+	private void discardLogin(HttpServletRequest request) {
+		try {
+			sessionLogin.discardLogin(request);
+		}
+		catch (RuntimeException ex) {
+			log.warn("OAuth 콜백 실패 뒤 세션 인증 제거 실패: 오류=" + ex.getClass().getSimpleName());
+		}
+	}
+
+	private enum Mode {
+
+		LOGIN("login"), LINK("link"), UNKNOWN("unknown");
+
+		private final String label;
+
+		Mode(String label) {
+			this.label = label;
+		}
+
 	}
 
 	/** 연결 모드 처리 후 돌려보낼 URL. */
@@ -155,6 +208,9 @@ public final class OAuth2LoginSuccessHandler implements AuthenticationSuccessHan
 			return mapper.map(token.getPrincipal());
 		}
 		catch (RuntimeException ex) {
+			// TASK-25#2 BE-20: 원인을 남긴다. 메시지·속성 값(이메일·이름·제공자 원문)은 싣지 않는다.
+			log.warn("OAuth 사용자 정보 매핑 실패 → ?error=" + INVALID_USER_INFO + ": registration="
+					+ token.getAuthorizedClientRegistrationId() + " 오류=" + OAuth2Logs.causes(ex));
 			return null;
 		}
 	}

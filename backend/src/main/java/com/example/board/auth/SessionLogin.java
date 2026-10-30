@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpSession;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.context.SecurityContextHolderStrategy;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.stereotype.Component;
@@ -63,6 +64,27 @@ public class SessionLogin {
 		contextRepository.saveContext(context, request, response);
 		request.setAttribute(LOGGED_IN_USER_ID, user.getId());
 		csrfTokens.saveToken(csrfTokens.generateToken(request), request, response);
+	}
+
+	/**
+	 * 이번 요청이 {@link #login} 을 호출했으면(요청 속성 {@link #LOGGED_IN_USER_ID}) 그 뒤 실패한 경우에 쓴다: 세션에 넣은 인증을 걷어 내서
+	 * 오류 응답에 로그인된 세션이 실려 나가지 않게 한다(TASK-25). 이번 요청이 로그인하지 않았으면 아무것도 하지 않는다 — 기존 세션(제한 세션,
+	 * 연결하려던 로그인 사용자)의 인증은 이 요청이 만든 것이 아니므로 남긴다. 걷어 내기 자체가 실패하면 그 예외를 던진다(호출자가 원래 오류를
+	 * 유지하며 기록).
+	 *
+	 * @return 이번 요청이 로그인했었는지
+	 */
+	public boolean discardLogin(HttpServletRequest request) {
+		if (request.getAttribute(LOGGED_IN_USER_ID) == null) {
+			return false;
+		}
+		holder.clearContext();
+		request.removeAttribute(LOGGED_IN_USER_ID);
+		HttpSession session = request.getSession(false);
+		if (session != null) {
+			session.removeAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY);
+		}
+		return true;
 	}
 
 	/**

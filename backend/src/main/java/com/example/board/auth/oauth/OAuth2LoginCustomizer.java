@@ -26,6 +26,8 @@ import org.springframework.security.web.context.NullSecurityContextRepository;
  * {@code SessionLogin} 으로 한다. (oauth2Login 의 {@code securityContextRepository()} 는 체인 공통 저장소로 덮이므로
  * ObjectPostProcessor 로 바꾼다.)</li>
  * <li>제공자 access token 은 보관하지 않는다 — 로그인 뒤 제공자 API 를 부르지 않는다(no-op authorized client 저장소).</li>
+ * <li>토큰 교환·userinfo 호출은 연결·읽기 타임아웃이 있는 클라이언트로 한다({@link OAuth2HttpClients}, TASK-25#3). JWKS 는
+ * {@code OAuth2LoginConfig} 의 {@code JwtDecoderFactory} 빈.</li>
  * </ul>
  */
 public final class OAuth2LoginCustomizer implements Customizer<OAuth2LoginConfigurer<HttpSecurity>> {
@@ -36,11 +38,14 @@ public final class OAuth2LoginCustomizer implements Customizer<OAuth2LoginConfig
 
 	private final OAuth2LoginFailureHandler failureHandler;
 
+	private final OAuth2HttpClients clients;
+
 	public OAuth2LoginCustomizer(OAuth2ClientRegistrations registrations, OAuth2LoginSuccessHandler successHandler,
-			OAuth2LoginFailureHandler failureHandler) {
+			OAuth2LoginFailureHandler failureHandler, OAuth2HttpClients clients) {
 		this.registrations = registrations;
 		this.successHandler = successHandler;
 		this.failureHandler = failureHandler;
+		this.clients = clients;
 	}
 
 	@Override
@@ -49,6 +54,9 @@ public final class OAuth2LoginCustomizer implements Customizer<OAuth2LoginConfig
 			.authorizedClientRepository(new DiscardingAuthorizedClientRepository())
 			.authorizationEndpoint(endpoint -> endpoint
 				.authorizationRequestResolver(new LinkAwareAuthorizationRequestResolver(registrations)))
+			.tokenEndpoint(token -> token.accessTokenResponseClient(clients.tokenResponseClient()))
+			.userInfoEndpoint(userInfo -> userInfo.userService(clients.userService())
+				.oidcUserService(clients.oidcUserService()))
 			.successHandler(successHandler)
 			.failureHandler(failureHandler)
 			.withObjectPostProcessor(new LoginFilterPostProcessor())

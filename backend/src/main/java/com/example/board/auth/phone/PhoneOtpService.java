@@ -26,6 +26,8 @@ import com.example.board.sms.SmsSender;
  * 상관없이 같은 응답이다. 저장(커밋)한 뒤에 보낸다 — 발송이 실패해도 그 챌린지는 발송 한도에 포함된다(남용 방지).</li>
  * <li>검증: 챌린지 행을 잠그고(FOR UPDATE) 만료·소멸·시도 초과를 확인한 뒤 코드를 비교한다. 틀리면 attempts 를 올리고, 맞으면
  * 소멸시킨다. 실패 결과도 커밋해야 하므로 예외 대신 빈 값을 돌려준다(시도 횟수 증가가 롤백되지 않게).</li>
+ * <li>소모 되돌리기({@link #release}, TASK-25#5 BE-22): 소모는 검증 트랜잭션에서 먼저 커밋되므로, 그 뒤 계정 처리가 실패하면 호출자가
+ * 되돌린다. 그래야 사용자가 같은 인증번호로 다시 확인할 수 있다(새 발송·쿨다운·일일 한도를 쓰지 않는다).</li>
  * </ul>
  */
 @Service
@@ -112,6 +114,23 @@ public class PhoneOtpService {
 			challenge.consume(now);
 			return Optional.of(challenge.getPhone());
 		});
+	}
+
+	/**
+	 * 검증에 성공해 소모된 챌린지를 다시 쓸 수 있게 되돌린다(새 트랜잭션). 만료 시각·시도 횟수는 그대로다. 되돌리기 자체가 실패하면(DB 장애)
+	 * WARN(챌린지 id·예외 종류만) 후 {@code cause} 에 suppressed 로 붙이고 던지지 않는다 — 호출자는 원래 예외를 그대로 낸다.
+	 */
+	public void release(UUID challengeId, RuntimeException cause) {
+		try {
+			tx.executeWithoutResult(status -> challenges.release(challengeId));
+			log.info("OTP 확인 뒤 계정 처리 실패 — 챌린지 소모를 되돌림: challenge=" + challengeId + " 오류="
+					+ cause.getClass().getSimpleName());
+		}
+		catch (RuntimeException ex) {
+			log.warn("OTP 챌린지 소모 되돌리기 실패(그 인증번호는 다시 쓸 수 없다): challenge=" + challengeId + " 오류="
+					+ ex.getClass().getSimpleName());
+			cause.addSuppressed(ex);
+		}
 	}
 
 	public OtpProperties properties() {
