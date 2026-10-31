@@ -1,12 +1,13 @@
-<!-- work-order-hash: f4305260c789bf2dff016f500c84f87cc8296b2e3b60ba6606bf2841164d1af9 -->
+<!-- work-order-hash: 5c5a6f17309864a87a3011a8fc0ffafc860319106faf1b231464da2a46ffd458 -->
 # 작업 순서
 
 `work_order.py`가 backlog/tasks의 의존(`dependencies`)으로 만든 파일이다 — 직접 고치지 말고 다시 생성한다. 같은 단계의 태스크는 병렬로, 단계는 위에서 아래로 순차로 진행한다. Done 태스크와 없는 태스크에 대한 의존은 충족된 것으로 본다.
 
 | 단계 | ID | 제목 |
 |---|---|---|
-| 1 | TASK-36 | [플랫폼] k3d 로컬 플랫폼 부트스트랩 |
+| 1 | TASK-36 | [플랫폼] VM k3s 로컬 플랫폼 부트스트랩 |
 | 1 | TASK-66 | [비용] Infracost 로컬·CI |
+| 1 | TASK-68 | source-header 적용: toy-project/react-next-spring-postgresql-terraform-aws |
 | 2 | TASK-37 | [플랫폼] 프론트 Next 서버 분리 |
 | 2 | TASK-43 | [플랫폼] 관측성: Prometheus |
 | 2 | TASK-46 | [프로토콜] 이벤트 백본: outbox + Kafka |
