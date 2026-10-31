@@ -1,0 +1,13 @@
+# gitleaks 오탐 (TASK-68, 2026-10-31): 테스트 픽스처의 가짜 비밀값(dev-only-insecure-*-change-me, wrong-secret-* 등).
+# 운영 값이 아님을 확인함. 새 커밋의 실제 비밀값은 여전히 잡힌다.
+524a8b370bab3282eb76eae1fb813d12f739020a:backend/src/test/java/com/example/board/attachment/AttachmentStorageFailureTest.java:generic-api-key:54
+36a3fa59ad0006a2e3891a56707f94dd972635f1:backend/src/test/java/com/example/board/security/ProductionSafetyCheckTest.java:generic-api-key:29
+36a3fa59ad0006a2e3891a56707f94dd972635f1:backend/src/test/java/com/example/board/security/ProductionSafetyCheckTest.java:generic-api-key:99
+ed273feac434aedd2d9bdb3b08b187981c58fdcb:backend/src/test/java/com/example/board/security/ProductionSafetyCheckTest.java:generic-api-key:26
+ed273feac434aedd2d9bdb3b08b187981c58fdcb:backend/src/test/java/com/example/board/security/ProductionSafetyCheckTest.java:generic-api-key:27
+ed273feac434aedd2d9bdb3b08b187981c58fdcb:backend/src/test/java/com/example/board/security/ProductionSafetyCheckTest.java:generic-api-key:29
+ed273feac434aedd2d9bdb3b08b187981c58fdcb:backend/src/test/java/com/example/board/security/ProductionSafetyCheckTest.java:generic-api-key:96
+ed273feac434aedd2d9bdb3b08b187981c58fdcb:backend/src/test/java/com/example/board/security/ProductionSafetyCheckTest.java:generic-api-key:97
+ed273feac434aedd2d9bdb3b08b187981c58fdcb:backend/src/test/java/com/example/board/security/ProductionSafetyCheckTest.java:generic-api-key:98
+ed273feac434aedd2d9bdb3b08b187981c58fdcb:backend/src/test/java/com/example/board/security/ProductionSafetyCheckTest.java:generic-api-key:155
+105efaf0142fb36708b70b2cd8a5b19ab1d7cb7c:backend/src/test/java/com/example/board/auth/jwt/JwtTokenServiceTest.java:generic-api-key:20

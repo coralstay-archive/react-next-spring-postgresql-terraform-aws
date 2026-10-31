@@ -803,3 +803,8 @@ make cost-diff              # main 대비 차이. make cost-diff COST_BASE=<브�
 > 커밋 훅의 `make test`는 Claude Code 훅 시간 제한(600초)을 받는다. 시간 제한을 넘으면 훅이 취소되고 커밋은 **막히지 않고 통과한다**(fail-open).
 > 맥에서 VM 안 전체 `make test`는 600초를 넘을 수 있으므로, 훅 설정을 바꾸기 전까지는 커밋 전에 저장소 루트에서 `make test`를 직접 돌려
 > 종료 코드 0 을 확인한 뒤 커밋한다.
+
+## 라이선스
+
+이 저장소에서 직접 작성한 코드와 문서는 [GNU AGPL-3.0-only](./LICENSE)를 따릅니다.
+`deploy/k8s/schemas/*.json`은 Kubernetes OpenAPI 스키마([kubernetes/kubernetes](https://github.com/kubernetes/kubernetes), Apache-2.0)에서 가져온 파일로 원래 라이선스를 따릅니다. Gradle Wrapper(`backend/gradle/wrapper/`)는 Apache-2.0입니다.
